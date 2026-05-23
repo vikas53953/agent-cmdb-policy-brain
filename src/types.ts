@@ -3,6 +3,7 @@ export type ObjectKind = 'profile' | 'source' | 'tool' | 'job' | 'memory' | 'pol
 export type ObjectStatus = 'active' | 'paused' | 'blocked' | 'planned';
 export type TrustLevel = 'high' | 'medium' | 'low';
 export type IssueSeverity = 'error' | 'warning';
+export type ChangeAction = 'create' | 'update' | 'pause' | 'resume' | 'delete' | 'verify';
 
 export interface SourceRef {
   id: string;
@@ -51,6 +52,9 @@ export interface PolicyRule {
   profiles?: string[];
   tools?: string[];
   reason: string;
+  code?: string;
+  canEscalate?: boolean;
+  suggestedAlternative?: string;
 }
 
 export interface ControlPlane {
@@ -72,10 +76,13 @@ export interface PolicyRequest {
 export interface PolicyDecision {
   effect: PolicyEffect;
   ruleId: string;
+  code: string;
   reason: string;
   profile: string;
   action: string;
   tool?: string;
+  canEscalate: boolean;
+  suggestedAlternative?: string;
 }
 
 export interface SourceRouteRequest {
@@ -131,6 +138,7 @@ export interface PreflightResult {
   approvalRequired: boolean;
   decision: PolicyDecision;
   route?: ResolvedSourceRoute;
+  routeExecutable: boolean;
   guardrails: string[];
   warnings: string[];
 }
@@ -176,13 +184,14 @@ export interface EvidenceQuery {
   source?: string;
   intent?: string;
   trust?: TrustLevel;
+  tag?: string;
 }
 
 export interface ChangeRecord {
   id: string;
   target: string;
   targetType: ObjectKind;
-  action: 'create' | 'update' | 'pause' | 'resume' | 'delete' | 'verify';
+  action: ChangeAction;
   actor: string;
   reason: string;
   changedAt: string;
@@ -196,4 +205,5 @@ export interface ChangeQuery {
   target?: string;
   targetType?: ObjectKind;
   actor?: string;
+  action?: ChangeAction;
 }

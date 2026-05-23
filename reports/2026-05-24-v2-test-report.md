@@ -37,13 +37,13 @@ Result:
 
 | Feature | Command | Result |
 | --- | --- | --- |
-| Policy deny | `npx tsx agent-cmdb/src/cli.ts policy --profile gemma4cloud --action x_account_post --tool xurl` | PASS: denied by `global-deny-xurl-account-actions` |
-| Source route | `npx tsx agent-cmdb/src/cli.ts route --profile apple-farming --intent weather` | PASS: `apple-wiki` first, then PP weather tools |
-| Inventory | `npx tsx agent-cmdb/src/cli.ts inventory --profile gemma4cloud` | PASS: returned Gemma profile, xAI source, PP radar job |
-| Graph | `npx tsx agent-cmdb/src/cli.ts graph --id profile.gemma4cloud` | PASS: returned `uses` xAI OAuth and `owns` Gemma PP radar |
-| Preflight allow | `npx tsx agent-cmdb/src/cli.ts preflight --profile gemma4cloud --action x_research --tool xai-oauth --intent x_research` | PASS: allowed, route attached |
-| Validation | `npx tsx agent-cmdb/src/cli.ts validate` | PASS: no validation issues |
-| Readiness report | `npx tsx agent-cmdb/src/cli.ts report` | PASS: 2 profiles, 12 sources, 6 policies, 9 objects, 7 relationships, 0 errors |
+| Policy deny | `npx tsx src/cli.ts policy --profile gemma4cloud --action x_account_post --tool xurl` | PASS: denied by `global-deny-xurl-account-actions` |
+| Source route | `npx tsx src/cli.ts route --profile apple-farming --intent weather` | PASS: `apple-wiki` first, then PP weather tools |
+| Inventory | `npx tsx src/cli.ts inventory --profile gemma4cloud` | PASS: returned Gemma profile, xAI source, PP radar job |
+| Graph | `npx tsx src/cli.ts graph --id profile.gemma4cloud` | PASS: returned `uses` xAI OAuth and `owns` Gemma PP radar |
+| Preflight allow | `npx tsx src/cli.ts preflight --profile gemma4cloud --action x_research --tool xai-oauth --intent x_research` | PASS: allowed, route attached |
+| Validation | `npx tsx src/cli.ts validate` | PASS: no validation issues |
+| Readiness report | `npx tsx src/cli.ts report` | PASS: 2 profiles, 12 sources, 6 policies, 9 objects, 7 relationships, 0 errors |
 | Evidence add/list | `evidence-add`, then `evidence-list` with `.codex-tmp/agent-cmdb-v2-smoke` | PASS: evidence record written and filtered |
 | Change add/list | `change-add`, then `change-list` with `.codex-tmp/agent-cmdb-v2-smoke` | PASS: change record written and filtered |
 
@@ -87,3 +87,33 @@ Blocked objects:
 ## Notes
 
 This V2 build does not yet hook into live Hermes job execution. It is ready to be used as a preflight control-plane module before Hermes sends, researches, posts, or writes memory.
+
+## 2026-05-24 Claude Review Hardening Pass
+
+Follow-up fixes after external review:
+
+- Fixed standalone README and report commands from `agent-cmdb/src/cli.ts` to `src/cli.ts`.
+- Made NodeNext strict TypeScript compile clean with explicit `.js` import extensions and scoped package types.
+- Replaced unsafe CLI `as never` casts with runtime enum validation.
+- Added structured policy decision fields: `code`, `canEscalate`, and `suggestedAlternative`.
+- Added `routeExecutable` to preflight results so denied preflight routes are context only.
+- Added validation for duplicate policy IDs, unknown policy profiles/tools, and shadowed rules.
+- Added coverage for toolless X account action denies and wildcard policy matching.
+- Replaced JSONL read-modify-write with append-only writes.
+- Sanitized evidence/change strings before persistence.
+- Added corrupt JSONL errors with file and line number.
+- Added query canonicalization, evidence tag filtering, change action filtering, and concurrent append coverage.
+- Added `IAgentCMDB` facade in `src/interface.ts` for future Hermes integration.
+
+Verification after hardening:
+
+```powershell
+npm test
+npx tsc --noEmit --pretty false
+```
+
+Result:
+
+- Test files: 5 passed
+- Tests: 28 passed
+- TypeScript: 0 errors

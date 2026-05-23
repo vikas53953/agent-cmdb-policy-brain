@@ -1,9 +1,10 @@
 import { execFileSync } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 const tsxCli = join(process.cwd(), 'node_modules', 'tsx', 'dist', 'cli.mjs');
-const cliPath = process.cwd().endsWith('agent-cmdb') ? 'src/cli.ts' : 'agent-cmdb/src/cli.ts';
+const cliPath = existsSync(join(process.cwd(), 'src', 'cli.ts')) ? 'src/cli.ts' : 'agent-cmdb/src/cli.ts';
 
 function runCli(args: string[]): unknown {
   const output = execFileSync(process.execPath, [tsxCli, cliPath, ...args], {

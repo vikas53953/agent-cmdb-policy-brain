@@ -7,6 +7,10 @@
     "esModuleInterop": true,
     "forceConsistentCasingInFileNames": true,
     "skipLibCheck": true,
+    "types": [
+      "node",
+      "vitest"
+    ],
     "noEmit": true
   },
   "include": [

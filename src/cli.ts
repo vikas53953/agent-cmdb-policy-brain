@@ -9,8 +9,9 @@ import {
   resolveGraphNeighbors,
   resolveSourceRoute,
   validateControlPlane
-} from './engine';
-import { appendChange, appendEvidence, listChanges, listEvidence } from './store';
+} from './engine.js';
+import { appendChange, appendEvidence, listChanges, listEvidence } from './store.js';
+import type { ChangeAction, ObjectKind, ObjectStatus, TrustLevel } from './types.js';
 
 type Command =
   | 'policy'
@@ -60,8 +61,8 @@ async function main(argv: string[]): Promise<void> {
     printJson(
       listObjects(hermesV1ControlPlane, {
         profile: parsed.flags.profile,
-        kind: parsed.flags.kind as never,
-        status: parsed.flags.status as never,
+        kind: optionalObjectKind(parsed.flags.kind),
+        status: optionalObjectStatus(parsed.flags.status),
         tag: parsed.flags.tag
       })
     );
@@ -99,7 +100,7 @@ async function main(argv: string[]): Promise<void> {
         source: required(parsed.flags, 'source'),
         intent: required(parsed.flags, 'intent'),
         summary: required(parsed.flags, 'summary'),
-        trust: (parsed.flags.trust ?? 'medium') as never,
+        trust: optionalTrustLevel(parsed.flags.trust) ?? 'medium',
         capturedAt: parsed.flags['captured-at'] ?? new Date().toISOString(),
         links: parsed.flags.links ? parsed.flags.links.split(',').filter(Boolean) : undefined,
         tags: parsed.flags.tags ? parsed.flags.tags.split(',').filter(Boolean) : undefined
@@ -114,7 +115,7 @@ async function main(argv: string[]): Promise<void> {
         profile: parsed.flags.profile,
         source: parsed.flags.source,
         intent: parsed.flags.intent,
-        trust: parsed.flags.trust as never
+        trust: optionalTrustLevel(parsed.flags.trust)
       })
     );
     return;
@@ -124,8 +125,8 @@ async function main(argv: string[]): Promise<void> {
     printJson(
       await appendChange(storeDir(parsed.flags), {
         target: required(parsed.flags, 'target'),
-        targetType: required(parsed.flags, 'target-type') as never,
-        action: required(parsed.flags, 'action') as never,
+        targetType: parseObjectKind(required(parsed.flags, 'target-type')),
+        action: parseChangeAction(required(parsed.flags, 'action')),
         actor: parsed.flags.actor ?? 'codex',
         reason: required(parsed.flags, 'reason'),
         changedAt: parsed.flags['changed-at'] ?? new Date().toISOString()
@@ -138,7 +139,7 @@ async function main(argv: string[]): Promise<void> {
     printJson(
       await listChanges(storeDir(parsed.flags), {
         target: parsed.flags.target,
-        targetType: parsed.flags['target-type'] as never,
+        targetType: optionalObjectKind(parsed.flags['target-type']),
         actor: parsed.flags.actor
       })
     );
@@ -208,6 +209,47 @@ function printJson(value: unknown): void {
 
 function storeDir(flags: Record<string, string>): string {
   return flags.store ?? join(process.cwd(), 'agent-cmdb', 'state');
+}
+
+function optionalObjectKind(value: string | undefined): ObjectKind | undefined {
+  return value ? parseObjectKind(value) : undefined;
+}
+
+function parseObjectKind(value: string): ObjectKind {
+  const values: ObjectKind[] = ['profile', 'source', 'tool', 'job', 'memory', 'policy', 'workspace'];
+  if (!values.includes(value as ObjectKind)) {
+    throw new Error(`Invalid object kind: ${value}. Valid values: ${values.join(', ')}.`);
+  }
+  return value as ObjectKind;
+}
+
+function optionalObjectStatus(value: string | undefined): ObjectStatus | undefined {
+  return value ? parseObjectStatus(value) : undefined;
+}
+
+function parseObjectStatus(value: string): ObjectStatus {
+  const values: ObjectStatus[] = ['active', 'paused', 'blocked', 'planned'];
+  if (!values.includes(value as ObjectStatus)) {
+    throw new Error(`Invalid object status: ${value}. Valid values: ${values.join(', ')}.`);
+  }
+  return value as ObjectStatus;
+}
+
+function optionalTrustLevel(value: string | undefined): TrustLevel | undefined {
+  if (!value) return undefined;
+  const values: TrustLevel[] = ['high', 'medium', 'low'];
+  if (!values.includes(value as TrustLevel)) {
+    throw new Error(`Invalid trust level: ${value}. Valid values: ${values.join(', ')}.`);
+  }
+  return value as TrustLevel;
+}
+
+function parseChangeAction(value: string): ChangeAction {
+  const values: ChangeAction[] = ['create', 'update', 'pause', 'resume', 'delete', 'verify'];
+  if (!values.includes(value as ChangeAction)) {
+    throw new Error(`Invalid change action: ${value}. Valid values: ${values.join(', ')}.`);
+  }
+  return value as ChangeAction;
 }
 
 try {

@@ -17,7 +17,7 @@ import type {
   SourceRef,
   SourceRouteRequest,
   ValidationIssue
-} from './types';
+} from './types.js';
 
 const effectRank: Record<PolicyEffect, number> = {
   deny: 3,
@@ -168,7 +168,10 @@ export const hermesV1ControlPlane: ControlPlane = {
         'x_media_upload'
       ],
       tools: ['xurl', 'x-developer-api'],
-      reason: 'xurl/X Developer API account actions are disabled for now.'
+      reason: 'xurl/X Developer API account actions are disabled for now.',
+      code: 'xurl_account_actions_disabled',
+      canEscalate: false,
+      suggestedAlternative: 'Use Grok/xAI OAuth for read-only research, summarization, and drafting.'
     },
     {
       id: 'global-deny-x-account-actions',
@@ -181,19 +184,28 @@ export const hermesV1ControlPlane: ControlPlane = {
         'x_account_dm',
         'x_media_upload'
       ],
-      reason: 'Posting, replying, liking, bookmarking, DMs, and media upload require a separate approval design.'
+      reason: 'Posting, replying, liking, bookmarking, DMs, and media upload require a separate approval design.',
+      code: 'x_account_actions_require_design',
+      canEscalate: false,
+      suggestedAlternative: 'Use Grok/xAI OAuth for read-only research, summarization, and drafting.'
     },
     {
       id: 'global-deny-bot-ops-status',
       effect: 'deny',
       actions: ['send_bot_ops_status', 'bot_ops_status', 'bot_ops_auto_recovery_message'],
-      reason: 'User preference: do not send Bot Ops / Status messages.'
+      reason: 'User preference: do not send Bot Ops / Status messages.',
+      code: 'bot_ops_status_disabled',
+      canEscalate: false,
+      suggestedAlternative: 'Use a normal useful brief or local-only recovery log.'
     },
     {
       id: 'global-deny-gbrain-paused',
       effect: 'deny',
       actions: ['gbrain_write', 'gbrain_index', 'gbrain_sync', 'voice_note_memory_to_gbrain'],
-      reason: 'GBrain is paused for both profiles.'
+      reason: 'GBrain is paused for both profiles.',
+      code: 'gbrain_paused',
+      canEscalate: true,
+      suggestedAlternative: 'Ask for explicit approval before re-enabling GBrain.'
     },
     {
       id: 'gemma-allow-readonly-research',
@@ -207,7 +219,9 @@ export const hermesV1ControlPlane: ControlPlane = {
         'hackernews-pp-cli',
         'nvd-pp-cli'
       ],
-      reason: 'Gemma can perform read-only Grok/X and PP research.'
+      reason: 'Gemma can perform read-only Grok/X and PP research.',
+      code: 'gemma_readonly_research_allowed',
+      canEscalate: false
     },
     {
       id: 'apple-allow-readonly-research',
@@ -215,7 +229,9 @@ export const hermesV1ControlPlane: ControlPlane = {
       profiles: ['apple-farming'],
       actions: ['weather_research', 'youtube_podcast_research', 'pp_research'],
       tools: ['apple-wiki', 'open-meteo-pp-cli', 'weather-goat-pp-cli', 'youtube-pp-cli', 'podcast-goat-pp-cli'],
-      reason: 'Apple farming can use wiki-first and read-only PP research.'
+      reason: 'Apple farming can use wiki-first and read-only PP research.',
+      code: 'apple_readonly_research_allowed',
+      canEscalate: false
     }
   ],
   objects: [
@@ -350,20 +366,26 @@ export function evaluatePolicy(controlPlane: ControlPlane, request: PolicyReques
     return {
       effect: 'approval_required',
       ruleId: 'default-approval-required',
+      code: 'no_explicit_policy_match',
       reason: 'No explicit allow rule matched this action, so approval is required.',
       profile: request.profile,
       action: request.action,
-      tool: request.tool
+      tool: request.tool,
+      canEscalate: true,
+      suggestedAlternative: 'Ask for explicit approval or add a policy rule.'
     };
   }
 
   return {
     effect: selectedRule.effect,
     ruleId: selectedRule.id,
+    code: selectedRule.code ?? selectedRule.id,
     reason: selectedRule.reason,
     profile: request.profile,
     action: request.action,
-    tool: request.tool
+    tool: request.tool,
+    canEscalate: selectedRule.canEscalate ?? selectedRule.effect === 'approval_required',
+    suggestedAlternative: selectedRule.suggestedAlternative
   };
 }
 
@@ -440,6 +462,8 @@ export function resolveGraphNeighbors(controlPlane: ControlPlane, nodeId: string
 export function validateControlPlane(controlPlane: ControlPlane): ValidationIssue[] {
   const issues: ValidationIssue[] = [];
   const sourceIds = new Set(controlPlane.sources.map((source) => source.id));
+  const profileIds = new Set(controlPlane.profiles.map((profile) => profile.id));
+  const policyIds = new Set<string>();
 
   for (const profile of controlPlane.profiles) {
     for (const route of profile.routes) {
@@ -452,6 +476,52 @@ export function validateControlPlane(controlPlane: ControlPlane): ValidationIssu
           });
         }
       }
+    }
+  }
+
+  for (const policy of controlPlane.policies) {
+    if (policyIds.has(policy.id)) {
+      issues.push({
+        severity: 'error',
+        code: 'duplicate_policy_id',
+        message: `Duplicate policy id ${policy.id}.`
+      });
+    }
+    policyIds.add(policy.id);
+
+    for (const profileId of policy.profiles ?? []) {
+      if (profileId !== '*' && !profileIds.has(profileId)) {
+        issues.push({
+          severity: 'error',
+          code: 'policy_unknown_profile',
+          message: `Policy ${policy.id} references unknown profile ${profileId}.`
+        });
+      }
+    }
+
+    for (const toolId of policy.tools ?? []) {
+      if (toolId !== '*' && !sourceIds.has(toolId)) {
+        issues.push({
+          severity: 'error',
+          code: 'policy_unknown_tool',
+          message: `Policy ${policy.id} references unknown tool ${toolId}.`
+        });
+      }
+    }
+  }
+
+  for (let index = 1; index < controlPlane.policies.length; index += 1) {
+    const policy = controlPlane.policies[index];
+    const shadowingPolicy = controlPlane.policies
+      .slice(0, index)
+      .find((candidate) => policyShadows(candidate, policy));
+
+    if (shadowingPolicy) {
+      issues.push({
+        severity: 'warning',
+        code: 'policy_shadowed',
+        message: `Policy ${policy.id} is shadowed by earlier policy ${shadowingPolicy.id}.`
+      });
     }
   }
 
@@ -496,6 +566,7 @@ export function preflightAction(controlPlane: ControlPlane, request: PreflightRe
     approvalRequired: decision.effect === 'approval_required',
     decision,
     route,
+    routeExecutable: decision.effect === 'allow' && Boolean(route),
     guardrails: route?.guardrails ?? profile.guardrails,
     warnings
   };
@@ -535,7 +606,7 @@ export function generateReadinessReport(controlPlane: ControlPlane): AgentCmdbRe
 function policyMatches(rule: PolicyRule, request: PolicyRequest): boolean {
   if (!matchesList(rule.actions, request.action)) return false;
   if (rule.profiles && !matchesList(rule.profiles, request.profile)) return false;
-  if (rule.tools && !request.tool) return false;
+  if (rule.tools && !request.tool) return rule.tools.includes('*');
   if (rule.tools && request.tool && !matchesList(rule.tools, request.tool)) return false;
   return true;
 }
@@ -578,4 +649,21 @@ function ensureGraphNode(controlPlane: ControlPlane, nodeId: string): CmdbObject
 
 function unique(values: string[]): string[] {
   return [...new Set(values)];
+}
+
+function policyShadows(candidate: PolicyRule, policy: PolicyRule): boolean {
+  if (candidate.effect !== policy.effect) return false;
+  return listCovers(candidate.actions, policy.actions)
+    && optionalListCovers(candidate.profiles, policy.profiles)
+    && optionalListCovers(candidate.tools, policy.tools);
+}
+
+function optionalListCovers(candidate: string[] | undefined, policy: string[] | undefined): boolean {
+  if (!candidate) return true;
+  if (!policy) return candidate.includes('*');
+  return listCovers(candidate, policy);
+}
+
+function listCovers(candidate: string[], policy: string[]): boolean {
+  return candidate.includes('*') || policy.every((value) => candidate.includes(value));
 }

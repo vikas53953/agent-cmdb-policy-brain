@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { hermesV1ControlPlane, inspectProfile, resolveSourceRoute } from '../src/engine';
+import { hermesV1ControlPlane, inspectProfile, resolveSourceRoute } from '../src/engine.js';
 
 describe('Agent CMDB source map', () => {
   it('routes apple-farming weather through wiki before PP weather tools', () => {
