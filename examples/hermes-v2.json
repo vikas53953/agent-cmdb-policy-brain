@@ -1,0 +1,9 @@
+{
+  "version": "agent-cmdb-v2",
+  "updatedAt": "2026-05-24",
+  "profiles": [
+    "gemma4cloud",
+    "apple-farming"
+  ],
+  "summary": "Starter Agent CMDB data is embedded in src/engine.ts for V2 tests and CLI. This JSON mirrors the intended external data shape for the next phase."
+}
