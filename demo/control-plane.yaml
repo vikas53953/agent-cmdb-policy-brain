@@ -1,0 +1,182 @@
+version: "demo-v1"
+updatedAt: "2026-05-25"
+
+sources:
+  - id: serpapi
+    label: Web Search API
+    kind: tool
+    readOnly: true
+    freshnessTtl: 1d
+    notes: External web-search source for simulated research.
+
+  - id: local-docs
+    label: Local Documentation
+    kind: wiki
+    readOnly: true
+    freshnessTtl: 7d
+    notes: Local docs and prior knowledge should be checked first.
+
+  - id: news-aggregator
+    label: News Aggregator
+    kind: tool
+    readOnly: true
+    freshnessTtl: 6h
+    notes: Curated news source for current research signals.
+
+profiles:
+  - id: research-agent
+    name: Research Agent
+    purpose: Read-only security research and summarization.
+    guardrails:
+      - No purchases
+      - No social media
+      - Cite source route
+    routes:
+      - intent: web_research
+        sources:
+          - local-docs
+          - serpapi
+          - news-aggregator
+        notes: Prefer local docs, then live search, then curated news.
+
+  - id: content-agent
+    name: Content Agent
+    purpose: Draft content from approved research.
+    guardrails:
+      - Draft only
+      - Human review before publishing
+    routes:
+      - intent: content_creation
+        sources:
+          - local-docs
+          - news-aggregator
+        notes: Create drafts only from approved sources.
+
+policies:
+  - id: deny-social-posting
+    effect: deny
+    actions:
+      - social_post
+      - social_reply
+      - social_dm
+    reason: Social media posting is disabled for all agents.
+    code: social_posting_disabled
+    canEscalate: false
+    suggestedAlternative: Save a draft for a human to review.
+
+  - id: deny-financial-actions
+    effect: deny
+    actions:
+      - purchase
+      - transfer
+      - payment
+    reason: Financial actions are disabled for all agents.
+    code: financial_actions_disabled
+    canEscalate: false
+    suggestedAlternative: Ask a human operator to handle financial actions.
+
+  - id: allow-research-web-search
+    effect: allow
+    profiles:
+      - research-agent
+    actions:
+      - web_search
+    tools:
+      - serpapi
+      - local-docs
+      - news-aggregator
+    reason: Research agent can perform read-only web search.
+    code: research_web_search_allowed
+    canEscalate: false
+
+  - id: allow-research-summarize
+    effect: allow
+    profiles:
+      - research-agent
+    actions:
+      - summarize
+    tools:
+      - serpapi
+      - local-docs
+      - news-aggregator
+    reason: Research agent can summarize approved read-only sources.
+    code: research_summarize_allowed
+    canEscalate: false
+
+  - id: allow-content-create
+    effect: allow
+    profiles:
+      - content-agent
+    actions:
+      - content_create
+    tools:
+      - local-docs
+      - news-aggregator
+    reason: Content agent can create drafts from approved sources.
+    code: content_create_allowed
+    canEscalate: false
+
+objects:
+  - id: profile.research-agent
+    kind: profile
+    label: Research Agent
+    status: active
+    profile: research-agent
+    tags:
+      - demo
+      - research
+
+  - id: profile.content-agent
+    kind: profile
+    label: Content Agent
+    status: active
+    profile: content-agent
+    tags:
+      - demo
+      - content
+
+  - id: source.serpapi
+    kind: source
+    label: Web Search API
+    status: active
+    profile: research-agent
+    tags:
+      - demo
+      - search
+
+  - id: source.local-docs
+    kind: source
+    label: Local Documentation
+    status: active
+    tags:
+      - demo
+      - docs
+
+  - id: source.news-aggregator
+    kind: source
+    label: News Aggregator
+    status: active
+    tags:
+      - demo
+      - news
+
+  - id: policy.deny-social-posting
+    kind: policy
+    label: Deny Social Posting
+    status: active
+    tags:
+      - demo
+      - guardrail
+
+relationships:
+  - from: profile.research-agent
+    to: source.local-docs
+    type: uses
+
+  - from: profile.research-agent
+    to: source.serpapi
+    type: uses
+
+  - from: profile.research-agent
+    to: policy.deny-social-posting
+    type: governed_by
