@@ -308,13 +308,22 @@ async function initProject(flags: Record<string, string>): Promise<void> {
 
   await mkdir(configDir, { recursive: true });
   await mkdir(stateDir, { recursive: true });
-  await writeFile(join(configDir, 'control-plane.yaml'), initControlPlaneYaml, 'utf8');
-  await writeFile(join(stateDir, 'evidence.jsonl'), '', 'utf8');
-  await writeFile(join(stateDir, 'changes.jsonl'), '', 'utf8');
+  await writeFileIfMissing(join(configDir, 'control-plane.yaml'), initControlPlaneYaml);
+  await writeFileIfMissing(join(stateDir, 'evidence.jsonl'), '');
+  await writeFileIfMissing(join(stateDir, 'changes.jsonl'), '');
   await initBrainDir(join(root, 'agent-cmdb', 'brain'));
-  await writeFile(join(root, 'agent-cmdb.config.ts'), initTypescriptConfig, 'utf8');
+  await writeFileIfMissing(join(root, 'agent-cmdb.config.ts'), initTypescriptConfig);
 
   console.log(`Initialized Agent CMDB in ${join(root, 'agent-cmdb')}`);
+}
+
+async function writeFileIfMissing(filePath: string, content: string): Promise<void> {
+  try {
+    await writeFile(filePath, content, { encoding: 'utf8', flag: 'wx' });
+  } catch (error) {
+    if (error && typeof error === 'object' && 'code' in error && error.code === 'EEXIST') return;
+    throw error;
+  }
 }
 
 async function handleBrainCommand(flags: Record<string, string>): Promise<void> {

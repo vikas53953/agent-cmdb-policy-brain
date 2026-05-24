@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -93,5 +93,26 @@ describe('OSS package shape', () => {
 
     const controlPlane = loadControlPlane(join(cwd, 'agent-cmdb', 'config', 'control-plane.yaml'));
     expect(controlPlane.profiles[0].id).toBe('research-agent');
+  });
+
+  it('does not overwrite existing config or state when init is rerun', () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'agent-cmdb-init-idempotent-'));
+
+    execFileSync(process.execPath, [tsxCli, join(process.cwd(), 'src', 'cli.ts'), 'init'], {
+      cwd,
+      encoding: 'utf8'
+    });
+    const configPath = join(cwd, 'agent-cmdb', 'config', 'control-plane.yaml');
+    const evidencePath = join(cwd, 'agent-cmdb', 'state', 'evidence.jsonl');
+    writeFileSync(configPath, 'version: "custom"\nprofiles: []\nsources: []\npolicies: []\n', 'utf8');
+    writeFileSync(evidencePath, '{"id":"ev_keep"}\n', 'utf8');
+
+    execFileSync(process.execPath, [tsxCli, join(process.cwd(), 'src', 'cli.ts'), 'init'], {
+      cwd,
+      encoding: 'utf8'
+    });
+
+    expect(readFileSync(configPath, 'utf8')).toContain('version: "custom"');
+    expect(readFileSync(evidencePath, 'utf8')).toBe('{"id":"ev_keep"}\n');
   });
 });

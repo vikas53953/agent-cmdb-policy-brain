@@ -211,6 +211,32 @@ describe('Agent CMDB brain', () => {
     expect((await readEntity(brainDir, 'agent-security')).content).toContain('Deny risky tool calls.');
   });
 
+  it('createEntity refuses to overwrite an existing markdown file outside the index', async () => {
+    const { brainDir, storeDir } = makeDirs();
+    await initBrainDir(brainDir);
+    writeFileSync(join(brainDir, 'entities', 'topics', 'stray.md'), '# Existing human note', 'utf8');
+
+    await expect(
+      createEntity(
+        brainDir,
+        storeDir,
+        {
+          id: 'stray-note',
+          kind: 'topic',
+          name: 'Stray Note',
+          filePath: 'entities/topics/stray.md',
+          tags: [],
+          trust: 'medium',
+          summary: 'Should not overwrite.'
+        },
+        '# New content',
+        'research-agent'
+      )
+    ).rejects.toThrow('Brain entity file already exists: entities/topics/stray.md.');
+
+    expect(readFileSync(join(brainDir, 'entities', 'topics', 'stray.md'), 'utf8')).toBe('# Existing human note');
+  });
+
   it('writeBrainIndex rejects duplicate filePath entries', async () => {
     const { brainDir, storeDir } = makeDirs();
     const entity = await seedTopic(brainDir, storeDir);

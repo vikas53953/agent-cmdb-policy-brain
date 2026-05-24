@@ -10,23 +10,24 @@ export async function generateDailyDigest(options: {
   storeDir: string;
   brainDir: string;
 }): Promise<DigestResult> {
-  const date = options.date ?? todayString();
+  const date = normalizeDigestDate(options.date ?? todayString(), 'date');
+  const profile = normalizeDigestProfile(options.profile);
   await initBrainDir(options.brainDir);
-  const evidence = (await listEvidence(options.storeDir, { profile: options.profile }))
+  const evidence = (await listEvidence(options.storeDir, { profile }))
     .filter((record) => record.capturedAt.startsWith(date));
   const changes = (await listChanges(options.storeDir))
     .filter((record) => record.changedAt.startsWith(date));
   const index = await readBrainIndex(options.brainDir);
   const updatedEntities = index.entities.filter((entity) => entity.lastUpdated.startsWith(date));
-  const digestPath = join(options.brainDir, 'digest', 'daily', `${date}-${options.profile}.md`);
+  const digestPath = join(options.brainDir, 'digest', 'daily', `${date}-${profile}.md`);
   const summary = `${evidence.length} evidence, ${changes.length} changes, ${updatedEntities.length} brain updates.`;
-  const markdown = renderDailyDigest(options.profile, date, evidence, changes, updatedEntities, summary);
+  const markdown = renderDailyDigest(profile, date, evidence, changes, updatedEntities, summary);
 
   await mkdir(join(options.brainDir, 'digest', 'daily'), { recursive: true });
   await writeFile(digestPath, markdown, 'utf8');
 
   return {
-    profile: options.profile,
+    profile,
     date,
     evidenceCount: evidence.length,
     changesCount: changes.length,
@@ -42,14 +43,15 @@ export async function generateWeeklyDigest(options: {
   storeDir: string;
   brainDir: string;
 }): Promise<DigestResult> {
-  const weekStart = options.weekStart ?? todayString();
+  const weekStart = normalizeDigestDate(options.weekStart ?? todayString(), 'weekStart');
+  const profile = normalizeDigestProfile(options.profile);
   await initBrainDir(options.brainDir);
   const dailyDir = join(options.brainDir, 'digest', 'daily');
   const weeklyDir = join(options.brainDir, 'digest', 'weekly');
   await mkdir(weeklyDir, { recursive: true });
   const dates = sevenDayWindow(weekStart);
   const dateSet = new Set(dates);
-  const evidence = (await listEvidence(options.storeDir, { profile: options.profile }))
+  const evidence = (await listEvidence(options.storeDir, { profile }))
     .filter((record) => dateSet.has(record.capturedAt.slice(0, 10)));
   const changes = (await listChanges(options.storeDir))
     .filter((record) => dateSet.has(record.changedAt.slice(0, 10)));
@@ -57,19 +59,19 @@ export async function generateWeeklyDigest(options: {
   const updatedEntities = index.entities.filter((entity) => dateSet.has(entity.lastUpdated.slice(0, 10)));
   const dailyFiles = await listFilesIfExists(dailyDir);
   const matchingFiles = dailyFiles
-    .filter((fileName) => dates.some((date) => fileName === `${date}-${options.profile}.md`))
+    .filter((fileName) => dates.some((date) => fileName === `${date}-${profile}.md`))
     .sort();
   const sections = await Promise.all(
-    matchingFiles.map(async (fileName) => `## ${fileName.replace(`-${options.profile}.md`, '')}\n\n${await readFile(join(dailyDir, fileName), 'utf8')}`)
+    matchingFiles.map(async (fileName) => `## ${fileName.replace(`-${profile}.md`, '')}\n\n${await readFile(join(dailyDir, fileName), 'utf8')}`)
   );
-  const digestPath = join(weeklyDir, `${weekStart}-${options.profile}.md`);
+  const digestPath = join(weeklyDir, `${weekStart}-${profile}.md`);
   const summary = `${evidence.length} evidence, ${changes.length} changes, ${updatedEntities.length} brain updates, ${matchingFiles.length} daily digests rolled up.`;
-  const markdown = `# Weekly digest: ${options.profile} - ${weekStart}\n\n${sections.join('\n\n') || 'No daily digests found.'}\n\n## Summary\n\n${summary}\n`;
+  const markdown = `# Weekly digest: ${profile} - ${weekStart}\n\n${sections.join('\n\n') || 'No daily digests found.'}\n\n## Summary\n\n${summary}\n`;
 
   await writeFile(digestPath, markdown, 'utf8');
 
   return {
-    profile: options.profile,
+    profile,
     date: weekStart,
     evidenceCount: evidence.length,
     changesCount: changes.length,
@@ -114,6 +116,25 @@ function sevenDayWindow(start: string): string[] {
     date.setUTCDate(startDate.getUTCDate() + index);
     return date.toISOString().slice(0, 10);
   });
+}
+
+function normalizeDigestDate(value: string, label: 'date' | 'weekStart'): string {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    throw new Error(`Digest ${label} must be YYYY-MM-DD.`);
+  }
+  const parsed = new Date(`${value}T00:00:00.000Z`);
+  if (Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== value) {
+    throw new Error(`Digest ${label} must be YYYY-MM-DD.`);
+  }
+  return value;
+}
+
+function normalizeDigestProfile(value: string): string {
+  const profile = sanitizeText(value);
+  if (!/^[A-Za-z0-9][A-Za-z0-9_-]*$/.test(profile)) {
+    throw new Error('Digest profile must be a safe filename segment.');
+  }
+  return profile;
 }
 
 async function listFilesIfExists(dir: string): Promise<string[]> {

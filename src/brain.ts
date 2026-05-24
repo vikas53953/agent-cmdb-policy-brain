@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, relative, resolve, sep } from 'node:path';
 import { appendChange } from './store.js';
@@ -65,7 +66,7 @@ export async function writeBrainIndex(brainDir: string, index: BrainIndex): Prom
   await mkdir(brainDir, { recursive: true });
   const normalizedIndex = parseBrainIndex(index);
   const target = indexPath(brainDir);
-  const temp = `${target}.tmp`;
+  const temp = `${target}.${process.pid}.${randomUUID()}.tmp`;
   await writeFile(temp, `${JSON.stringify(normalizedIndex, null, 2)}\n`, 'utf8');
   await rename(temp, target);
 }
@@ -110,7 +111,7 @@ export async function createEntity(
 
   const entityPath = resolveEntityPath(brainDir, normalizedEntity.filePath);
   await mkdir(dirname(entityPath), { recursive: true });
-  await writeFile(entityPath, sanitizeMarkdown(content), 'utf8');
+  await writeNewEntityFile(entityPath, normalizedEntity.filePath, sanitizeMarkdown(content));
 
   index.entities.push(normalizedEntity);
   index.updatedAt = normalizedEntity.lastUpdated;
@@ -384,6 +385,17 @@ async function readTextIfExists(filePath: string): Promise<string> {
     return await readFile(filePath, 'utf8');
   } catch (error) {
     if (isNodeError(error, 'ENOENT')) return '';
+    throw error;
+  }
+}
+
+async function writeNewEntityFile(filePath: string, relativePath: string, content: string): Promise<void> {
+  try {
+    await writeFile(filePath, content, { encoding: 'utf8', flag: 'wx' });
+  } catch (error) {
+    if (isNodeError(error, 'EEXIST')) {
+      throw new Error(`Brain entity file already exists: ${relativePath}.`);
+    }
     throw error;
   }
 }

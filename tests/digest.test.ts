@@ -100,6 +100,41 @@ describe('Agent CMDB digest', () => {
     expect(result.digestPath).toBe(join(brainDir, 'digest', 'daily', `${today}-research-agent.md`));
   });
 
+  it('rejects unsafe digest profile and date segments before writing files', async () => {
+    const { brainDir, storeDir } = makeDirs();
+
+    await expect(
+      generateDailyDigest({
+        profile: '../escape',
+        date: today,
+        storeDir,
+        brainDir
+      })
+    ).rejects.toThrow('Digest profile must be a safe filename segment.');
+
+    await expect(
+      generateDailyDigest({
+        profile: 'research-agent',
+        date: '../2026-05-25',
+        storeDir,
+        brainDir
+      })
+    ).rejects.toThrow('Digest date must be YYYY-MM-DD.');
+  });
+
+  it('rejects unsafe weekly digest weekStart before writing files', async () => {
+    const { brainDir, storeDir } = makeDirs();
+
+    await expect(
+      generateWeeklyDigest({
+        profile: 'research-agent',
+        weekStart: '2026-05-25/../../escape',
+        storeDir,
+        brainDir
+      })
+    ).rejects.toThrow('Digest weekStart must be YYYY-MM-DD.');
+  });
+
   it('DigestResult counts match filtered evidence and changes', async () => {
     const { brainDir, storeDir } = makeDirs();
     await appendEvidence(storeDir, {
