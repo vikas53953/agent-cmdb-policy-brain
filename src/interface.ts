@@ -12,6 +12,27 @@ import {
   generateWeeklyDigest
 } from './digest.js';
 import {
+  getCircuitState,
+  getSourceHealth,
+  isSourceAvailable,
+  listSourceHealth,
+  recordSourceFailure,
+  recordSourceSuccess,
+  resetSourceHealth
+} from './health.js';
+import {
+  calculateSlo
+} from './slo.js';
+import {
+  getCostSummary
+} from './cost.js';
+import {
+  deleteCheckpoint,
+  listCheckpoints,
+  loadCheckpoint,
+  saveCheckpoint
+} from './checkpoint.js';
+import {
   generateReadinessReport,
   validateControlPlane
 } from './validator.js';
@@ -24,15 +45,18 @@ import { resolveSourceRoute } from './route-resolver.js';
 import { appendChange, appendEvidence, listChanges, listEvidence } from './store.js';
 import type {
   AgentCmdbReport,
+  AgentCheckpoint,
   BrainEntity,
   BrainEntityKind,
   BrainReadResult,
   BrainSearchQuery,
   BrainWriteInput,
+  CircuitState,
   ChangeInput,
   ChangeQuery,
   ChangeRecord,
   ControlPlane,
+  CostSummary,
   DigestResult,
   EvidenceInput,
   EvidenceQuery,
@@ -40,6 +64,8 @@ import type {
   PreflightRequest,
   PreflightResult,
   ResolvedSourceRoute,
+  SloResult,
+  SourceHealth,
   SourceRouteRequest,
   ValidationIssue
 } from './types.js';
@@ -73,6 +99,19 @@ export interface IAgentCMDB {
   listEntities(kind?: BrainEntityKind): Promise<BrainEntity[]>;
   generateDailyDigest(profile: string, date?: string): Promise<DigestResult>;
   generateWeeklyDigest(profile: string, weekStart?: string): Promise<DigestResult>;
+  recordSourceSuccess(sourceId: string): Promise<SourceHealth>;
+  recordSourceFailure(sourceId: string): Promise<SourceHealth>;
+  getSourceHealth(sourceId: string): Promise<SourceHealth>;
+  listSourceHealth(): Promise<SourceHealth[]>;
+  isSourceAvailable(sourceId: string): Promise<boolean>;
+  getCircuitState(sourceId: string): Promise<CircuitState>;
+  resetSourceHealth(sourceId: string): Promise<SourceHealth>;
+  calculateSlo(profile: string): Promise<SloResult>;
+  getCostSummary(profile: string, date?: string): Promise<CostSummary>;
+  saveCheckpoint(checkpoint: AgentCheckpoint): Promise<void>;
+  loadCheckpoint(id: string): Promise<AgentCheckpoint | null>;
+  listCheckpoints(profile?: string): Promise<AgentCheckpoint[]>;
+  deleteCheckpoint(id: string): Promise<void>;
 }
 
 export interface AgentCmdbOptions {
@@ -151,7 +190,8 @@ export function createAgentCmdb(options: AgentCmdbOptions = {}): IAgentCMDB {
         profile,
         date,
         storeDir,
-        brainDir: await requireBrainDir(brainDir)
+        brainDir: await requireBrainDir(brainDir),
+        controlPlane
       });
     },
     async generateWeeklyDigest(profile: string, weekStart?: string): Promise<DigestResult> {
@@ -161,6 +201,45 @@ export function createAgentCmdb(options: AgentCmdbOptions = {}): IAgentCMDB {
         storeDir,
         brainDir: await requireBrainDir(brainDir)
       });
+    },
+    recordSourceSuccess(sourceId: string): Promise<SourceHealth> {
+      return recordSourceSuccess(controlPlane, storeDir, sourceId);
+    },
+    recordSourceFailure(sourceId: string): Promise<SourceHealth> {
+      return recordSourceFailure(controlPlane, storeDir, sourceId);
+    },
+    getSourceHealth(sourceId: string): Promise<SourceHealth> {
+      return getSourceHealth(controlPlane, storeDir, sourceId);
+    },
+    listSourceHealth(): Promise<SourceHealth[]> {
+      return listSourceHealth(controlPlane, storeDir);
+    },
+    isSourceAvailable(sourceId: string): Promise<boolean> {
+      return isSourceAvailable(controlPlane, storeDir, sourceId);
+    },
+    getCircuitState(sourceId: string): Promise<CircuitState> {
+      return getCircuitState(controlPlane, storeDir, sourceId);
+    },
+    resetSourceHealth(sourceId: string): Promise<SourceHealth> {
+      return resetSourceHealth(controlPlane, storeDir, sourceId);
+    },
+    calculateSlo(profile: string): Promise<SloResult> {
+      return calculateSlo(controlPlane, storeDir, profile);
+    },
+    getCostSummary(profile: string, date?: string): Promise<CostSummary> {
+      return getCostSummary(controlPlane, storeDir, profile, date);
+    },
+    saveCheckpoint(checkpoint: AgentCheckpoint): Promise<void> {
+      return saveCheckpoint(storeDir, checkpoint);
+    },
+    loadCheckpoint(id: string): Promise<AgentCheckpoint | null> {
+      return loadCheckpoint(storeDir, id);
+    },
+    listCheckpoints(profile?: string): Promise<AgentCheckpoint[]> {
+      return listCheckpoints(storeDir, profile);
+    },
+    deleteCheckpoint(id: string): Promise<void> {
+      return deleteCheckpoint(storeDir, id);
     }
   };
 }

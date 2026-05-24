@@ -1,6 +1,6 @@
-import { appendFile, mkdir, readFile } from 'node:fs/promises';
+import { appendFile, mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises';
 import { createHash, randomUUID } from 'node:crypto';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import type {
   ChangeInput,
   ChangeAction,
@@ -21,6 +21,7 @@ const injectionReplacement = '[CONTENT REMOVED - injection pattern detected]';
 const injectionPattern = /\b(SYSTEM|DEVELOPER|USER|ASSISTANT|TOOL)\s*:/i;
 const lastHashByFile = new Map<string, string>();
 const appendQueues = new Map<string, Promise<unknown>>();
+const stateQueues = new Map<string, Promise<unknown>>();
 
 export class CorruptStoreError extends Error {
   constructor(fileName: string, lineNumber: number, detail: string) {
@@ -46,6 +47,8 @@ export async function appendEvidence(storeDir: string, input: EvidenceInput): Pr
     summary: sanitizeText(requireString(recordInput.summary, 'Evidence summary')),
     trust: parseTrustLevel(recordInput.trust),
     capturedAt: sanitizeScalar(requireString(recordInput.capturedAt, 'Evidence capturedAt')),
+    tokenCount: optionalNonNegativeNumber(recordInput.tokenCount, 'Evidence tokenCount'),
+    estimatedCost: optionalNonNegativeNumber(recordInput.estimatedCost, 'Evidence estimatedCost'),
     links: optionalStringArray(recordInput.links, 'Evidence links')?.map(sanitizeScalar),
     tags: optionalStringArray(recordInput.tags, 'Evidence tags')?.map(sanitizeScalar),
     id: `ev_${randomUUID()}`
@@ -97,6 +100,97 @@ export async function listChanges(storeDir: string, query: ChangeQuery = {}): Pr
     if (normalizedQuery.action && record.action !== normalizedQuery.action) return false;
     return true;
   });
+}
+
+export async function readJsonState<T extends object>(
+  storeDir: string,
+  relativePath: string,
+  fallback: T,
+  parse: (value: unknown) => T
+): Promise<T & { prevHash: string; warnings?: string[] }> {
+  const filePath = join(storeDir, relativePath);
+  const content = await readFileIfExists(filePath);
+  if (!content.trim()) {
+    const normalizedFallback = parse(fallback);
+    return {
+      ...normalizedFallback,
+      prevHash: hashStatePayload(normalizedFallback as Record<string, unknown>)
+    };
+  }
+
+  let parsed: Record<string, unknown>;
+  try {
+    const value = JSON.parse(content);
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+      throw new Error('expected JSON object state');
+    }
+    parsed = value as Record<string, unknown>;
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    throw new CorruptStoreError(relativePath, 1, detail);
+  }
+
+  const normalized = parse(parsed);
+  const storedHash = typeof parsed.prevHash === 'string' ? parsed.prevHash : '';
+  const expectedHash = hashStatePayload(normalized as Record<string, unknown>);
+  const warnings = Array.isArray(parsed.warnings)
+    ? parsed.warnings.filter((warning): warning is string => typeof warning === 'string')
+    : [];
+
+  if (storedHash !== expectedHash) {
+    warnings.push(`JSON state hash warning in ${relativePath}: expected prevHash ${expectedHash}.`);
+  }
+
+  return {
+    ...normalized,
+    prevHash: storedHash || expectedHash,
+    warnings: warnings.length > 0 ? warnings : undefined
+  };
+}
+
+export async function writeJsonState<T extends object>(
+  storeDir: string,
+  relativePath: string,
+  payload: T,
+  parse: (value: unknown) => T = (value) => value as T
+): Promise<T & { prevHash: string }> {
+  const filePath = join(storeDir, relativePath);
+  const previous = stateQueues.get(filePath) ?? Promise.resolve();
+  const next = previous.then(() => writeJsonStateUnlocked(storeDir, relativePath, payload, parse));
+  stateQueues.set(filePath, next.catch(() => undefined));
+  return next;
+}
+
+export async function deleteJsonState(storeDir: string, relativePath: string): Promise<void> {
+  await rm(join(storeDir, relativePath), { force: true });
+}
+
+export async function listJsonStateFiles(storeDir: string, relativeDir: string): Promise<string[]> {
+  try {
+    return await readdir(join(storeDir, relativeDir));
+  } catch (error) {
+    if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT') return [];
+    throw error;
+  }
+}
+
+async function writeJsonStateUnlocked<T extends object>(
+  storeDir: string,
+  relativePath: string,
+  payload: T,
+  parse: (value: unknown) => T
+): Promise<T & { prevHash: string }> {
+  await mkdir(dirname(join(storeDir, relativePath)), { recursive: true });
+  const normalized = parse(payload);
+  const recordWithHash = {
+    ...normalized,
+      prevHash: hashStatePayload(normalized as Record<string, unknown>)
+  };
+  const target = join(storeDir, relativePath);
+  const temp = `${target}.${process.pid}.${randomUUID()}.tmp`;
+  await writeFile(temp, `${JSON.stringify(recordWithHash, null, 2)}\n`, 'utf8');
+  await rename(temp, target);
+  return recordWithHash;
 }
 
 async function appendJsonLine<T extends Record<string, unknown>>(
@@ -288,6 +382,14 @@ function optionalString(value: unknown, label: string): string | undefined {
   return requireString(value, label);
 }
 
+function optionalNonNegativeNumber(value: unknown, label: string): number | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
+    throw new Error(`${label} must be a non-negative number.`);
+  }
+  return value;
+}
+
 function requireString(value: unknown, label: string): string {
   if (typeof value !== 'string' || value.trim().length === 0) {
     throw new Error(`${label} must be a non-empty string.`);
@@ -326,4 +428,28 @@ async function latestRecordHash(filePath: string): Promise<string> {
 
 function sha256(value: string): string {
   return createHash('sha256').update(value).digest('hex');
+}
+
+function hashStatePayload(value: Record<string, unknown>): string {
+  return sha256(stableStringify(stripHashFields(value)));
+}
+
+function stripHashFields(value: Record<string, unknown>): Record<string, unknown> {
+  const clone = { ...value };
+  delete clone.prevHash;
+  delete clone.warnings;
+  return clone;
+}
+
+function stableStringify(value: unknown): string {
+  if (Array.isArray(value)) {
+    return `[${value.map(stableStringify).join(',')}]`;
+  }
+  if (value && typeof value === 'object') {
+    const entries = Object.entries(value as Record<string, unknown>)
+      .filter(([, entryValue]) => entryValue !== undefined)
+      .sort(([left], [right]) => left.localeCompare(right));
+    return `{${entries.map(([key, entryValue]) => `${JSON.stringify(key)}:${stableStringify(entryValue)}`).join(',')}}`;
+  }
+  return JSON.stringify(value);
 }

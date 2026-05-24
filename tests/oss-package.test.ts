@@ -23,7 +23,7 @@ describe('OSS package shape', () => {
 
     expect(packageJson.name).toBe('@pylabmit/agent-cmdb');
     expect(packageJson.private).toBeUndefined();
-    expect(packageJson.version).toBe('1.5.1');
+    expect(packageJson.version).toBe('2.0.0');
     expect(packageJson.main).toBe('dist/interface.js');
     expect(packageJson.types).toBe('dist/interface.d.ts');
     expect(packageJson.bin['agent-cmdb']).toBe('dist/cli.js');
@@ -31,10 +31,10 @@ describe('OSS package shape', () => {
     expect(packageJson.exports['./duration']).toBeDefined();
     expect(packageJson.exports['./freshness']).toBeDefined();
     expect(packageJson.exports['./types']).toBeDefined();
-    expect(packageJson.exports['./preflight']).toBeDefined();
-    expect(packageJson.exports['./store']).toBeDefined();
-    expect(packageJson.exports['./policy-engine']).toBeDefined();
     expect(packageJson.exports['./route-resolver']).toBeDefined();
+    expect(packageJson.exports['./preflight']).toBeUndefined();
+    expect(packageJson.exports['./policy-engine']).toBeUndefined();
+    expect(packageJson.exports['./store']).toBeUndefined();
     expect(packageJson.scripts.build).toContain("rmSync('dist'");
     expect(packageJson.scripts.build).toContain('tsc -p tsconfig.build.json');
   });

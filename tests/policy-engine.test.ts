@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { evaluatePolicy, multiAgentExampleControlPlanePath, loadControlPlane } from '../src/engine.js';
+import { evaluatePolicy } from '../src/internal.js';
+import { multiAgentExampleControlPlanePath, loadControlPlane } from '../src/loader.js';
 
 const controlPlane = loadControlPlane(multiAgentExampleControlPlanePath);
 

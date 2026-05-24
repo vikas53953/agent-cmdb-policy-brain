@@ -14,6 +14,8 @@ export interface SourceRef {
   notes?: string;
   freshnessTtl?: string;
   brainEntityId?: string;
+  health?: SourceHealthConfig;
+  costPerCall?: number;
 }
 
 export interface SourceRoute {
@@ -29,6 +31,7 @@ export interface AgentProfile {
   purpose: string;
   guardrails: string[];
   routes: SourceRoute[];
+  slo?: SloConfig;
 }
 
 export interface CmdbObject {
@@ -93,6 +96,7 @@ export interface SourceRouteRequest {
   profile: string;
   intent: string;
   freshness?: SourceFreshnessInput[];
+  health?: SourceHealth[];
 }
 
 export interface SourceFreshnessInput {
@@ -113,6 +117,7 @@ export interface ResolvedSourceRoute {
   profile: string;
   intent: string;
   sources: SourceRef[];
+  skippedSources: string[];
   guardrails: string[];
   notes?: string;
   blockOnStale: boolean;
@@ -199,6 +204,8 @@ export interface EvidenceRecord {
   summary: string;
   trust: TrustLevel;
   capturedAt: string;
+  tokenCount?: number;
+  estimatedCost?: number;
   links?: string[];
   tags?: string[];
   warnings?: string[];
@@ -288,6 +295,72 @@ export interface DigestResult {
   entitiesUpdated: string[];
   digestPath: string;
   summary: string;
+}
+
+export interface SourceHealthConfig {
+  failureThreshold?: number;
+  recoveryTimeoutMs?: number;
+}
+
+export interface SourceHealth {
+  sourceId: string;
+  status: 'up' | 'down' | 'half-open';
+  consecutiveFailures: number;
+  lastChecked: string;
+  lastFailure?: string;
+  lastSuccess?: string;
+  warnings?: string[];
+}
+
+export type CircuitState = 'closed' | 'open' | 'half-open';
+
+export interface SloConfig {
+  target: number;
+  windowHours: number;
+  metric: 'allow_rate';
+}
+
+export interface SloResult {
+  profile: string;
+  target: number;
+  actual: number;
+  withinBudget: boolean;
+  errorBudgetRemaining: number;
+  totalDecisions: number;
+  allowedCount: number;
+  deniedCount: number;
+  windowStart: string;
+  windowEnd: string;
+  warnings?: string[];
+}
+
+export interface CostSummary {
+  profile: string;
+  date: string;
+  totalCalls: number;
+  totalTokens: number;
+  totalCost: number;
+  bySource: Array<{
+    sourceId: string;
+    calls: number;
+    tokens: number;
+    cost: number;
+  }>;
+}
+
+export interface AgentCheckpoint {
+  id: string;
+  profile: string;
+  taskDescription: string;
+  currentStep: number;
+  totalSteps: number;
+  completedSteps: string[];
+  pendingSteps: string[];
+  state: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
+  prevHash: string;
+  warnings?: string[];
 }
 
 export interface DoctorReport {

@@ -24,15 +24,23 @@ export function resolveSourceRoute(
     );
   }
 
+  const healthBySource = new Map((normalizedRequest.health ?? []).map((health) => [health.sourceId, health]));
+  const routeSources = route.sources.map((sourceId) => ensureSource(controlPlane, sourceId));
+  const sources = routeSources.filter((source) => healthBySource.get(source.id)?.status !== 'down');
+  const skippedSources = routeSources
+    .filter((source) => healthBySource.get(source.id)?.status === 'down')
+    .map((source) => source.id);
+
   return {
     profile: profile.id,
     intent: normalizedRequest.intent,
-    sources: route.sources.map((sourceId) => ensureSource(controlPlane, sourceId)),
+    sources,
+    skippedSources,
     guardrails: profile.guardrails,
     notes: route.notes,
     blockOnStale: Boolean(route.blockOnStale),
     ...resolveFreshness(
-      route.sources.map((sourceId) => ensureSource(controlPlane, sourceId)),
+      sources,
       normalizedRequest.freshness
     )
   };
@@ -77,8 +85,35 @@ function normalizeSourceRouteRequest(request: SourceRouteRequest): SourceRouteRe
   return {
     profile: requireNonEmptyString(record.profile, 'Source route request profile'),
     intent: requireNonEmptyString(record.intent, 'Source route request intent'),
-    freshness: normalizeFreshness(record.freshness)
+    freshness: normalizeFreshness(record.freshness),
+    health: normalizeHealth(record.health)
   };
+}
+
+function normalizeHealth(value: unknown): SourceRouteRequest['health'] {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value)) {
+    throw new Error('Source route request health must be an array.');
+  }
+  return value.map((entry) => {
+    const record = requireRecord(entry, 'Source health input');
+    const status = requireNonEmptyString(record.status, 'Source health status');
+    if (!['up', 'down', 'half-open'].includes(status)) {
+      throw new Error(`Source health status must be one of: up, down, half-open.`);
+    }
+    return {
+      sourceId: requireNonEmptyString(record.sourceId, 'Source health sourceId'),
+      status: status as 'up' | 'down' | 'half-open',
+      consecutiveFailures: readNonNegativeNumber(record.consecutiveFailures, 'Source health consecutiveFailures'),
+      lastChecked: requireNonEmptyString(record.lastChecked, 'Source health lastChecked'),
+      lastFailure: record.lastFailure === undefined
+        ? undefined
+        : requireNonEmptyString(record.lastFailure, 'Source health lastFailure'),
+      lastSuccess: record.lastSuccess === undefined
+        ? undefined
+        : requireNonEmptyString(record.lastSuccess, 'Source health lastSuccess')
+    };
+  });
 }
 
 function resolveFreshness(
@@ -162,6 +197,13 @@ function requireRecord(value: unknown, label: string): Record<string, unknown> {
 function requireNonEmptyString(value: unknown, label: string): string {
   if (typeof value !== 'string' || value.trim().length === 0) {
     throw new Error(`${label} must be a non-empty string.`);
+  }
+  return value;
+}
+
+function readNonNegativeNumber(value: unknown, label: string): number {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
+    throw new Error(`${label} must be a non-negative number.`);
   }
   return value;
 }

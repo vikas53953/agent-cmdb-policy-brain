@@ -102,7 +102,9 @@ function parseSourceRef(value: unknown): SourceRef {
     readOnly: readBoolean(record, 'readOnly', 'Source readOnly'),
     notes: optionalString(record, 'notes'),
     freshnessTtl: optionalString(record, 'freshnessTtl'),
-    brainEntityId: optionalString(record, 'brainEntityId')
+    brainEntityId: optionalString(record, 'brainEntityId'),
+    health: parseOptionalHealthConfig(record.health),
+    costPerCall: optionalNonNegativeNumber(record, 'costPerCall')
   };
 }
 
@@ -114,7 +116,8 @@ function parseAgentProfile(value: unknown): AgentProfile {
     name: readString(record, 'name', 'Profile name'),
     purpose: readString(record, 'purpose', 'Profile purpose'),
     guardrails: readStringArray(record, 'guardrails', 'Profile guardrails'),
-    routes: readArray(record, 'routes', 'Profile routes').map(parseSourceRoute)
+    routes: readArray(record, 'routes', 'Profile routes').map(parseSourceRoute),
+    slo: parseOptionalSloConfig(record.slo)
   };
 }
 
@@ -226,6 +229,53 @@ function optionalBoolean(record: Record<string, unknown>, key: string): boolean 
     throw new ControlPlaneLoadError(`${key} must be a boolean.`);
   }
   return record[key];
+}
+
+function optionalNonNegativeNumber(record: Record<string, unknown>, key: string): number | undefined {
+  if (record[key] === undefined) return undefined;
+  if (typeof record[key] !== 'number' || !Number.isFinite(record[key]) || record[key] < 0) {
+    throw new ControlPlaneLoadError(`${key} must be a non-negative number.`);
+  }
+  return record[key];
+}
+
+function parseOptionalHealthConfig(value: unknown): SourceRef['health'] {
+  if (value === undefined) return undefined;
+  const record = requireRecord(value, 'Source health');
+  return {
+    failureThreshold: optionalPositiveInteger(record, 'failureThreshold'),
+    recoveryTimeoutMs: optionalNonNegativeNumber(record, 'recoveryTimeoutMs')
+  };
+}
+
+function parseOptionalSloConfig(value: unknown): AgentProfile['slo'] {
+  if (value === undefined) return undefined;
+  const record = requireRecord(value, 'Profile SLO');
+  const metric = readString(record, 'metric', 'Profile SLO metric');
+  if (metric !== 'allow_rate') {
+    throw new ControlPlaneLoadError(`Profile SLO metric has invalid value ${metric}.`);
+  }
+  const target = optionalNonNegativeNumber(record, 'target');
+  const windowHours = optionalNonNegativeNumber(record, 'windowHours');
+  if (target === undefined || target > 1) {
+    throw new ControlPlaneLoadError('Profile SLO target must be between 0 and 1.');
+  }
+  if (windowHours === undefined || windowHours <= 0) {
+    throw new ControlPlaneLoadError('Profile SLO windowHours must be greater than 0.');
+  }
+  return {
+    target,
+    windowHours,
+    metric
+  };
+}
+
+function optionalPositiveInteger(record: Record<string, unknown>, key: string): number | undefined {
+  if (record[key] === undefined) return undefined;
+  if (!Number.isInteger(record[key]) || (record[key] as number) <= 0) {
+    throw new ControlPlaneLoadError(`${key} must be a positive integer.`);
+  }
+  return record[key] as number;
 }
 
 function requireRecord(value: unknown, label: string): Record<string, unknown> {

@@ -6,12 +6,6 @@ export {
   multiAgentExampleControlPlanePath
 } from './loader.js';
 export {
-  evaluatePolicy,
-  policiesConflict,
-  policyMatches,
-  policyShadows
-} from './policy-engine.js';
-export {
   ensureProfile,
   ensureSource,
   inspectProfile,
@@ -21,10 +15,6 @@ export {
   ensureGraphNode,
   resolveGraphNeighbors
 } from './graph-engine.js';
-export {
-  evaluatePreflight,
-  preflight
-} from './preflight.js';
 export {
   generateReadinessReport,
   getObject,

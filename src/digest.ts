@@ -1,14 +1,17 @@
 import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { initBrainDir, readBrainIndex } from './brain.js';
+import { getCostSummary } from './cost.js';
+import { calculateSlo } from './slo.js';
 import { listChanges, listEvidence, sanitizeText } from './store.js';
-import type { ChangeRecord, DigestResult, EvidenceRecord } from './types.js';
+import type { ChangeRecord, ControlPlane, CostSummary, DigestResult, EvidenceRecord, SloResult } from './types.js';
 
 export async function generateDailyDigest(options: {
   profile: string;
   date?: string;
   storeDir: string;
   brainDir: string;
+  controlPlane?: ControlPlane;
 }): Promise<DigestResult> {
   const date = normalizeDigestDate(options.date ?? todayString(), 'date');
   const profile = normalizeDigestProfile(options.profile);
@@ -21,7 +24,9 @@ export async function generateDailyDigest(options: {
   const updatedEntities = index.entities.filter((entity) => entity.lastUpdated.startsWith(date));
   const digestPath = join(options.brainDir, 'digest', 'daily', `${date}-${profile}.md`);
   const summary = `${evidence.length} evidence, ${changes.length} changes, ${updatedEntities.length} brain updates.`;
-  const markdown = renderDailyDigest(profile, date, evidence, changes, updatedEntities, summary);
+  const slo = options.controlPlane ? await calculateSlo(options.controlPlane, options.storeDir, profile) : undefined;
+  const cost = options.controlPlane ? await getCostSummary(options.controlPlane, options.storeDir, profile, date) : undefined;
+  const markdown = renderDailyDigest(profile, date, evidence, changes, updatedEntities, summary, slo, cost);
 
   await mkdir(join(options.brainDir, 'digest', 'daily'), { recursive: true });
   await writeFile(digestPath, markdown, 'utf8');
@@ -87,7 +92,9 @@ function renderDailyDigest(
   evidence: EvidenceRecord[],
   changes: ChangeRecord[],
   entities: Array<{ id: string; name: string; lastUpdatedBy: string }>,
-  summary: string
+  summary: string,
+  slo?: SloResult,
+  cost?: CostSummary
 ): string {
   return `# Daily digest: ${profile} - ${date}
 
@@ -102,6 +109,18 @@ ${changes.map((record) => `- ${record.action} ${record.target}: ${sanitizeText(r
 ## Brain entities updated
 
 ${entities.map((entity) => `- ${entity.name} - updated by ${entity.lastUpdatedBy}`).join('\n') || '- None'}
+
+## SLO
+
+${slo ? `- Allow rate: ${(slo.actual * 100).toFixed(2)}% (target ${(slo.target * 100).toFixed(2)}%)
+- Within budget: ${slo.withinBudget ? 'yes' : 'no'}
+- Decisions: ${slo.totalDecisions}` : '- Not configured'}
+
+## Cost
+
+${cost ? `- Calls: ${cost.totalCalls}
+- Tokens: ${cost.totalTokens}
+- Estimated cost: $${cost.totalCost.toFixed(4)}` : '- Not configured'}
 
 ## Summary
 

@@ -21,8 +21,8 @@ import {
 } from './doctor.js';
 import { sourceFreshnessFromBrain } from './freshness.js';
 import { createAgentCmdb } from './interface.js';
+import { evaluatePolicy } from './internal.js';
 import {
-  evaluatePolicy,
   generateReadinessReport,
   inspectProfile,
   listObjects,
@@ -41,6 +41,9 @@ type Command =
   | 'digest'
   | 'digest-weekly'
   | 'doctor'
+  | 'health'
+  | 'slo'
+  | 'cost'
   | 'policy'
   | 'route'
   | 'inspect'
@@ -115,6 +118,44 @@ async function main(argv: string[]): Promise<void> {
         })
       )
     );
+    return;
+  }
+
+  if (parsed.command === 'health') {
+    const cmdb = createAgentCmdb({
+      controlPlane,
+      storeDir: storeDir(parsed.flags),
+      brainDir: brainDir(parsed.flags)
+    });
+    if (parsed.flags.subcommand === 'reset') {
+      printJson(await cmdb.resetSourceHealth(required(parsed.flags, 'source')));
+      return;
+    }
+    if (parsed.flags.source) {
+      printJson(await cmdb.getSourceHealth(parsed.flags.source));
+      return;
+    }
+    printJson(await cmdb.listSourceHealth());
+    return;
+  }
+
+  if (parsed.command === 'slo') {
+    const cmdb = createAgentCmdb({
+      controlPlane,
+      storeDir: storeDir(parsed.flags),
+      brainDir: brainDir(parsed.flags)
+    });
+    printJson(await cmdb.calculateSlo(required(parsed.flags, 'profile')));
+    return;
+  }
+
+  if (parsed.command === 'cost') {
+    const cmdb = createAgentCmdb({
+      controlPlane,
+      storeDir: storeDir(parsed.flags),
+      brainDir: brainDir(parsed.flags)
+    });
+    printJson(await cmdb.getCostSummary(required(parsed.flags, 'profile'), parsed.flags.date));
     return;
   }
 
@@ -266,6 +307,9 @@ function parseArgs(argv: string[]): ParsedArgs {
     'digest',
     'digest-weekly',
     'doctor',
+    'health',
+    'slo',
+    'cost',
     'route',
     'inspect',
     'inventory',
@@ -282,19 +326,21 @@ function parseArgs(argv: string[]): ParsedArgs {
 
   if (!command || !commands.includes(command as Command)) {
     throw new Error(
-      'Usage: agent-cmdb <init|policy|route|inspect|inventory|sources|preflight|validate|graph|evidence-add|evidence-list|change-add|change-list|brain|digest|digest-weekly|doctor|report> [--key value]'
+      'Usage: agent-cmdb <init|policy|route|inspect|inventory|sources|preflight|validate|graph|evidence-add|evidence-list|change-add|change-list|brain|digest|digest-weekly|doctor|health|slo|cost|report> [--key value]'
     );
   }
 
   const flags: Record<string, string> = {};
   let startIndex = 0;
-  if (command === 'brain') {
+  if (command === 'brain' || command === 'health') {
     const subcommand = rest[0];
-    if (!subcommand || subcommand.startsWith('--')) {
+    if (command === 'brain' && (!subcommand || subcommand.startsWith('--'))) {
       throw new Error('Missing brain subcommand: list, read, search, create, delete.');
     }
-    flags.subcommand = subcommand;
-    startIndex = 1;
+    if (subcommand && !subcommand.startsWith('--')) {
+      flags.subcommand = subcommand;
+      startIndex = 1;
+    }
   }
 
   const booleanFlags = new Set(['dry-run']);
@@ -344,6 +390,9 @@ function rootHelp(): string {
     '  policy          Evaluate a policy decision',
     '  route           Resolve a source route',
     '  doctor          Check control plane, store, and brain health',
+    '  health          Show or reset source health and circuit state',
+    '  slo             Calculate an agent SLO',
+    '  cost            Summarize evidence cost for a profile',
     '  brain           Manage local brain entities',
     '  digest          Generate a daily digest',
     '  digest-weekly   Generate a weekly digest',
@@ -387,6 +436,46 @@ function commandHelp(command: string): string {
       '  --config <path>      Control-plane YAML or JSON path',
       '  --store <path>       State directory for evidence and changes',
       '  --brain-dir <path>   Brain directory for freshness snapshots'
+    ].join('\n');
+  }
+
+  if (command === 'health') {
+    return [
+      'Usage: agent-cmdb health [--source <id>] [reset --source <id>] [options]',
+      '',
+      'Show source health and circuit state, or reset one source to up.',
+      '',
+      'Options:',
+      '  --source <id>   Optional source id',
+      '  --config <path> Control-plane YAML or JSON path',
+      '  --store <path>  State directory'
+    ].join('\n');
+  }
+
+  if (command === 'slo') {
+    return [
+      'Usage: agent-cmdb slo --profile <id> [options]',
+      '',
+      'Calculate the configured allow-rate SLO for a profile.',
+      '',
+      'Options:',
+      '  --profile <id>  Agent profile id',
+      '  --config <path> Control-plane YAML or JSON path',
+      '  --store <path>  State directory'
+    ].join('\n');
+  }
+
+  if (command === 'cost') {
+    return [
+      'Usage: agent-cmdb cost --profile <id> [--date YYYY-MM-DD] [options]',
+      '',
+      'Summarize evidence token and cost records for a profile.',
+      '',
+      'Options:',
+      '  --profile <id>  Agent profile id',
+      '  --date <date>   Optional date, YYYY-MM-DD',
+      '  --config <path> Control-plane YAML or JSON path',
+      '  --store <path>  State directory'
     ].join('\n');
   }
 

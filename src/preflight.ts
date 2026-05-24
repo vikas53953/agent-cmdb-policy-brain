@@ -1,15 +1,22 @@
 import { evaluatePolicy, normalizePolicyRequest } from './policy-engine.js';
 import { inspectProfile, resolveSourceRoute } from './route-resolver.js';
+import { isSourceAvailable, listSourceHealth } from './health.js';
+import { updateSloCache } from './slo.js';
 import { appendChange, appendEvidence } from './store.js';
 import type {
   ControlPlane,
   PolicyDecision,
   PreflightRequest,
   PreflightResult,
-  ResolvedSourceRoute
+  ResolvedSourceRoute,
+  SourceHealth
 } from './types.js';
 
-export function evaluatePreflight(controlPlane: ControlPlane, request: PreflightRequest): PreflightResult {
+export function evaluatePreflight(
+  controlPlane: ControlPlane,
+  request: PreflightRequest,
+  options: { health?: SourceHealth[] } = {}
+): PreflightResult {
   const normalizedRequest = normalizePreflightRequest(request);
   const decision = evaluatePolicy(controlPlane, normalizedRequest);
   let finalDecision: PolicyDecision = decision;
@@ -21,7 +28,8 @@ export function evaluatePreflight(controlPlane: ControlPlane, request: Preflight
       route = resolveSourceRoute(controlPlane, {
         profile: normalizedRequest.profile,
         intent: normalizedRequest.intent,
-        freshness: normalizedRequest.freshness
+        freshness: normalizedRequest.freshness,
+        health: options.health
       });
 
       if (decision.effect === 'allow' && route.blockOnStale && route.staleSourceIds.length > 0) {
@@ -33,6 +41,34 @@ export function evaluatePreflight(controlPlane: ControlPlane, request: Preflight
           'stale_source_blocked',
           reason,
           'Refresh the source freshness snapshots or choose a fresh route.'
+        );
+      }
+
+      if (decision.effect === 'allow' && route.sources.length === 0 && route.skippedSources.length > 0) {
+        const reason = `All route sources are down: ${route.skippedSources.join(', ')}.`;
+        warnings.push(reason);
+        finalDecision = denyDecision(
+          normalizedRequest,
+          'all-sources-down',
+          'all_sources_down',
+          reason,
+          'Wait for source recovery or reset source health after manual verification.'
+        );
+      }
+
+      if (
+        finalDecision.effect === 'allow'
+        && normalizedRequest.tool
+        && skippedSourcesIncludeTool(route.skippedSources, normalizedRequest.tool)
+      ) {
+        const reason = `Requested tool ${normalizedRequest.tool} is down.`;
+        warnings.push(reason);
+        finalDecision = denyDecision(
+          normalizedRequest,
+          'requested-tool-down',
+          'requested_tool_down',
+          reason,
+          'Use one of the returned route fallback sources instead of the down requested tool.'
         );
       }
     } catch (error) {
@@ -70,7 +106,9 @@ export async function preflight(
   storeDir: string,
   request: PreflightRequest
 ): Promise<PreflightResult> {
-  const result = evaluatePreflight(controlPlane, request);
+  await Promise.all(controlPlane.sources.map((source) => isSourceAvailable(controlPlane, storeDir, source.id)));
+  const health = await listSourceHealth(controlPlane, storeDir);
+  const result = evaluatePreflight(controlPlane, request, { health });
 
   if (result.dryRun) {
     return result;
@@ -84,6 +122,7 @@ export async function preflight(
       summary: `Denied by ${result.decision.ruleId}: ${result.decision.reason}`,
       trust: 'high',
       capturedAt: new Date().toISOString(),
+      estimatedCost: estimateCost(controlPlane, result),
       tags: ['preflight', 'deny', result.decision.ruleId]
     });
   }
@@ -97,6 +136,8 @@ export async function preflight(
     changedAt: new Date().toISOString(),
     after: result
   });
+
+  await updateSloCache(controlPlane, storeDir, result);
 
   return result;
 }
@@ -172,4 +213,14 @@ function requireNonEmptyString(value: unknown, label: string, suffix?: string): 
     throw new Error(`${label} must be a non-empty string${suffixText}.`);
   }
   return value;
+}
+
+function estimateCost(controlPlane: ControlPlane, result: PreflightResult): number {
+  const sourceId = result.decision.tool ?? result.route?.sources[0]?.id;
+  if (!sourceId) return 0;
+  return controlPlane.sources.find((source) => source.id === sourceId)?.costPerCall ?? 0;
+}
+
+function skippedSourcesIncludeTool(skippedSources: string[], tool: string): boolean {
+  return skippedSources.includes(tool) || skippedSources.includes(`source.${tool}`) || skippedSources.includes(`tool.${tool}`);
 }

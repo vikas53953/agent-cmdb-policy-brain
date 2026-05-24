@@ -30,7 +30,7 @@ What V1 does not solve: 18 problems related to reliability, security hardening, 
 | V1.0 | Shipped | Foundation | Policy + memory | Initial local policy and memory coverage |
 | V1.5 | Shipped | Hardline | Publish prep + quick wins | Dry-run, freshness signals, doctor |
 | V1.5.1 | Shipped | Hardening | Critical patch | Default-deny, audited preflight, tamper-evident JSONL |
-| V2.0 | Planned | Monitor | SRE + reliability | Health, circuit breakers, SLOs, checkpoints |
+| V2.0 | Shipped | Monitor | SRE + reliability | Health, circuit breakers, SLOs, checkpoints |
 | V3.0 | Planned | Shield | Security + observability | Isolation, DLP, rate limits, schedules, webhooks |
 | V4.0 | Planned | Central | Management plane + dashboard | API, dashboard, versioning, templates, incidents |
 
@@ -98,7 +98,7 @@ Target: 161+ tests.
 
 ---
 
-## V2.0 - Monitor (planned: SRE + reliability)
+## V2.0 - Monitor (shipped: SRE + reliability)
 
 Theme: Make agents reliable in production. When things fail, fail gracefully. When things degrade, detect it before the user notices. Focused on production monitoring and reliability.
 
@@ -482,7 +482,7 @@ The project should not claim market-first status without fresh independent resea
 
 V1.5.1 is shipped. The package now has dry-run, doctor, source freshness metadata, object-status policy enforcement, route-failure deny behavior, default-deny, audited preflight, tamper-evident JSONL, and a clean 1.5.1 package surface.
 
-V2.0 next - this is the highest-value increment. Health monitors and circuit breakers are the features that make the difference between "interesting project" and "I need this in production." SLOs are the feature that makes managers care.
+V2.0 shipped the reliability layer: source health monitors, circuit breakers, SLOs, cost summaries, and checkpoints. The next highest-value increment is V3.0 security hardening.
 
 V3.0 can be split into two releases (V3.0a = rate limiting + DLP + trust, V3.0b = schedules + webhooks + VDOMs) if you want faster iteration.
 

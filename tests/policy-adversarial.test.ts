@@ -1,6 +1,8 @@
 import { performance } from 'node:perf_hooks';
 import { describe, expect, it } from 'vitest';
-import { evaluatePolicy, multiAgentExampleControlPlanePath, loadControlPlane, validateControlPlane } from '../src/engine.js';
+import { evaluatePolicy } from '../src/internal.js';
+import { multiAgentExampleControlPlanePath, loadControlPlane } from '../src/loader.js';
+import { validateControlPlane } from '../src/validator.js';
 import type { ControlPlane, PolicyRule } from '../src/types.js';
 
 function withPolicies(policies: PolicyRule[]): ControlPlane {

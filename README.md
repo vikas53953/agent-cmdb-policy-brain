@@ -1,7 +1,7 @@
 # Agent CMDB
 
 [![CI](https://github.com/vikas53953/agent-cmdb-policy-brain/actions/workflows/ci.yml/badge.svg)](https://github.com/vikas53953/agent-cmdb-policy-brain/actions/workflows/ci.yml)
-![Tests](https://img.shields.io/badge/tests-161_passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-200%2B_passing-brightgreen)
 
 Policy enforcement and memory for AI agents.
 
@@ -115,6 +115,19 @@ await cmdb.writeEntity({
 await cmdb.generateDailyDigest('research-agent');
 ```
 
+## Runtime Reliability
+
+V2 adds runtime reliability helpers behind the same `createAgentCmdb()` interface:
+
+- Source health monitors record source success/failure and persist status in `state/health.json`.
+- Circuit breaker state is derived from source health: `up` is closed, `down` is open, and `half-open` allows a recovery probe.
+- Preflight skips down sources when a fallback exists, and denies with `all-sources-down` when no route source is available.
+- Agent SLOs track allow-rate in a bounded rolling cache under `state/slo-cache/`.
+- Cost summaries aggregate evidence `tokenCount` and `estimatedCost` by profile/date/source.
+- Checkpoints save and load long-running task state under `state/checkpoints/` with tamper warnings on read.
+
+These features do not intercept calls automatically. Your agent still calls `cmdb.preflight()` and reports source success/failure through the CMDB instance.
+
 ## Control Plane
 
 Agent CMDB reads YAML or JSON.
@@ -178,7 +191,7 @@ The product roadmap lives in [docs/agent-cmdb-roadmap.md](docs/agent-cmdb-roadma
 | V1.0 | Shipped | Policy engine, source routing, CMDB inventory, evidence store, graph, brain, digest |
 | V1.5 | Shipped | npm packaging, dry-run, source freshness, doctor command |
 | V1.5.1 | Shipped | single audited preflight, default-deny, tamper-evident JSONL, hardened sanitization |
-| V2.0 | Planned | Health monitors, circuit breakers, SLOs, cost tracking, checkpoint/resume |
+| V2.0 | Shipped | Health monitors, circuit breakers, SLOs, cost tracking, checkpoint/resume |
 | V3.0 | Planned | Isolation, rate limiting, DLP inspection, trust scoring, schedules, webhooks |
 | V4.0 | Planned | REST/MCP API, dashboard, policy versioning, templates, incident response |
 
@@ -194,6 +207,10 @@ npx agent-cmdb route --profile research-agent --intent web_research
 npx agent-cmdb brain list --brain-dir ./agent-cmdb/brain
 npx agent-cmdb brain search --brain-dir ./agent-cmdb/brain --keyword security
 npx agent-cmdb digest --profile research-agent --brain-dir ./agent-cmdb/brain
+npx agent-cmdb health
+npx agent-cmdb health reset --source serpapi
+npx agent-cmdb slo --profile research-agent
+npx agent-cmdb cost --profile research-agent --date 2026-05-24
 npx agent-cmdb report
 ```
 
@@ -252,6 +269,6 @@ npm run build
 
 Current verification target:
 
-- 161 tests passing
+- 200+ tests passing
 - strict TypeScript clean
 - clean `dist/` build
