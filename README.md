@@ -28,6 +28,18 @@ agent-cmdb/
   state/
     evidence.jsonl
     changes.jsonl
+  brain/
+    entities/
+      people/
+      companies/
+      topics/
+      tools/
+      projects/
+    decisions/
+    digest/
+      daily/
+      weekly/
+    index.json
 agent-cmdb.config.ts
 ```
 
@@ -57,6 +69,32 @@ if (!result.allowed) {
     console.log(`Use ${source.id} (${source.kind})`);
   }
 }
+```
+
+## Agent Memory (Brain)
+
+Agent CMDB includes an optional local knowledge base. No database, no embeddings - just markdown files that agents read before acting and update after.
+
+```ts
+const cmdb = createAgentCmdb({
+  configPath: './agent-cmdb/config/control-plane.yaml',
+  storeDir: './agent-cmdb/state',
+  brainDir: './agent-cmdb/brain'
+});
+
+const knowledge = await cmdb.readEntity('agent-security');
+console.log(knowledge.content);
+console.log(knowledge.stale ? 'Needs refresh' : 'Fresh');
+
+await cmdb.writeEntity({
+  entityId: 'agent-security',
+  content: '## New findings\n\n3 CVEs discovered...',
+  actor: 'research-agent',
+  reason: 'Daily security scan',
+  appendOnly: true
+});
+
+await cmdb.generateDailyDigest('research-agent');
 ```
 
 ## Control Plane
@@ -118,6 +156,9 @@ npx agent-cmdb init
 npx agent-cmdb preflight --profile research-agent --action web_search --tool serpapi --intent web_research
 npx agent-cmdb policy --profile research-agent --action social_post --tool x
 npx agent-cmdb route --profile research-agent --intent web_research
+npx agent-cmdb brain list --brain-dir ./agent-cmdb/brain
+npx agent-cmdb brain search --brain-dir ./agent-cmdb/brain --keyword security
+npx agent-cmdb digest --profile research-agent --brain-dir ./agent-cmdb/brain
 npx agent-cmdb report
 ```
 
@@ -131,12 +172,17 @@ npx agent-cmdb preflight --config ./examples/hermes/control-plane.json --profile
 
 If you know network operations, you already know Agent CMDB:
 
-- Policy rules are firewall rules.
-- Source routes are routing tables.
-- Profiles, tools, jobs, and memory layers are CMDB objects.
-- Relationships are topology edges.
-- Evidence and changes are syslog/SIEM-style audit records.
-- `preflight()` is the packet filter before the agent executes.
+| Network concept | Agent CMDB |
+| --- | --- |
+| Firewall policy | Policy engine |
+| Routing table | Source routing |
+| SIEM / syslog | Evidence timeline |
+| Config archive | Brain entity files |
+| FortiAnalyzer reports | Daily/weekly digests |
+| Runbook library | Decision records |
+| CMDB | Entity index |
+
+`preflight()` is the packet filter before the agent executes.
 
 ## Framework Modules
 
@@ -147,6 +193,8 @@ src/route-resolver.ts
 src/graph-engine.ts
 src/validator.ts
 src/store.ts
+src/brain.ts
+src/digest.ts
 src/interface.ts
 src/loader.ts
 src/preflight.ts
@@ -157,9 +205,7 @@ src/cli.ts
 
 ## Design Boundary
 
-Agent CMDB is not an agent memory product. It is the firewall/control plane.
-
-Keep memory layers such as GBrain, Obsidian, vector stores, or evidence search systems separate. Agent CMDB can route to them and audit decisions around them, but it should stay focused on policy enforcement, source routing, and audit trails.
+Agent CMDB combines policy enforcement with local agent memory. The brain is optional - omit `brainDir` if you only need the firewall.
 
 ## Development
 
@@ -171,6 +217,6 @@ npm run build
 
 Current verification target:
 
-- 83 tests passing
+- 110+ tests passing
 - strict TypeScript clean
 - clean `dist/` build

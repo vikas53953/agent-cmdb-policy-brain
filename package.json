@@ -22,6 +22,20 @@
   "bin": {
     "agent-cmdb": "dist/cli.js"
   },
+  "exports": {
+    ".": {
+      "import": "./dist/interface.js",
+      "types": "./dist/interface.d.ts"
+    },
+    "./brain": {
+      "import": "./dist/brain.js",
+      "types": "./dist/brain.d.ts"
+    },
+    "./digest": {
+      "import": "./dist/digest.js",
+      "types": "./dist/digest.d.ts"
+    }
+  },
   "files": [
     "dist",
     "examples",

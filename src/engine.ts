@@ -28,6 +28,8 @@ export {
   listObjects,
   validateControlPlane
 } from './validator.js';
+export * from './brain.js';
+export * from './digest.js';
 
 import { hermesExampleControlPlanePath, loadControlPlane } from './loader.js';
 

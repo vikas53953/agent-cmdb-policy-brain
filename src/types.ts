@@ -4,6 +4,7 @@ export type ObjectStatus = 'active' | 'paused' | 'blocked' | 'planned';
 export type TrustLevel = 'high' | 'medium' | 'low';
 export type IssueSeverity = 'error' | 'warning';
 export type ChangeAction = 'create' | 'update' | 'pause' | 'resume' | 'delete' | 'verify';
+export type BrainEntityKind = 'person' | 'company' | 'topic' | 'tool' | 'project';
 
 export interface SourceRef {
   id: string;
@@ -206,4 +207,56 @@ export interface ChangeQuery {
   targetType?: ObjectKind;
   actor?: string;
   action?: ChangeAction;
+}
+
+export interface BrainEntity {
+  id: string;
+  kind: BrainEntityKind;
+  name: string;
+  filePath: string;
+  tags: string[];
+  trust: TrustLevel;
+  lastUpdated: string;
+  lastUpdatedBy: string;
+  summary: string;
+  relatedEntities?: string[];
+}
+
+export interface BrainIndex {
+  version: string;
+  updatedAt: string;
+  entities: BrainEntity[];
+}
+
+export interface BrainReadResult {
+  entity: BrainEntity;
+  content: string;
+  ageMs: number;
+  stale: boolean;
+}
+
+export interface BrainWriteInput {
+  entityId: string;
+  content: string;
+  actor: string;
+  reason: string;
+  appendOnly?: boolean;
+}
+
+export interface BrainSearchQuery {
+  kind?: BrainEntityKind;
+  tag?: string;
+  updatedAfter?: string;
+  updatedBefore?: string;
+  keyword?: string;
+}
+
+export interface DigestResult {
+  profile: string;
+  date: string;
+  evidenceCount: number;
+  changesCount: number;
+  entitiesUpdated: string[];
+  digestPath: string;
+  summary: string;
 }

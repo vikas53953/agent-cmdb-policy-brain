@@ -4,6 +4,18 @@ import { existsSync } from 'node:fs';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import {
+  createEntity,
+  deleteEntity,
+  initBrainDir,
+  listEntities,
+  readEntity,
+  searchEntities
+} from './brain.js';
+import {
+  generateDailyDigest,
+  generateWeeklyDigest
+} from './digest.js';
+import {
   evaluatePolicy,
   generateReadinessReport,
   inspectProfile,
@@ -20,6 +32,9 @@ import type { ChangeAction, ObjectKind, ObjectStatus, TrustLevel } from './types
 
 type Command =
   | 'init'
+  | 'brain'
+  | 'digest'
+  | 'digest-weekly'
   | 'policy'
   | 'route'
   | 'inspect'
@@ -44,6 +59,35 @@ async function main(argv: string[]): Promise<void> {
 
   if (parsed.command === 'init') {
     await initProject(parsed.flags);
+    return;
+  }
+
+  if (parsed.command === 'brain') {
+    await handleBrainCommand(parsed.flags);
+    return;
+  }
+
+  if (parsed.command === 'digest') {
+    printJson(
+      await generateDailyDigest({
+        profile: required(parsed.flags, 'profile'),
+        date: parsed.flags.date,
+        storeDir: storeDir(parsed.flags),
+        brainDir: brainDir(parsed.flags)
+      })
+    );
+    return;
+  }
+
+  if (parsed.command === 'digest-weekly') {
+    printJson(
+      await generateWeeklyDigest({
+        profile: required(parsed.flags, 'profile'),
+        weekStart: parsed.flags['week-start'],
+        storeDir: storeDir(parsed.flags),
+        brainDir: brainDir(parsed.flags)
+      })
+    );
     return;
   }
 
@@ -173,6 +217,9 @@ function parseArgs(argv: string[]): ParsedArgs {
   const commands: Command[] = [
     'policy',
     'init',
+    'brain',
+    'digest',
+    'digest-weekly',
     'route',
     'inspect',
     'inventory',
@@ -189,12 +236,22 @@ function parseArgs(argv: string[]): ParsedArgs {
 
   if (!command || !commands.includes(command as Command)) {
     throw new Error(
-      'Usage: agent-cmdb <policy|route|inspect|inventory|sources|preflight|validate|graph|evidence-add|evidence-list|change-add|change-list|report> [--key value]'
+      'Usage: agent-cmdb <init|policy|route|inspect|inventory|sources|preflight|validate|graph|evidence-add|evidence-list|change-add|change-list|brain|digest|digest-weekly|report> [--key value]'
     );
   }
 
   const flags: Record<string, string> = {};
-  for (let index = 0; index < rest.length; index += 2) {
+  let startIndex = 0;
+  if (command === 'brain') {
+    const subcommand = rest[0];
+    if (!subcommand || subcommand.startsWith('--')) {
+      throw new Error('Missing brain subcommand: list, read, search, create, delete.');
+    }
+    flags.subcommand = subcommand;
+    startIndex = 1;
+  }
+
+  for (let index = startIndex; index < rest.length; index += 2) {
     const key = rest[index];
     const value = rest[index + 1];
 
@@ -227,6 +284,10 @@ function storeDir(flags: Record<string, string>): string {
   return flags.store ?? join(process.cwd(), 'agent-cmdb', 'state');
 }
 
+function brainDir(flags: Record<string, string>): string {
+  return flags['brain-dir'] ?? join(process.cwd(), 'agent-cmdb', 'brain');
+}
+
 function loadCliControlPlane(flags: Record<string, string>) {
   if (flags.config) {
     return loadControlPlane(resolve(flags.config));
@@ -250,9 +311,69 @@ async function initProject(flags: Record<string, string>): Promise<void> {
   await writeFile(join(configDir, 'control-plane.yaml'), initControlPlaneYaml, 'utf8');
   await writeFile(join(stateDir, 'evidence.jsonl'), '', 'utf8');
   await writeFile(join(stateDir, 'changes.jsonl'), '', 'utf8');
+  await initBrainDir(join(root, 'agent-cmdb', 'brain'));
   await writeFile(join(root, 'agent-cmdb.config.ts'), initTypescriptConfig, 'utf8');
 
   console.log(`Initialized Agent CMDB in ${join(root, 'agent-cmdb')}`);
+}
+
+async function handleBrainCommand(flags: Record<string, string>): Promise<void> {
+  const command = required(flags, 'subcommand');
+  const dir = brainDir(flags);
+
+  if (command === 'list') {
+    printJson(await listEntities(dir, optionalBrainKind(flags.kind)));
+    return;
+  }
+
+  if (command === 'read') {
+    const result = await readEntity(dir, required(flags, 'id'));
+    console.log(result.content);
+    return;
+  }
+
+  if (command === 'search') {
+    printJson(
+      await searchEntities(dir, {
+        keyword: flags.keyword,
+        kind: optionalBrainKind(flags.kind),
+        tag: flags.tag,
+        updatedAfter: flags['updated-after'],
+        updatedBefore: flags['updated-before']
+      })
+    );
+    return;
+  }
+
+  if (command === 'create') {
+    const kind = parseBrainKind(required(flags, 'kind'));
+    printJson(
+      await createEntity(
+        dir,
+        storeDir(flags),
+        {
+          id: required(flags, 'id'),
+          kind,
+          name: required(flags, 'name'),
+          filePath: flags['file-path'] ?? defaultBrainFilePath(kind, required(flags, 'id')),
+          tags: flags.tags ? flags.tags.split(',').filter(Boolean) : [],
+          trust: optionalTrustLevel(flags.trust) ?? 'medium',
+          summary: required(flags, 'summary')
+        },
+        required(flags, 'content'),
+        flags.actor ?? 'codex'
+      )
+    );
+    return;
+  }
+
+  if (command === 'delete') {
+    await deleteEntity(dir, storeDir(flags), required(flags, 'id'), flags.actor ?? 'codex', required(flags, 'reason'));
+    printJson({ deleted: required(flags, 'id') });
+    return;
+  }
+
+  throw new Error(`Unknown brain subcommand: ${command}.`);
 }
 
 function optionalObjectKind(value: string | undefined): ObjectKind | undefined {
@@ -265,6 +386,36 @@ function parseObjectKind(value: string): ObjectKind {
     throw new Error(`Invalid object kind: ${value}. Valid values: ${values.join(', ')}.`);
   }
   return value as ObjectKind;
+}
+
+function optionalBrainKind(value: string | undefined) {
+  return value ? parseBrainKind(value) : undefined;
+}
+
+function parseBrainKind(value: string) {
+  const aliases: Record<string, 'person' | 'company' | 'topic' | 'tool' | 'project'> = {
+    people: 'person',
+    companies: 'company',
+    topics: 'topic',
+    tools: 'tool',
+    projects: 'project'
+  };
+  const normalized = aliases[value] ?? value;
+  if (!['person', 'company', 'topic', 'tool', 'project'].includes(normalized)) {
+    throw new Error('Invalid brain kind. Valid values: person, company, topic, tool, project, people, companies, topics, tools, projects.');
+  }
+  return normalized as 'person' | 'company' | 'topic' | 'tool' | 'project';
+}
+
+function defaultBrainFilePath(kind: 'person' | 'company' | 'topic' | 'tool' | 'project', id: string): string {
+  const dirByKind = {
+    person: 'people',
+    company: 'companies',
+    topic: 'topics',
+    tool: 'tools',
+    project: 'projects'
+  };
+  return `entities/${dirByKind[kind]}/${id}.md`;
 }
 
 function optionalObjectStatus(value: string | undefined): ObjectStatus | undefined {
@@ -394,7 +545,8 @@ const initTypescriptConfig = `import type { AgentCmdbOptions } from '@pylabmit/a
 
 const config: AgentCmdbOptions = {
   configPath: './agent-cmdb/config/control-plane.yaml',
-  storeDir: './agent-cmdb/state'
+  storeDir: './agent-cmdb/state',
+  brainDir: './agent-cmdb/brain'
 };
 
 export default config;
