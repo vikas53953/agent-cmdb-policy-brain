@@ -1,9 +1,0 @@
-{
-  "version": "agent-cmdb-v2",
-  "updatedAt": "2026-05-24",
-  "profiles": [
-    "gemma4cloud",
-    "apple-farming"
-  ],
-  "summary": "The production starter control plane now lives in data/hermes-v2.json. This example only documents the two Hermes profiles covered by V2."
-}

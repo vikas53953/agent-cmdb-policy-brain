@@ -4,9 +4,10 @@ import { describe, expect, it } from 'vitest';
 
 const tsxCli = join(process.cwd(), 'node_modules', 'tsx', 'dist', 'cli.mjs');
 const cliPath = 'src/cli.ts';
+const hermesConfig = join(process.cwd(), 'examples', 'hermes', 'control-plane.json');
 
 function runCli(args: string[]): unknown {
-  const output = execFileSync(process.execPath, [tsxCli, cliPath, ...args], {
+  const output = execFileSync(process.execPath, [tsxCli, cliPath, ...args, '--config', hermesConfig], {
     cwd: process.cwd(),
     encoding: 'utf8'
   });

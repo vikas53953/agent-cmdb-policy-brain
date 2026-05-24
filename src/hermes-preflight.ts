@@ -1,4 +1,5 @@
 import { createAgentCmdb } from './interface.js';
+import { hermesExampleControlPlanePath } from './loader.js';
 import type { PreflightResult } from './types.js';
 
 export async function hermesPreflight(
@@ -12,7 +13,7 @@ export async function hermesPreflight(
   const normalizedTool = tool === undefined ? undefined : requireNonEmptyString(tool, 'Hermes preflight tool');
   const normalizedIntent = intent === undefined ? undefined : requireNonEmptyString(intent, 'Hermes preflight intent');
 
-  const cmdb = createAgentCmdb({});
+  const cmdb = createAgentCmdb({ configPath: hermesExampleControlPlanePath });
   const result = cmdb.preflight({
     action: normalizedAction,
     profile: normalizedProfile,

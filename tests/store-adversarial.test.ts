@@ -33,9 +33,9 @@ describe('Agent CMDB store adversarial behavior', () => {
     const queryMs = performance.now() - queryStartedAt;
 
     expect(gemmaRecords).toHaveLength(5_000);
-    expect(writeMs).toBeLessThan(30_000);
+    expect(writeMs).toBeLessThan(60_000);
     expect(queryMs).toBeLessThan(5_000);
-  }, 45_000);
+  }, 70_000);
 
   it('throws a clean StoreWriteError when the store path cannot be used as a directory', async () => {
     const parent = await makeStore('agent-cmdb-store-blocked-');

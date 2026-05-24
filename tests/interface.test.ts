@@ -2,12 +2,13 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { hermesExampleControlPlanePath } from '../src/engine.js';
 import { createAgentCmdb } from '../src/interface.js';
 
 describe('IAgentCMDB contract', () => {
   it('exposes preflight, routes, evidence, changes, and health through one stable facade', async () => {
     const storeDir = mkdtempSync(join(tmpdir(), 'agent-cmdb-interface-'));
-    const cmdb = createAgentCmdb({ storeDir });
+    const cmdb = createAgentCmdb({ configPath: hermesExampleControlPlanePath, storeDir });
 
     const preflight = cmdb.preflight({
       profile: 'gemma4cloud',

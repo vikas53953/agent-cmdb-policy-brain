@@ -1,109 +1,176 @@
 # Agent CMDB
 
-Agent CMDB is a network-style control plane for AI agents. V2 answers these questions:
+The firewall for AI agents.
 
-- Is this action allowed for this profile?
-- Which source/tool should the profile use first?
-- What objects, jobs, memory layers, and tools exist?
-- Which nodes are related in the graph?
-- What evidence and changes were recorded?
-- Is the control plane healthy enough for an agent preflight?
+Agent CMDB gives agents the control-plane primitives network engineers already trust: policy enforcement, source routing, inventory, graph relationships, and audit trails before an agent acts.
 
-It is intentionally local and deterministic. No live Hermes config is changed by this tool.
+Use it when you need to answer:
 
-Control-plane data lives in `data/hermes-v2.json` and is loaded through `loadDefaultControlPlane()`. For integration work, use the `IAgentCMDB` facade from `src/interface.ts` or the one-call Hermes scaffold in `src/hermes-preflight.ts` instead of importing engine internals directly.
+- Is this agent allowed to do this action?
+- Which source/tool should it use first?
+- What rule blocked it, and why?
+- What evidence and config changes were recorded?
+- Is my agent control plane healthy enough to run?
 
-## Examples
+## Install
 
-Run an action preflight:
-
-```powershell
-npx tsx src/cli.ts preflight --profile gemma4cloud --action x_account_post --tool xurl --intent x_research
+```bash
+npm install @pylabmit/agent-cmdb
+npx agent-cmdb init
 ```
 
-Expected: `allowed: false`.
+`init` creates:
 
-Check whether Gemma can post through xurl:
-
-```powershell
-npx tsx src/cli.ts policy --profile gemma4cloud --action x_account_post --tool xurl
+```text
+agent-cmdb/
+  config/
+    control-plane.yaml
+  state/
+    evidence.jsonl
+    changes.jsonl
+agent-cmdb.config.ts
 ```
 
-Expected: `deny`.
-
-Resolve the Apple weather route:
-
-```powershell
-npx tsx src/cli.ts route --profile apple-farming --intent weather
-```
-
-Expected: `apple-wiki` first, then PP weather tools.
-
-Inspect a profile:
-
-```powershell
-npx tsx src/cli.ts inspect --profile gemma4cloud
-```
-
-Expected: purpose, guardrails, and source routes.
-
-List inventory:
-
-```powershell
-npx tsx src/cli.ts inventory --profile gemma4cloud
-```
-
-Expected: Gemma profile objects and jobs.
-
-Inspect graph neighbors:
-
-```powershell
-npx tsx src/cli.ts graph --id profile.gemma4cloud
-```
-
-Expected: related sources and jobs.
-
-Record evidence:
-
-```powershell
-npx tsx src/cli.ts evidence-add --profile gemma4cloud --source techmeme-pp-cli --intent x_research --summary "Agent research signal captured" --trust medium
-```
-
-List evidence:
-
-```powershell
-npx tsx src/cli.ts evidence-list --profile gemma4cloud
-```
-
-Record a change:
-
-```powershell
-npx tsx src/cli.ts change-add --target policy.global-deny-xurl-account-actions --target-type policy --action verify --actor codex --reason "Confirmed xurl remains blocked"
-```
-
-Generate readiness report:
-
-```powershell
-npx tsx src/cli.ts report
-```
-
-Expected: counts, denied actions, paused/blocked objects, and validation status.
-
-Hermes preflight scaffold:
+## Quick Start
 
 ```ts
-import { hermesPreflight } from './src/hermes-preflight.js';
+import { createAgentCmdb } from '@pylabmit/agent-cmdb';
 
-const result = await hermesPreflight('x_account_post', 'gemma4cloud', 'xurl', 'x_research');
+const cmdb = createAgentCmdb({
+  configPath: './agent-cmdb/config/control-plane.yaml',
+  storeDir: './agent-cmdb/state'
+});
+
+const result = cmdb.preflight({
+  profile: 'research-agent',
+  action: 'web_search',
+  tool: 'serpapi',
+  intent: 'web_research'
+});
+
+if (!result.allowed) {
+  console.log(`Blocked: ${result.decision.reason}`);
+  console.log(`Can escalate: ${result.decision.canEscalate}`);
+  console.log(`Try instead: ${result.decision.suggestedAlternative}`);
+} else {
+  for (const source of result.route?.sources ?? []) {
+    console.log(`Use ${source.id} (${source.kind})`);
+  }
+}
 ```
 
-Expected: denied actions log evidence, and every decision logs a change record.
+## Control Plane
 
-## V2 Guardrails
+Agent CMDB reads YAML or JSON.
 
-- No xurl/X Developer API account actions.
-- No X posting, replying, liking, bookmarking, DM, or media upload.
-- No Bot Ops / Status sends.
-- GBrain remains paused.
-- `apple-farming` uses Obsidian/wiki first.
-- `gemma4cloud` uses Grok/xAI OAuth and PP tools for read-only research.
+```yaml
+version: "1.0"
+updatedAt: "2026-05-25"
+
+sources:
+  - id: serpapi
+    label: SerpAPI Web Search
+    kind: tool
+    readOnly: true
+
+  - id: local-docs
+    label: Local Documentation
+    kind: wiki
+    readOnly: true
+
+profiles:
+  - id: research-agent
+    name: Research Agent
+    purpose: Web research and summarization
+    guardrails:
+      - Do not make purchases or financial transactions
+      - Do not post to social media
+      - Prefer local documentation before external search
+    routes:
+      - intent: web_research
+        sources: [local-docs, serpapi]
+
+policies:
+  - id: deny-social-posting
+    effect: deny
+    actions: [social_post, social_reply, social_dm]
+    reason: Social media posting is disabled for all agents
+
+  - id: allow-research
+    effect: allow
+    profiles: [research-agent]
+    actions: [web_search, summarize, extract]
+    tools: [serpapi, local-docs]
+    reason: Research agent can search and summarize read-only sources
+```
+
+Shipped examples:
+
+- [examples/basic/control-plane.yaml](examples/basic/control-plane.yaml): one profile, a few sources, simple allow/deny rules.
+- [examples/multi-agent/control-plane.yaml](examples/multi-agent/control-plane.yaml): three profiles with different permissions.
+- [examples/hermes/control-plane.json](examples/hermes/control-plane.json): a real-world Hermes profile map.
+- [examples/langchain](examples/langchain): a small LangChain-style pre-tool-call wrapper.
+
+## CLI
+
+```bash
+npx agent-cmdb init
+npx agent-cmdb preflight --profile research-agent --action web_search --tool serpapi --intent web_research
+npx agent-cmdb policy --profile research-agent --action social_post --tool x
+npx agent-cmdb route --profile research-agent --intent web_research
+npx agent-cmdb report
+```
+
+Use a specific config file:
+
+```bash
+npx agent-cmdb preflight --config ./examples/hermes/control-plane.json --profile gemma4cloud --action x_account_post --tool xurl --intent x_research
+```
+
+## Mental Model
+
+If you know network operations, you already know Agent CMDB:
+
+- Policy rules are firewall rules.
+- Source routes are routing tables.
+- Profiles, tools, jobs, and memory layers are CMDB objects.
+- Relationships are topology edges.
+- Evidence and changes are syslog/SIEM-style audit records.
+- `preflight()` is the packet filter before the agent executes.
+
+## Framework Modules
+
+```text
+src/types.ts
+src/policy-engine.ts
+src/route-resolver.ts
+src/graph-engine.ts
+src/validator.ts
+src/store.ts
+src/interface.ts
+src/loader.ts
+src/preflight.ts
+src/cli.ts
+```
+
+`src/engine.ts` remains as a compatibility barrel for older imports.
+
+## Design Boundary
+
+Agent CMDB is not an agent memory product. It is the firewall/control plane.
+
+Keep memory layers such as GBrain, Obsidian, vector stores, or evidence search systems separate. Agent CMDB can route to them and audit decisions around them, but it should stay focused on policy enforcement, source routing, and audit trails.
+
+## Development
+
+```bash
+npm test
+npm run typecheck
+npm run build
+```
+
+Current verification target:
+
+- 83 tests passing
+- strict TypeScript clean
+- clean `dist/` build

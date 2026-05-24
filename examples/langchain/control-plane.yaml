@@ -1,0 +1,63 @@
+version: "1.0"
+updatedAt: "2026-05-25"
+
+sources:
+  - id: retriever
+    label: LangChain Retriever
+    kind: tool
+    readOnly: true
+
+  - id: tavily
+    label: Tavily Search
+    kind: tool
+    readOnly: true
+
+profiles:
+  - id: langchain-research-agent
+    name: LangChain Research Agent
+    purpose: Read-only retrieval and answer synthesis
+    guardrails:
+      - Retrieval before web search
+      - No write actions
+    routes:
+      - intent: answer_question
+        sources:
+          - retriever
+          - tavily
+
+policies:
+  - id: deny-write-actions
+    effect: deny
+    actions:
+      - send_email
+      - create_ticket
+      - social_post
+    reason: This LangChain example is read-only
+
+  - id: allow-langchain-retrieval
+    effect: allow
+    profiles:
+      - langchain-research-agent
+    actions:
+      - retrieve
+      - web_search
+      - summarize
+    tools:
+      - retriever
+      - tavily
+    reason: LangChain research agent can retrieve and summarize read-only sources
+
+objects:
+  - id: profile.langchain-research-agent
+    kind: profile
+    label: LangChain Research Agent
+    status: active
+    profile: langchain-research-agent
+    tags:
+      - langchain
+      - research
+
+relationships:
+  - from: profile.langchain-research-agent
+    to: retriever
+    type: uses

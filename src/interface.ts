@@ -1,10 +1,13 @@
 import {
   generateReadinessReport,
-  loadDefaultControlPlane,
-  preflightAction,
-  resolveSourceRoute,
   validateControlPlane
-} from './engine.js';
+} from './validator.js';
+import {
+  loadDefaultControlPlane,
+  loadControlPlane
+} from './loader.js';
+import { preflightAction } from './preflight-action.js';
+import { resolveSourceRoute } from './route-resolver.js';
 import { appendChange, appendEvidence, listChanges, listEvidence } from './store.js';
 import type {
   AgentCmdbReport,
@@ -42,12 +45,13 @@ export interface IAgentCMDB {
 }
 
 export interface AgentCmdbOptions {
+  configPath?: string;
   controlPlane?: ControlPlane;
   storeDir?: string;
 }
 
-export function createAgentCmdb(options: AgentCmdbOptions): IAgentCMDB {
-  const controlPlane = options.controlPlane ?? loadDefaultControlPlane();
+export function createAgentCmdb(options: AgentCmdbOptions = {}): IAgentCMDB {
+  const controlPlane = options.controlPlane ?? (options.configPath ? loadControlPlane(options.configPath) : loadDefaultControlPlane());
   const storeDir = options.storeDir ?? process.env.AGENT_CMDB_STORE_DIR ?? 'agent-cmdb/state';
 
   return {

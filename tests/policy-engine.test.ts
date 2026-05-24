@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { evaluatePolicy, loadDefaultControlPlane } from '../src/engine.js';
+import { evaluatePolicy, hermesExampleControlPlanePath, loadControlPlane } from '../src/engine.js';
 
-const controlPlane = loadDefaultControlPlane();
+const controlPlane = loadControlPlane(hermesExampleControlPlanePath);
 
 describe('Agent CMDB policy engine', () => {
   it('denies xurl-backed X account posting even when research is otherwise allowed', () => {

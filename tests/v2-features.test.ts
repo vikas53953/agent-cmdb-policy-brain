@@ -5,15 +5,16 @@ import { describe, expect, it } from 'vitest';
 import {
   generateReadinessReport,
   getObject,
+  hermesExampleControlPlanePath,
   listObjects,
-  loadDefaultControlPlane,
+  loadControlPlane,
   preflightAction,
   resolveGraphNeighbors,
   validateControlPlane
 } from '../src/engine.js';
 import { appendChange, appendEvidence, CorruptStoreError, listChanges, listEvidence } from '../src/store.js';
 
-const controlPlane = loadDefaultControlPlane();
+const controlPlane = loadControlPlane(hermesExampleControlPlanePath);
 
 describe('Agent CMDB V2 inventory', () => {
   it('lists profile-scoped active Gemma objects', () => {

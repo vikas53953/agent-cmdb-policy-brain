@@ -1,9 +1,14 @@
-import { join } from 'node:path';
+#!/usr/bin/env node
+
+import { existsSync } from 'node:fs';
+import { mkdir, writeFile } from 'node:fs/promises';
+import { join, resolve } from 'node:path';
 import {
   evaluatePolicy,
   generateReadinessReport,
   inspectProfile,
   listObjects,
+  loadControlPlane,
   loadDefaultControlPlane,
   preflightAction,
   resolveGraphNeighbors,
@@ -14,6 +19,7 @@ import { appendChange, appendEvidence, listChanges, listEvidence } from './store
 import type { ChangeAction, ObjectKind, ObjectStatus, TrustLevel } from './types.js';
 
 type Command =
+  | 'init'
   | 'policy'
   | 'route'
   | 'inspect'
@@ -35,7 +41,13 @@ interface ParsedArgs {
 
 async function main(argv: string[]): Promise<void> {
   const parsed = parseArgs(argv);
-  const controlPlane = loadDefaultControlPlane();
+
+  if (parsed.command === 'init') {
+    await initProject(parsed.flags);
+    return;
+  }
+
+  const controlPlane = loadCliControlPlane(parsed.flags);
 
   if (parsed.command === 'policy') {
     const profile = required(parsed.flags, 'profile');
@@ -160,6 +172,7 @@ function parseArgs(argv: string[]): ParsedArgs {
 
   const commands: Command[] = [
     'policy',
+    'init',
     'route',
     'inspect',
     'inventory',
@@ -214,6 +227,34 @@ function storeDir(flags: Record<string, string>): string {
   return flags.store ?? join(process.cwd(), 'agent-cmdb', 'state');
 }
 
+function loadCliControlPlane(flags: Record<string, string>) {
+  if (flags.config) {
+    return loadControlPlane(resolve(flags.config));
+  }
+
+  const localConfig = join(process.cwd(), 'agent-cmdb', 'config', 'control-plane.yaml');
+  if (existsSync(localConfig)) {
+    return loadControlPlane(localConfig);
+  }
+
+  return loadDefaultControlPlane();
+}
+
+async function initProject(flags: Record<string, string>): Promise<void> {
+  const root = resolve(flags.dir ?? process.cwd());
+  const configDir = join(root, 'agent-cmdb', 'config');
+  const stateDir = join(root, 'agent-cmdb', 'state');
+
+  await mkdir(configDir, { recursive: true });
+  await mkdir(stateDir, { recursive: true });
+  await writeFile(join(configDir, 'control-plane.yaml'), initControlPlaneYaml, 'utf8');
+  await writeFile(join(stateDir, 'evidence.jsonl'), '', 'utf8');
+  await writeFile(join(stateDir, 'changes.jsonl'), '', 'utf8');
+  await writeFile(join(root, 'agent-cmdb.config.ts'), initTypescriptConfig, 'utf8');
+
+  console.log(`Initialized Agent CMDB in ${join(root, 'agent-cmdb')}`);
+}
+
 function optionalObjectKind(value: string | undefined): ObjectKind | undefined {
   return value ? parseObjectKind(value) : undefined;
 }
@@ -258,6 +299,106 @@ function parseChangeAction(value: string): ChangeAction {
 function optionalChangeAction(value: string | undefined): ChangeAction | undefined {
   return value ? parseChangeAction(value) : undefined;
 }
+
+const initControlPlaneYaml = `version: "1.0"
+updatedAt: "2026-05-25"
+
+sources:
+  - id: serpapi
+    label: SerpAPI Web Search
+    kind: tool
+    readOnly: true
+
+  - id: local-docs
+    label: Local Documentation
+    kind: wiki
+    readOnly: true
+
+profiles:
+  - id: research-agent
+    name: Research Agent
+    purpose: Web research and summarization
+    guardrails:
+      - Do not make purchases or financial transactions
+      - Do not post to social media
+      - Prefer local documentation before external search
+    routes:
+      - intent: web_research
+        sources:
+          - local-docs
+          - serpapi
+
+policies:
+  - id: deny-social-posting
+    effect: deny
+    actions:
+      - social_post
+      - social_reply
+      - social_dm
+    reason: Social media posting is disabled for all agents
+    canEscalate: false
+    suggestedAlternative: Draft the post for a human to review.
+
+  - id: allow-research
+    effect: allow
+    profiles:
+      - research-agent
+    actions:
+      - web_search
+      - summarize
+      - extract
+    tools:
+      - serpapi
+      - local-docs
+    reason: Research agent can search and summarize read-only sources
+
+objects:
+  - id: profile.research-agent
+    kind: profile
+    label: Research Agent
+    status: active
+    profile: research-agent
+    tags:
+      - agent
+      - research
+
+  - id: source.local-docs
+    kind: source
+    label: Local Documentation
+    status: active
+    profile: research-agent
+    tags:
+      - docs
+      - read-only
+
+  - id: source.serpapi
+    kind: source
+    label: SerpAPI Web Search
+    status: active
+    profile: research-agent
+    tags:
+      - web
+      - read-only
+
+relationships:
+  - from: profile.research-agent
+    to: source.local-docs
+    type: uses
+
+  - from: profile.research-agent
+    to: source.serpapi
+    type: uses
+`;
+
+const initTypescriptConfig = `import type { AgentCmdbOptions } from '@pylabmit/agent-cmdb';
+
+const config: AgentCmdbOptions = {
+  configPath: './agent-cmdb/config/control-plane.yaml',
+  storeDir: './agent-cmdb/state'
+};
+
+export default config;
+`;
 
 try {
   await main(process.argv.slice(2));

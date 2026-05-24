@@ -14,9 +14,9 @@ describe('Control plane loader', () => {
     const controlPlane = loadDefaultControlPlane();
     const issues = validateControlPlane(controlPlane);
 
-    expect(defaultControlPlanePath).toContain('data');
-    expect(controlPlane.version).toBe('agent-cmdb-v2');
-    expect(controlPlane.profiles.map((profile) => profile.id)).toEqual(['gemma4cloud', 'apple-farming']);
+    expect(defaultControlPlanePath).toContain('examples');
+    expect(controlPlane.version).toBe('1.0');
+    expect(controlPlane.profiles.map((profile) => profile.id)).toEqual(['research-agent']);
     expect(issues.filter((issue) => issue.severity === 'error')).toEqual([]);
   });
 
@@ -44,7 +44,7 @@ describe('Control plane loader', () => {
     writeFileSync(file, JSON.stringify(controlPlane), 'utf8');
 
     expect(() => loadControlPlane(file)).toThrow(
-      'Control plane validation failed: route_unknown_source: Route gemma4cloud/x_research references unknown source missing-source.'
+      'Control plane validation failed: route_unknown_source: Route research-agent/web_research references unknown source missing-source.'
     );
   });
 });

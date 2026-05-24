@@ -1,0 +1,119 @@
+version: "1.0"
+updatedAt: "2026-05-25"
+
+sources:
+  - id: local-docs
+    label: Local Documentation
+    kind: wiki
+    readOnly: true
+
+  - id: web-search
+    label: Web Search
+    kind: tool
+    readOnly: true
+
+  - id: social-api
+    label: Social API
+    kind: tool
+    readOnly: false
+
+profiles:
+  - id: research-agent
+    name: Research Agent
+    purpose: Read-only research and summarization
+    guardrails:
+      - Read-only tools only
+      - Cite source routes
+    routes:
+      - intent: research
+        sources:
+          - local-docs
+          - web-search
+
+  - id: support-agent
+    name: Support Agent
+    purpose: Customer support draft generation
+    guardrails:
+      - Draft responses only
+      - Do not send messages directly
+    routes:
+      - intent: support_lookup
+        sources:
+          - local-docs
+
+  - id: publishing-agent
+    name: Publishing Agent
+    purpose: Human-approved publishing workflow
+    guardrails:
+      - Posting requires approval
+      - Never DM users
+    routes:
+      - intent: publish_review
+        sources:
+          - local-docs
+          - social-api
+
+policies:
+  - id: global-deny-direct-dm
+    effect: deny
+    actions:
+      - social_dm
+    reason: Direct messages are disabled for all agents
+
+  - id: global-approval-social-post
+    effect: approval_required
+    actions:
+      - social_post
+    tools:
+      - social-api
+    reason: Social posts require human approval
+    canEscalate: true
+
+  - id: allow-research-agent
+    effect: allow
+    profiles:
+      - research-agent
+    actions:
+      - web_search
+      - summarize
+    tools:
+      - local-docs
+      - web-search
+    reason: Research agent can use read-only sources
+
+objects:
+  - id: profile.research-agent
+    kind: profile
+    label: Research Agent
+    status: active
+    profile: research-agent
+    tags:
+      - agent
+      - research
+
+  - id: profile.support-agent
+    kind: profile
+    label: Support Agent
+    status: active
+    profile: support-agent
+    tags:
+      - agent
+      - support
+
+  - id: profile.publishing-agent
+    kind: profile
+    label: Publishing Agent
+    status: active
+    profile: publishing-agent
+    tags:
+      - agent
+      - publishing
+
+relationships:
+  - from: profile.research-agent
+    to: local-docs
+    type: uses
+
+  - from: profile.publishing-agent
+    to: social-api
+    type: uses

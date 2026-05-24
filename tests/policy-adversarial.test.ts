@@ -1,11 +1,11 @@
 import { performance } from 'node:perf_hooks';
 import { describe, expect, it } from 'vitest';
-import { evaluatePolicy, loadDefaultControlPlane, validateControlPlane } from '../src/engine.js';
+import { evaluatePolicy, hermesExampleControlPlanePath, loadControlPlane, validateControlPlane } from '../src/engine.js';
 import type { ControlPlane, PolicyRule } from '../src/types.js';
 
 function withPolicies(policies: PolicyRule[]): ControlPlane {
   return {
-    ...loadDefaultControlPlane(),
+    ...loadControlPlane(hermesExampleControlPlanePath),
     policies
   };
 }
@@ -110,7 +110,7 @@ describe('Agent CMDB policy adversarial behavior', () => {
   });
 
   it('throws descriptive runtime errors for empty request strings', () => {
-    const controlPlane = loadDefaultControlPlane();
+    const controlPlane = loadControlPlane(hermesExampleControlPlanePath);
 
     expect(() => evaluatePolicy(controlPlane, { profile: '', action: 'x_research' })).toThrow(
       'Policy request profile must be a non-empty string.'
@@ -124,7 +124,7 @@ describe('Agent CMDB policy adversarial behavior', () => {
   });
 
   it('is statically and dynamically guarded against nullish string inputs', () => {
-    const controlPlane = loadDefaultControlPlane();
+    const controlPlane = loadControlPlane(hermesExampleControlPlanePath);
 
     expect(() =>
       evaluatePolicy(controlPlane, {

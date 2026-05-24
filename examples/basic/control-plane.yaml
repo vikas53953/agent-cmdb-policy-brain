@@ -1,0 +1,120 @@
+version: "1.0"
+updatedAt: "2026-05-25"
+
+sources:
+  - id: serpapi
+    label: SerpAPI Web Search
+    kind: tool
+    readOnly: true
+
+  - id: openai-api
+    label: OpenAI API
+    kind: tool
+    readOnly: false
+
+  - id: local-docs
+    label: Local Documentation
+    kind: wiki
+    readOnly: true
+
+profiles:
+  - id: research-agent
+    name: Research Agent
+    purpose: Web research and summarization
+    guardrails:
+      - Do not make purchases or financial transactions
+      - Do not post to social media
+      - Prefer local documentation before external search
+    routes:
+      - intent: web_research
+        sources:
+          - local-docs
+          - serpapi
+        notes: Check local docs first, then search the web
+      - intent: code_generation
+        sources:
+          - local-docs
+          - openai-api
+
+policies:
+  - id: deny-social-posting
+    effect: deny
+    actions:
+      - social_post
+      - social_reply
+      - social_dm
+    reason: Social media posting is disabled for all agents
+    code: social_actions_disabled
+    canEscalate: false
+    suggestedAlternative: Draft the post for a human to review.
+
+  - id: deny-financial
+    effect: deny
+    actions:
+      - purchase
+      - transfer
+      - payment
+    reason: Financial transactions require human approval
+    code: financial_actions_require_human
+    canEscalate: true
+    suggestedAlternative: Ask a human operator to approve or execute the transaction.
+
+  - id: allow-research
+    effect: allow
+    profiles:
+      - research-agent
+    actions:
+      - web_search
+      - summarize
+      - extract
+    tools:
+      - serpapi
+      - local-docs
+    reason: Research agent can search and summarize read-only sources
+    code: research_agent_readonly_allowed
+    canEscalate: false
+
+objects:
+  - id: profile.research-agent
+    kind: profile
+    label: Research Agent
+    status: active
+    profile: research-agent
+    tags:
+      - agent
+      - research
+
+  - id: source.local-docs
+    kind: source
+    label: Local Documentation
+    status: active
+    profile: research-agent
+    tags:
+      - docs
+      - read-only
+
+  - id: source.serpapi
+    kind: source
+    label: SerpAPI Web Search
+    status: active
+    profile: research-agent
+    tags:
+      - web
+      - read-only
+
+  - id: tool.openai-api
+    kind: tool
+    label: OpenAI API
+    status: active
+    tags:
+      - llm
+      - generation
+
+relationships:
+  - from: profile.research-agent
+    to: source.local-docs
+    type: uses
+
+  - from: profile.research-agent
+    to: source.serpapi
+    type: uses
