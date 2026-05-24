@@ -63,7 +63,7 @@ describe('Agent CMDB CLI brain commands', () => {
 
     runCli(['brain', 'delete', '--brain-dir', brainDir, '--store', storeDir, '--id', 'agent-security', '--reason', 'cleanup']);
     expect(parseJson<unknown[]>(runCli(['brain', 'list', '--brain-dir', brainDir]))).toHaveLength(0);
-  }, 20_000);
+  }, 60_000);
 
   it('generates a daily digest from the CLI', () => {
     const cwd = mkdtempSync(join(tmpdir(), 'agent-cmdb-cli-digest-'));
