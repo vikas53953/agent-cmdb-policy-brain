@@ -5,5 +5,5 @@
     "gemma4cloud",
     "apple-farming"
   ],
-  "summary": "Starter Agent CMDB data is embedded in src/engine.ts for V2 tests and CLI. This JSON mirrors the intended external data shape for the next phase."
+  "summary": "The production starter control plane now lives in data/hermes-v2.json. This example only documents the two Hermes profiles covered by V2."
 }

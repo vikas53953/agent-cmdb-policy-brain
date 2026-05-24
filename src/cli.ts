@@ -2,9 +2,9 @@ import { join } from 'node:path';
 import {
   evaluatePolicy,
   generateReadinessReport,
-  hermesV1ControlPlane,
   inspectProfile,
   listObjects,
+  loadDefaultControlPlane,
   preflightAction,
   resolveGraphNeighbors,
   resolveSourceRoute,
@@ -35,31 +35,32 @@ interface ParsedArgs {
 
 async function main(argv: string[]): Promise<void> {
   const parsed = parseArgs(argv);
+  const controlPlane = loadDefaultControlPlane();
 
   if (parsed.command === 'policy') {
     const profile = required(parsed.flags, 'profile');
     const action = required(parsed.flags, 'action');
     const tool = parsed.flags.tool;
-    printJson(evaluatePolicy(hermesV1ControlPlane, { profile, action, tool }));
+    printJson(evaluatePolicy(controlPlane, { profile, action, tool }));
     return;
   }
 
   if (parsed.command === 'route') {
     const profile = required(parsed.flags, 'profile');
     const intent = required(parsed.flags, 'intent');
-    printJson(resolveSourceRoute(hermesV1ControlPlane, { profile, intent }));
+    printJson(resolveSourceRoute(controlPlane, { profile, intent }));
     return;
   }
 
   if (parsed.command === 'inspect') {
     const profile = required(parsed.flags, 'profile');
-    printJson(inspectProfile(hermesV1ControlPlane, profile));
+    printJson(inspectProfile(controlPlane, profile));
     return;
   }
 
   if (parsed.command === 'inventory') {
     printJson(
-      listObjects(hermesV1ControlPlane, {
+      listObjects(controlPlane, {
         profile: parsed.flags.profile,
         kind: optionalObjectKind(parsed.flags.kind),
         status: optionalObjectStatus(parsed.flags.status),
@@ -70,7 +71,7 @@ async function main(argv: string[]): Promise<void> {
   }
 
   if (parsed.command === 'sources') {
-    printJson(hermesV1ControlPlane.sources);
+    printJson(controlPlane.sources);
     return;
   }
 
@@ -79,17 +80,17 @@ async function main(argv: string[]): Promise<void> {
     const action = required(parsed.flags, 'action');
     const tool = parsed.flags.tool;
     const intent = parsed.flags.intent;
-    printJson(preflightAction(hermesV1ControlPlane, { profile, action, tool, intent }));
+    printJson(preflightAction(controlPlane, { profile, action, tool, intent }));
     return;
   }
 
   if (parsed.command === 'validate') {
-    printJson(validateControlPlane(hermesV1ControlPlane));
+    printJson(validateControlPlane(controlPlane));
     return;
   }
 
   if (parsed.command === 'graph') {
-    printJson(resolveGraphNeighbors(hermesV1ControlPlane, required(parsed.flags, 'id')));
+    printJson(resolveGraphNeighbors(controlPlane, required(parsed.flags, 'id')));
     return;
   }
 
@@ -115,7 +116,8 @@ async function main(argv: string[]): Promise<void> {
         profile: parsed.flags.profile,
         source: parsed.flags.source,
         intent: parsed.flags.intent,
-        trust: optionalTrustLevel(parsed.flags.trust)
+        trust: optionalTrustLevel(parsed.flags.trust),
+        tag: parsed.flags.tag
       })
     );
     return;
@@ -140,14 +142,15 @@ async function main(argv: string[]): Promise<void> {
       await listChanges(storeDir(parsed.flags), {
         target: parsed.flags.target,
         targetType: optionalObjectKind(parsed.flags['target-type']),
-        actor: parsed.flags.actor
+        actor: parsed.flags.actor,
+        action: optionalChangeAction(parsed.flags.action)
       })
     );
     return;
   }
 
   if (parsed.command === 'report') {
-    printJson(generateReadinessReport(hermesV1ControlPlane));
+    printJson(generateReadinessReport(controlPlane));
     return;
   }
 }
@@ -250,6 +253,10 @@ function parseChangeAction(value: string): ChangeAction {
     throw new Error(`Invalid change action: ${value}. Valid values: ${values.join(', ')}.`);
   }
   return value as ChangeAction;
+}
+
+function optionalChangeAction(value: string | undefined): ChangeAction | undefined {
+  return value ? parseChangeAction(value) : undefined;
 }
 
 try {

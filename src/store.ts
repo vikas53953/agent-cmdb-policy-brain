@@ -3,11 +3,14 @@ import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import type {
   ChangeInput,
+  ChangeAction,
   ChangeQuery,
   ChangeRecord,
   EvidenceInput,
   EvidenceQuery,
-  EvidenceRecord
+  EvidenceRecord,
+  ObjectKind,
+  TrustLevel
 } from './types.js';
 
 const evidenceFile = 'evidence.jsonl';
@@ -22,16 +25,25 @@ export class CorruptStoreError extends Error {
   }
 }
 
+export class StoreWriteError extends Error {
+  constructor(storeDir: string, fileName: string, detail: string) {
+    super(`Failed to write JSONL store ${join(storeDir, fileName)}: ${detail}`);
+    this.name = 'StoreWriteError';
+  }
+}
+
 export async function appendEvidence(storeDir: string, input: EvidenceInput): Promise<EvidenceRecord> {
+  const recordInput = requireRecord(input, 'Evidence input');
+
   const record: EvidenceRecord = {
-    profile: sanitizeScalar(input.profile),
-    source: sanitizeScalar(input.source),
-    intent: sanitizeScalar(input.intent),
-    summary: sanitizeText(input.summary),
-    trust: input.trust,
-    capturedAt: sanitizeScalar(input.capturedAt),
-    links: input.links?.map(sanitizeScalar),
-    tags: input.tags?.map(sanitizeScalar),
+    profile: sanitizeScalar(requireString(recordInput.profile, 'Evidence profile')),
+    source: sanitizeScalar(requireString(recordInput.source, 'Evidence source')),
+    intent: sanitizeScalar(requireString(recordInput.intent, 'Evidence intent')),
+    summary: sanitizeText(requireString(recordInput.summary, 'Evidence summary')),
+    trust: parseTrustLevel(recordInput.trust),
+    capturedAt: sanitizeScalar(requireString(recordInput.capturedAt, 'Evidence capturedAt')),
+    links: optionalStringArray(recordInput.links, 'Evidence links')?.map(sanitizeScalar),
+    tags: optionalStringArray(recordInput.tags, 'Evidence tags')?.map(sanitizeScalar),
     id: `ev_${randomUUID()}`
   };
 
@@ -40,28 +52,31 @@ export async function appendEvidence(storeDir: string, input: EvidenceInput): Pr
 }
 
 export async function listEvidence(storeDir: string, query: EvidenceQuery = {}): Promise<EvidenceRecord[]> {
+  const normalizedQuery = normalizeEvidenceQuery(query);
   const records = await readJsonLines<EvidenceRecord>(storeDir, evidenceFile);
 
   return records.filter((record) => {
-    if (definedFilter(query.profile) && record.profile !== sanitizeScalar(query.profile)) return false;
-    if (definedFilter(query.source) && record.source !== sanitizeScalar(query.source)) return false;
-    if (definedFilter(query.intent) && record.intent !== sanitizeScalar(query.intent)) return false;
-    if (query.trust && record.trust !== query.trust) return false;
-    if (definedFilter(query.tag) && !record.tags?.includes(sanitizeScalar(query.tag))) return false;
+    if (definedFilter(normalizedQuery.profile) && record.profile !== sanitizeScalar(normalizedQuery.profile)) return false;
+    if (definedFilter(normalizedQuery.source) && record.source !== sanitizeScalar(normalizedQuery.source)) return false;
+    if (definedFilter(normalizedQuery.intent) && record.intent !== sanitizeScalar(normalizedQuery.intent)) return false;
+    if (normalizedQuery.trust && record.trust !== normalizedQuery.trust) return false;
+    if (definedFilter(normalizedQuery.tag) && !record.tags?.includes(sanitizeScalar(normalizedQuery.tag))) return false;
     return true;
   });
 }
 
 export async function appendChange(storeDir: string, input: ChangeInput): Promise<ChangeRecord> {
+  const recordInput = requireRecord(input, 'Change input');
+
   const record: ChangeRecord = {
-    target: sanitizeScalar(input.target),
-    targetType: input.targetType,
-    action: input.action,
-    actor: sanitizeScalar(input.actor),
-    reason: sanitizeText(input.reason),
-    changedAt: sanitizeScalar(input.changedAt),
-    before: sanitizeJsonValue(input.before),
-    after: sanitizeJsonValue(input.after),
+    target: sanitizeScalar(requireString(recordInput.target, 'Change target')),
+    targetType: parseObjectKind(recordInput.targetType),
+    action: parseChangeAction(recordInput.action),
+    actor: sanitizeScalar(requireString(recordInput.actor, 'Change actor')),
+    reason: sanitizeText(requireString(recordInput.reason, 'Change reason')),
+    changedAt: sanitizeScalar(requireString(recordInput.changedAt, 'Change changedAt')),
+    before: sanitizeJsonValue(recordInput.before),
+    after: sanitizeJsonValue(recordInput.after),
     id: `chg_${randomUUID()}`
   };
 
@@ -70,20 +85,26 @@ export async function appendChange(storeDir: string, input: ChangeInput): Promis
 }
 
 export async function listChanges(storeDir: string, query: ChangeQuery = {}): Promise<ChangeRecord[]> {
+  const normalizedQuery = normalizeChangeQuery(query);
   const records = await readJsonLines<ChangeRecord>(storeDir, changesFile);
 
   return records.filter((record) => {
-    if (definedFilter(query.target) && record.target !== sanitizeScalar(query.target)) return false;
-    if (query.targetType && record.targetType !== query.targetType) return false;
-    if (definedFilter(query.actor) && record.actor !== sanitizeScalar(query.actor)) return false;
-    if (query.action && record.action !== query.action) return false;
+    if (definedFilter(normalizedQuery.target) && record.target !== sanitizeScalar(normalizedQuery.target)) return false;
+    if (normalizedQuery.targetType && record.targetType !== normalizedQuery.targetType) return false;
+    if (definedFilter(normalizedQuery.actor) && record.actor !== sanitizeScalar(normalizedQuery.actor)) return false;
+    if (normalizedQuery.action && record.action !== normalizedQuery.action) return false;
     return true;
   });
 }
 
 async function appendJsonLine<T>(storeDir: string, fileName: string, record: T): Promise<void> {
-  await mkdir(storeDir, { recursive: true });
-  await appendFile(join(storeDir, fileName), `${JSON.stringify(record)}\n`, 'utf8');
+  try {
+    await mkdir(storeDir, { recursive: true });
+    await appendFile(join(storeDir, fileName), `${JSON.stringify(record)}\n`, 'utf8');
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    throw new StoreWriteError(storeDir, fileName, detail);
+  }
 }
 
 async function readJsonLines<T>(storeDir: string, fileName: string): Promise<T[]> {
@@ -145,6 +166,83 @@ function sanitizeJsonValue(value: unknown): unknown {
     );
   }
   return value;
+}
+
+function normalizeEvidenceQuery(query: EvidenceQuery): EvidenceQuery {
+  const record = requireRecord(query, 'Evidence query');
+
+  return {
+    profile: optionalString(record.profile, 'Evidence query profile'),
+    source: optionalString(record.source, 'Evidence query source'),
+    intent: optionalString(record.intent, 'Evidence query intent'),
+    trust: record.trust === undefined ? undefined : parseTrustLevel(record.trust),
+    tag: optionalString(record.tag, 'Evidence query tag')
+  };
+}
+
+function normalizeChangeQuery(query: ChangeQuery): ChangeQuery {
+  const record = requireRecord(query, 'Change query');
+
+  return {
+    target: optionalString(record.target, 'Change query target'),
+    targetType: record.targetType === undefined ? undefined : parseObjectKind(record.targetType),
+    actor: optionalString(record.actor, 'Change query actor'),
+    action: record.action === undefined ? undefined : parseChangeAction(record.action)
+  };
+}
+
+function parseTrustLevel(value: unknown): TrustLevel {
+  const values: TrustLevel[] = ['high', 'medium', 'low'];
+  const trust = requireString(value, 'Evidence trust');
+  if (!values.includes(trust as TrustLevel)) {
+    throw new Error(`Invalid trust level: ${trust}. Valid values: ${values.join(', ')}.`);
+  }
+  return trust as TrustLevel;
+}
+
+function parseObjectKind(value: unknown): ObjectKind {
+  const values: ObjectKind[] = ['profile', 'source', 'tool', 'job', 'memory', 'policy', 'workspace'];
+  const kind = requireString(value, 'Change targetType');
+  if (!values.includes(kind as ObjectKind)) {
+    throw new Error(`Invalid object kind: ${kind}. Valid values: ${values.join(', ')}.`);
+  }
+  return kind as ObjectKind;
+}
+
+function parseChangeAction(value: unknown): ChangeAction {
+  const values: ChangeAction[] = ['create', 'update', 'pause', 'resume', 'delete', 'verify'];
+  const action = requireString(value, 'Change action');
+  if (!values.includes(action as ChangeAction)) {
+    throw new Error(`Invalid change action: ${action}. Valid values: ${values.join(', ')}.`);
+  }
+  return action as ChangeAction;
+}
+
+function optionalStringArray(value: unknown, label: string): string[] | undefined {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value)) {
+    throw new Error(`${label} must be an array of strings.`);
+  }
+  return value.map((item) => requireString(item, label));
+}
+
+function optionalString(value: unknown, label: string): string | undefined {
+  if (value === undefined) return undefined;
+  return requireString(value, label);
+}
+
+function requireString(value: unknown, label: string): string {
+  if (typeof value !== 'string' || value.trim().length === 0) {
+    throw new Error(`${label} must be a non-empty string.`);
+  }
+  return value;
+}
+
+function requireRecord(value: unknown, label: string): Record<string, unknown> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error(`${label} must be an object.`);
+  }
+  return value as Record<string, unknown>;
 }
 
 function assertObjectRecord(value: unknown, fileName: string, lineNumber: number): asserts value is Record<string, unknown> {

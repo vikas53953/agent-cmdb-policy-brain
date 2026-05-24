@@ -1,3 +1,6 @@
+import { readFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import type {
   AgentProfile,
   AgentCmdbReport,
@@ -25,337 +28,49 @@ const effectRank: Record<PolicyEffect, number> = {
   allow: 1
 };
 
-export const hermesV1ControlPlane: ControlPlane = {
-  version: 'agent-cmdb-v2',
-  updatedAt: '2026-05-24',
-  sources: [
-    {
-      id: 'xai-oauth',
-      label: 'xAI/Grok OAuth',
-      kind: 'oauth',
-      readOnly: true,
-      notes: 'Use for X/Grok research and summarization, not account actions.'
-    },
-    {
-      id: 'last30days',
-      label: 'last30days',
-      kind: 'tool',
-      readOnly: true,
-      notes: 'Recent multi-source public-discussion research helper.'
-    },
-    {
-      id: 'techmeme-pp-cli',
-      label: 'Techmeme Printing Press',
-      kind: 'tool',
-      readOnly: true
-    },
-    {
-      id: 'hackernews-pp-cli',
-      label: 'Hacker News Printing Press',
-      kind: 'tool',
-      readOnly: true
-    },
-    {
-      id: 'apple-wiki',
-      label: 'Apple Farming Wiki / Obsidian',
-      kind: 'wiki',
-      readOnly: true,
-      notes: 'Primary second-brain source for apple-farming truth.'
-    },
-    {
-      id: 'open-meteo-pp-cli',
-      label: 'Open-Meteo Printing Press',
-      kind: 'tool',
-      readOnly: true
-    },
-    {
-      id: 'weather-goat-pp-cli',
-      label: 'Weather Goat Printing Press',
-      kind: 'tool',
-      readOnly: true
-    },
-    {
-      id: 'youtube-pp-cli',
-      label: 'YouTube Printing Press',
-      kind: 'tool',
-      readOnly: true
-    },
-    {
-      id: 'podcast-goat-pp-cli',
-      label: 'Podcast Goat Printing Press',
-      kind: 'tool',
-      readOnly: true
-    },
-    {
-      id: 'nvd-pp-cli',
-      label: 'NVD Printing Press',
-      kind: 'tool',
-      readOnly: true
-    },
-    {
-      id: 'xurl',
-      label: 'X Developer API / xurl',
-      kind: 'tool',
-      readOnly: false,
-      notes: 'Registered as a known disabled account-action lane.'
-    },
-    {
-      id: 'x-developer-api',
-      label: 'X Developer API',
-      kind: 'tool',
-      readOnly: false,
-      notes: 'Known disabled account-action lane.'
-    }
-  ],
-  profiles: [
-    {
-      id: 'gemma4cloud',
-      name: 'Gemma4Cloud',
-      purpose: 'AI, security, startup, X/Grok, and developer-intelligence research lane.',
-      guardrails: [
-        'Use Grok/xAI OAuth for read-only X research.',
-        'Do not use xurl or X Developer API account actions.',
-        'Do not send Bot Ops / Status messages.',
-        'GBrain remains paused unless explicitly re-enabled.'
-      ],
-      routes: [
-        {
-          intent: 'x_research',
-          sources: ['xai-oauth', 'last30days', 'techmeme-pp-cli', 'hackernews-pp-cli'],
-          notes: 'Use X/Grok first, then corroborate with PP/news/community sources.'
-        },
-        {
-          intent: 'security_research',
-          sources: ['nvd-pp-cli', 'xai-oauth', 'techmeme-pp-cli', 'hackernews-pp-cli'],
-          notes: 'Prefer primary security evidence before commentary.'
-        }
-      ]
-    },
-    {
-      id: 'apple-farming',
-      name: 'Apple Farming',
-      purpose: 'Farmer-useful apple-farming lane with Obsidian/wiki as primary truth.',
-      guardrails: [
-        'Use Obsidian/wiki as primary truth before public sources.',
-        'Keep safety-critical farming advice staged until review.',
-        'GBrain remains paused.',
-        'Do not use xurl or X Developer API account actions.'
-      ],
-      routes: [
-        {
-          intent: 'weather',
-          sources: ['apple-wiki', 'open-meteo-pp-cli', 'weather-goat-pp-cli'],
-          notes: 'Use wiki context first, then live weather tools for spray windows.'
-        },
-        {
-          intent: 'youtube_podcast',
-          sources: ['apple-wiki', 'youtube-pp-cli', 'podcast-goat-pp-cli'],
-          notes: 'Prefer institutional sources and local wiki truth over generic content.'
-        }
-      ]
-    }
-  ],
-  policies: [
-    {
-      id: 'global-deny-xurl-account-actions',
-      effect: 'deny',
-      actions: [
-        'x_account_post',
-        'x_account_reply',
-        'x_account_like',
-        'x_account_bookmark',
-        'x_account_dm',
-        'x_media_upload'
-      ],
-      tools: ['xurl', 'x-developer-api'],
-      reason: 'xurl/X Developer API account actions are disabled for now.',
-      code: 'xurl_account_actions_disabled',
-      canEscalate: false,
-      suggestedAlternative: 'Use Grok/xAI OAuth for read-only research, summarization, and drafting.'
-    },
-    {
-      id: 'global-deny-x-account-actions',
-      effect: 'deny',
-      actions: [
-        'x_account_post',
-        'x_account_reply',
-        'x_account_like',
-        'x_account_bookmark',
-        'x_account_dm',
-        'x_media_upload'
-      ],
-      reason: 'Posting, replying, liking, bookmarking, DMs, and media upload require a separate approval design.',
-      code: 'x_account_actions_require_design',
-      canEscalate: false,
-      suggestedAlternative: 'Use Grok/xAI OAuth for read-only research, summarization, and drafting.'
-    },
-    {
-      id: 'global-deny-bot-ops-status',
-      effect: 'deny',
-      actions: ['send_bot_ops_status', 'bot_ops_status', 'bot_ops_auto_recovery_message'],
-      reason: 'User preference: do not send Bot Ops / Status messages.',
-      code: 'bot_ops_status_disabled',
-      canEscalate: false,
-      suggestedAlternative: 'Use a normal useful brief or local-only recovery log.'
-    },
-    {
-      id: 'global-deny-gbrain-paused',
-      effect: 'deny',
-      actions: ['gbrain_write', 'gbrain_index', 'gbrain_sync', 'voice_note_memory_to_gbrain'],
-      reason: 'GBrain is paused for both profiles.',
-      code: 'gbrain_paused',
-      canEscalate: true,
-      suggestedAlternative: 'Ask for explicit approval before re-enabling GBrain.'
-    },
-    {
-      id: 'gemma-allow-readonly-research',
-      effect: 'allow',
-      profiles: ['gemma4cloud'],
-      actions: ['x_research', 'pp_research', 'daily_pp_radar', 'security_research'],
-      tools: [
-        'xai-oauth',
-        'last30days',
-        'techmeme-pp-cli',
-        'hackernews-pp-cli',
-        'nvd-pp-cli'
-      ],
-      reason: 'Gemma can perform read-only Grok/X and PP research.',
-      code: 'gemma_readonly_research_allowed',
-      canEscalate: false
-    },
-    {
-      id: 'apple-allow-readonly-research',
-      effect: 'allow',
-      profiles: ['apple-farming'],
-      actions: ['weather_research', 'youtube_podcast_research', 'pp_research'],
-      tools: ['apple-wiki', 'open-meteo-pp-cli', 'weather-goat-pp-cli', 'youtube-pp-cli', 'podcast-goat-pp-cli'],
-      reason: 'Apple farming can use wiki-first and read-only PP research.',
-      code: 'apple_readonly_research_allowed',
-      canEscalate: false
-    }
-  ],
-  objects: [
-    {
-      id: 'profile.gemma4cloud',
-      kind: 'profile',
-      label: 'Gemma4Cloud Profile',
-      status: 'active',
-      profile: 'gemma4cloud',
-      tags: ['hermes', 'xai', 'pp', 'research'],
-      notes: 'AI, startup, security, and developer-intelligence lane.'
-    },
-    {
-      id: 'profile.apple-farming',
-      kind: 'profile',
-      label: 'Apple Farming Profile',
-      status: 'active',
-      profile: 'apple-farming',
-      tags: ['hermes', 'apple', 'wiki', 'pp'],
-      notes: 'Farmer-useful lane with wiki/Obsidian as primary truth.'
-    },
-    {
-      id: 'source.xai-oauth',
-      kind: 'source',
-      label: 'xAI/Grok OAuth',
-      status: 'active',
-      profile: 'gemma4cloud',
-      tags: ['oauth', 'x-research', 'read-only']
-    },
-    {
-      id: 'source.apple-wiki',
-      kind: 'source',
-      label: 'Apple Farming Wiki / Obsidian',
-      status: 'active',
-      profile: 'apple-farming',
-      tags: ['wiki', 'obsidian', 'source-of-truth']
-    },
-    {
-      id: 'tool.printing-press',
-      kind: 'tool',
-      label: 'Printing Press Tooling',
-      status: 'active',
-      tags: ['pp', 'research', 'read-only']
-    },
-    {
-      id: 'tool.xurl',
-      kind: 'tool',
-      label: 'xurl / X Developer API',
-      status: 'blocked',
-      tags: ['x', 'account-action'],
-      notes: 'Blocked until the user explicitly approves X Developer API account actions.'
-    },
-    {
-      id: 'memory.gbrain',
-      kind: 'memory',
-      label: 'GBrain',
-      status: 'paused',
-      tags: ['memory', 'gbrain'],
-      notes: 'GBrain remains paused for both Hermes profiles.'
-    },
-    {
-      id: 'job.gemma-pp-radar',
-      kind: 'job',
-      label: 'Gemma PP Research Radar',
-      status: 'active',
-      profile: 'gemma4cloud',
-      tags: ['daily', 'pp', 'xai', 'read-only'],
-      dependsOn: ['source.xai-oauth', 'tool.printing-press']
-    },
-    {
-      id: 'job.apple-pp-useful-brief',
-      kind: 'job',
-      label: 'Apple PP Useful Brief',
-      status: 'active',
-      profile: 'apple-farming',
-      tags: ['daily', 'pp', 'weather', 'wiki-first'],
-      dependsOn: ['source.apple-wiki', 'tool.printing-press']
-    }
-  ],
-  relationships: [
-    {
-      from: 'profile.gemma4cloud',
-      to: 'source.xai-oauth',
-      type: 'uses',
-      notes: 'Gemma uses Grok OAuth for read-only X research.'
-    },
-    {
-      from: 'profile.gemma4cloud',
-      to: 'job.gemma-pp-radar',
-      type: 'owns'
-    },
-    {
-      from: 'job.gemma-pp-radar',
-      to: 'tool.printing-press',
-      type: 'uses'
-    },
-    {
-      from: 'profile.apple-farming',
-      to: 'source.apple-wiki',
-      type: 'uses',
-      notes: 'Apple farming uses wiki/Obsidian as primary truth.'
-    },
-    {
-      from: 'profile.apple-farming',
-      to: 'job.apple-pp-useful-brief',
-      type: 'owns'
-    },
-    {
-      from: 'memory.gbrain',
-      to: 'global-deny-gbrain-paused',
-      type: 'governed_by'
-    },
-    {
-      from: 'tool.xurl',
-      to: 'global-deny-xurl-account-actions',
-      type: 'governed_by'
-    }
-  ]
-};
+const moduleDir = dirname(fileURLToPath(import.meta.url));
+
+export const defaultControlPlanePath = resolve(moduleDir, '..', 'data', 'hermes-v2.json');
+
+export class ControlPlaneLoadError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'ControlPlaneLoadError';
+  }
+}
+
+export function loadControlPlane(filePath: string): ControlPlane {
+  let parsed: unknown;
+
+  try {
+    parsed = JSON.parse(readFileSync(filePath, 'utf8'));
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    throw new ControlPlaneLoadError(`Failed to parse control plane JSON at ${filePath}: ${detail}`);
+  }
+
+  const controlPlane = parseControlPlane(parsed);
+  const errors = validateControlPlane(controlPlane).filter((issue) => issue.severity === 'error');
+
+  if (errors.length > 0) {
+    const detail = errors.map((issue) => `${issue.code}: ${issue.message}`).join('; ');
+    throw new ControlPlaneLoadError(`Control plane validation failed: ${detail}`);
+  }
+
+  return controlPlane;
+}
+
+export function loadDefaultControlPlane(): ControlPlane {
+  return loadControlPlane(defaultControlPlanePath);
+}
+
+export const hermesV1ControlPlane = loadDefaultControlPlane();
 
 export function evaluatePolicy(controlPlane: ControlPlane, request: PolicyRequest): PolicyDecision {
-  ensureProfile(controlPlane, request.profile);
+  const normalizedRequest = normalizePolicyRequest(request);
+  ensureProfile(controlPlane, normalizedRequest.profile);
 
-  const matchingRules = controlPlane.policies.filter((rule) => policyMatches(rule, request));
+  const matchingRules = controlPlane.policies.filter((rule) => policyMatches(rule, normalizedRequest));
   const selectedRule = matchingRules.sort((left, right) => {
     const rankDelta = effectRank[right.effect] - effectRank[left.effect];
     if (rankDelta !== 0) return rankDelta;
@@ -368,9 +83,9 @@ export function evaluatePolicy(controlPlane: ControlPlane, request: PolicyReques
       ruleId: 'default-approval-required',
       code: 'no_explicit_policy_match',
       reason: 'No explicit allow rule matched this action, so approval is required.',
-      profile: request.profile,
-      action: request.action,
-      tool: request.tool,
+      profile: normalizedRequest.profile,
+      action: normalizedRequest.action,
+      tool: normalizedRequest.tool,
       canEscalate: true,
       suggestedAlternative: 'Ask for explicit approval or add a policy rule.'
     };
@@ -381,9 +96,9 @@ export function evaluatePolicy(controlPlane: ControlPlane, request: PolicyReques
     ruleId: selectedRule.id,
     code: selectedRule.code ?? selectedRule.id,
     reason: selectedRule.reason,
-    profile: request.profile,
-    action: request.action,
-    tool: request.tool,
+    profile: normalizedRequest.profile,
+    action: normalizedRequest.action,
+    tool: normalizedRequest.tool,
     canEscalate: selectedRule.canEscalate ?? selectedRule.effect === 'approval_required',
     suggestedAlternative: selectedRule.suggestedAlternative
   };
@@ -393,16 +108,19 @@ export function resolveSourceRoute(
   controlPlane: ControlPlane,
   request: SourceRouteRequest
 ): ResolvedSourceRoute {
-  const profile = ensureProfile(controlPlane, request.profile);
-  const route = profile.routes.find((candidate) => candidate.intent === request.intent);
+  const normalizedRequest = normalizeSourceRouteRequest(request);
+  const profile = ensureProfile(controlPlane, normalizedRequest.profile);
+  const route = profile.routes.find((candidate) => candidate.intent === normalizedRequest.intent);
 
   if (!route) {
-    throw new Error(`No source route configured for profile ${request.profile} and intent ${request.intent}.`);
+    throw new Error(
+      `No source route configured for profile ${normalizedRequest.profile} and intent ${normalizedRequest.intent}.`
+    );
   }
 
   return {
     profile: profile.id,
-    intent: request.intent,
+    intent: normalizedRequest.intent,
     sources: route.sources.map((sourceId) => ensureSource(controlPlane, sourceId)),
     guardrails: profile.guardrails,
     notes: route.notes
@@ -410,7 +128,7 @@ export function resolveSourceRoute(
 }
 
 export function inspectProfile(controlPlane: ControlPlane, profileId: string): ProfileInspection {
-  const profile = ensureProfile(controlPlane, profileId);
+  const profile = ensureProfile(controlPlane, requireNonEmptyString(profileId, 'Profile id'));
 
   return {
     id: profile.id,
@@ -437,19 +155,21 @@ export function listObjects(controlPlane: ControlPlane, query: ObjectQuery = {})
 }
 
 export function getObject(controlPlane: ControlPlane, objectId: string): CmdbObject {
-  const object = controlPlane.objects.find((candidate) => candidate.id === objectId);
+  const normalizedObjectId = requireNonEmptyString(objectId, 'CMDB object id');
+  const object = controlPlane.objects.find((candidate) => candidate.id === normalizedObjectId);
   if (!object) {
-    throw new Error(`Unknown CMDB object: ${objectId}.`);
+    throw new Error(`Unknown CMDB object: ${normalizedObjectId}.`);
   }
   return object;
 }
 
 export function resolveGraphNeighbors(controlPlane: ControlPlane, nodeId: string): GraphResult {
-  const node = ensureGraphNode(controlPlane, nodeId);
+  const normalizedNodeId = requireNonEmptyString(nodeId, 'Graph node id');
+  const node = ensureGraphNode(controlPlane, normalizedNodeId);
   const neighbors = controlPlane.relationships
-    .filter((relationship) => relationship.from === nodeId || relationship.to === nodeId)
+    .filter((relationship) => relationship.from === normalizedNodeId || relationship.to === normalizedNodeId)
     .map((relationship) => {
-      const otherId = relationship.from === nodeId ? relationship.to : relationship.from;
+      const otherId = relationship.from === normalizedNodeId ? relationship.to : relationship.from;
       return {
         relationship,
         node: ensureGraphNode(controlPlane, otherId)
@@ -525,6 +245,20 @@ export function validateControlPlane(controlPlane: ControlPlane): ValidationIssu
     }
   }
 
+  for (let leftIndex = 0; leftIndex < controlPlane.policies.length; leftIndex += 1) {
+    for (let rightIndex = leftIndex + 1; rightIndex < controlPlane.policies.length; rightIndex += 1) {
+      const left = controlPlane.policies[leftIndex];
+      const right = controlPlane.policies[rightIndex];
+      if (policiesConflict(left, right)) {
+        issues.push({
+          severity: 'warning',
+          code: 'policy_conflict',
+          message: `Policy ${left.id} conflicts with policy ${right.id}; deny will win for overlapping requests.`
+        });
+      }
+    }
+  }
+
   for (const relationship of controlPlane.relationships) {
     for (const endpoint of [relationship.from, relationship.to]) {
       try {
@@ -543,15 +277,16 @@ export function validateControlPlane(controlPlane: ControlPlane): ValidationIssu
 }
 
 export function preflightAction(controlPlane: ControlPlane, request: PreflightRequest): PreflightResult {
-  const decision = evaluatePolicy(controlPlane, request);
+  const normalizedRequest = normalizePreflightRequest(request);
+  const decision = evaluatePolicy(controlPlane, normalizedRequest);
   let route: ResolvedSourceRoute | undefined;
   const warnings: string[] = [];
 
-  if (request.intent) {
+  if (normalizedRequest.intent) {
     try {
       route = resolveSourceRoute(controlPlane, {
-        profile: request.profile,
-        intent: request.intent
+        profile: normalizedRequest.profile,
+        intent: normalizedRequest.intent
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -559,7 +294,7 @@ export function preflightAction(controlPlane: ControlPlane, request: PreflightRe
     }
   }
 
-  const profile = inspectProfile(controlPlane, request.profile);
+  const profile = inspectProfile(controlPlane, normalizedRequest.profile);
 
   return {
     allowed: decision.effect === 'allow',
@@ -600,6 +335,151 @@ export function generateReadinessReport(controlPlane: ControlPlane): AgentCmdbRe
       warnings: issues.filter((issue) => issue.severity === 'warning').length,
       issues
     }
+  };
+}
+
+function parseControlPlane(value: unknown): ControlPlane {
+  const root = requireRecord(value, 'Control plane');
+
+  return {
+    version: readString(root, 'version', 'Control plane version'),
+    updatedAt: readString(root, 'updatedAt', 'Control plane updatedAt'),
+    sources: readArray(root, 'sources', 'Control plane sources').map(parseSourceRef),
+    profiles: readArray(root, 'profiles', 'Control plane profiles').map(parseAgentProfile),
+    policies: readArray(root, 'policies', 'Control plane policies').map(parsePolicyRule),
+    objects: readArray(root, 'objects', 'Control plane objects').map(parseCmdbObject),
+    relationships: readArray(root, 'relationships', 'Control plane relationships').map(parseRelationship)
+  };
+}
+
+function parseSourceRef(value: unknown): SourceRef {
+  const record = requireRecord(value, 'Source');
+  const kind = readString(record, 'kind', 'Source kind');
+  if (!['memory', 'tool', 'oauth', 'wiki', 'web', 'evidence'].includes(kind)) {
+    throw new ControlPlaneLoadError(`Source kind has invalid value ${kind}.`);
+  }
+
+  return {
+    id: readString(record, 'id', 'Source id'),
+    label: readString(record, 'label', 'Source label'),
+    kind: kind as SourceRef['kind'],
+    readOnly: readBoolean(record, 'readOnly', 'Source readOnly'),
+    notes: optionalString(record, 'notes')
+  };
+}
+
+function parseAgentProfile(value: unknown): AgentProfile {
+  const record = requireRecord(value, 'Profile');
+
+  return {
+    id: readString(record, 'id', 'Profile id'),
+    name: readString(record, 'name', 'Profile name'),
+    purpose: readString(record, 'purpose', 'Profile purpose'),
+    guardrails: readStringArray(record, 'guardrails', 'Profile guardrails'),
+    routes: readArray(record, 'routes', 'Profile routes').map(parseSourceRoute)
+  };
+}
+
+function parseSourceRoute(value: unknown): AgentProfile['routes'][number] {
+  const record = requireRecord(value, 'Source route');
+
+  return {
+    intent: readString(record, 'intent', 'Source route intent'),
+    sources: readStringArray(record, 'sources', 'Source route sources'),
+    notes: optionalString(record, 'notes')
+  };
+}
+
+function parsePolicyRule(value: unknown): PolicyRule {
+  const record = requireRecord(value, 'Policy');
+  const effect = readString(record, 'effect', 'Policy effect');
+  if (!['allow', 'deny', 'approval_required'].includes(effect)) {
+    throw new ControlPlaneLoadError(`Policy effect has invalid value ${effect}.`);
+  }
+
+  return {
+    id: readString(record, 'id', 'Policy id'),
+    effect: effect as PolicyEffect,
+    actions: readStringArray(record, 'actions', 'Policy actions'),
+    profiles: optionalStringArray(record, 'profiles', 'Policy profiles'),
+    tools: optionalStringArray(record, 'tools', 'Policy tools'),
+    reason: readString(record, 'reason', 'Policy reason'),
+    code: optionalString(record, 'code'),
+    canEscalate: optionalBoolean(record, 'canEscalate'),
+    suggestedAlternative: optionalString(record, 'suggestedAlternative')
+  };
+}
+
+function parseCmdbObject(value: unknown): CmdbObject {
+  const record = requireRecord(value, 'CMDB object');
+  const kind = readString(record, 'kind', 'CMDB object kind');
+  const status = readString(record, 'status', 'CMDB object status');
+  if (!['profile', 'source', 'tool', 'job', 'memory', 'policy', 'workspace'].includes(kind)) {
+    throw new ControlPlaneLoadError(`CMDB object kind has invalid value ${kind}.`);
+  }
+  if (!['active', 'paused', 'blocked', 'planned'].includes(status)) {
+    throw new ControlPlaneLoadError(`CMDB object status has invalid value ${status}.`);
+  }
+
+  return {
+    id: readString(record, 'id', 'CMDB object id'),
+    kind: kind as CmdbObject['kind'],
+    label: readString(record, 'label', 'CMDB object label'),
+    status: status as CmdbObject['status'],
+    profile: optionalString(record, 'profile'),
+    tags: readStringArray(record, 'tags', 'CMDB object tags'),
+    dependsOn: optionalStringArray(record, 'dependsOn', 'CMDB object dependsOn'),
+    notes: optionalString(record, 'notes')
+  };
+}
+
+function parseRelationship(value: unknown): Relationship {
+  const record = requireRecord(value, 'Relationship');
+  const type = readString(record, 'type', 'Relationship type');
+  if (!['uses', 'owns', 'governed_by', 'depends_on', 'blocks', 'writes_to'].includes(type)) {
+    throw new ControlPlaneLoadError(`Relationship type has invalid value ${type}.`);
+  }
+
+  return {
+    from: readString(record, 'from', 'Relationship from'),
+    to: readString(record, 'to', 'Relationship to'),
+    type: type as Relationship['type'],
+    notes: optionalString(record, 'notes')
+  };
+}
+
+function normalizePolicyRequest(request: PolicyRequest): PolicyRequest {
+  const record = requireRecord(request, 'Policy request');
+  const tool = record.tool === undefined
+    ? undefined
+    : requireNonEmptyString(record.tool, 'Policy request tool', 'when provided');
+
+  return {
+    profile: requireNonEmptyString(record.profile, 'Policy request profile'),
+    action: requireNonEmptyString(record.action, 'Policy request action'),
+    tool
+  };
+}
+
+function normalizeSourceRouteRequest(request: SourceRouteRequest): SourceRouteRequest {
+  const record = requireRecord(request, 'Source route request');
+
+  return {
+    profile: requireNonEmptyString(record.profile, 'Source route request profile'),
+    intent: requireNonEmptyString(record.intent, 'Source route request intent')
+  };
+}
+
+function normalizePreflightRequest(request: PreflightRequest): PreflightRequest {
+  const normalizedPolicy = normalizePolicyRequest(request);
+  const record = requireRecord(request, 'Preflight request');
+  const intent = record.intent === undefined
+    ? undefined
+    : requireNonEmptyString(record.intent, 'Preflight request intent', 'when provided');
+
+  return {
+    ...normalizedPolicy,
+    intent
   };
 }
 
@@ -658,6 +538,14 @@ function policyShadows(candidate: PolicyRule, policy: PolicyRule): boolean {
     && optionalListCovers(candidate.tools, policy.tools);
 }
 
+function policiesConflict(left: PolicyRule, right: PolicyRule): boolean {
+  if (left.effect === right.effect) return false;
+  if (left.effect !== 'deny' && right.effect !== 'deny') return false;
+  return listOverlaps(left.actions, right.actions)
+    && optionalListOverlaps(left.profiles, right.profiles)
+    && optionalListOverlaps(left.tools, right.tools);
+}
+
 function optionalListCovers(candidate: string[] | undefined, policy: string[] | undefined): boolean {
   if (!candidate) return true;
   if (!policy) return candidate.includes('*');
@@ -666,4 +554,69 @@ function optionalListCovers(candidate: string[] | undefined, policy: string[] | 
 
 function listCovers(candidate: string[], policy: string[]): boolean {
   return candidate.includes('*') || policy.every((value) => candidate.includes(value));
+}
+
+function optionalListOverlaps(left: string[] | undefined, right: string[] | undefined): boolean {
+  if (!left || !right) return true;
+  return listOverlaps(left, right);
+}
+
+function listOverlaps(left: string[], right: string[]): boolean {
+  return left.includes('*') || right.includes('*') || left.some((value) => right.includes(value));
+}
+
+function readArray(record: Record<string, unknown>, key: string, label: string): unknown[] {
+  const value = record[key];
+  if (!Array.isArray(value)) {
+    throw new ControlPlaneLoadError(`${label} must be an array.`);
+  }
+  return value;
+}
+
+function readStringArray(record: Record<string, unknown>, key: string, label: string): string[] {
+  return readArray(record, key, label).map((value) => requireNonEmptyString(value, label));
+}
+
+function optionalStringArray(record: Record<string, unknown>, key: string, label: string): string[] | undefined {
+  if (record[key] === undefined) return undefined;
+  return readStringArray(record, key, label);
+}
+
+function readString(record: Record<string, unknown>, key: string, label: string): string {
+  return requireNonEmptyString(record[key], label);
+}
+
+function optionalString(record: Record<string, unknown>, key: string): string | undefined {
+  if (record[key] === undefined) return undefined;
+  return requireNonEmptyString(record[key], key);
+}
+
+function readBoolean(record: Record<string, unknown>, key: string, label: string): boolean {
+  if (typeof record[key] !== 'boolean') {
+    throw new ControlPlaneLoadError(`${label} must be a boolean.`);
+  }
+  return record[key];
+}
+
+function optionalBoolean(record: Record<string, unknown>, key: string): boolean | undefined {
+  if (record[key] === undefined) return undefined;
+  if (typeof record[key] !== 'boolean') {
+    throw new ControlPlaneLoadError(`${key} must be a boolean.`);
+  }
+  return record[key];
+}
+
+function requireRecord(value: unknown, label: string): Record<string, unknown> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new ControlPlaneLoadError(`${label} must be an object.`);
+  }
+  return value as Record<string, unknown>;
+}
+
+function requireNonEmptyString(value: unknown, label: string, suffix?: string): string {
+  if (typeof value !== 'string' || value.trim().length === 0) {
+    const suffixText = suffix ? ` ${suffix}` : '';
+    throw new Error(`${label} must be a non-empty string${suffixText}.`);
+  }
+  return value;
 }

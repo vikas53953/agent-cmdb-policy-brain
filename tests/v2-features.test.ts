@@ -5,17 +5,19 @@ import { describe, expect, it } from 'vitest';
 import {
   generateReadinessReport,
   getObject,
-  hermesV1ControlPlane,
   listObjects,
+  loadDefaultControlPlane,
   preflightAction,
   resolveGraphNeighbors,
   validateControlPlane
 } from '../src/engine.js';
 import { appendChange, appendEvidence, CorruptStoreError, listChanges, listEvidence } from '../src/store.js';
 
+const controlPlane = loadDefaultControlPlane();
+
 describe('Agent CMDB V2 inventory', () => {
   it('lists profile-scoped active Gemma objects', () => {
-    const objects = listObjects(hermesV1ControlPlane, {
+    const objects = listObjects(controlPlane, {
       profile: 'gemma4cloud',
       status: 'active'
     });
@@ -26,7 +28,7 @@ describe('Agent CMDB V2 inventory', () => {
   });
 
   it('finds paused GBrain as a memory object', () => {
-    const object = getObject(hermesV1ControlPlane, 'memory.gbrain');
+    const object = getObject(controlPlane, 'memory.gbrain');
 
     expect(object.kind).toBe('memory');
     expect(object.status).toBe('paused');
@@ -36,7 +38,7 @@ describe('Agent CMDB V2 inventory', () => {
 
 describe('Agent CMDB V2 graph', () => {
   it('resolves Gemma profile neighbors', () => {
-    const graph = resolveGraphNeighbors(hermesV1ControlPlane, 'profile.gemma4cloud');
+    const graph = resolveGraphNeighbors(controlPlane, 'profile.gemma4cloud');
 
     expect(graph.node.id).toBe('profile.gemma4cloud');
     expect(graph.neighbors.map((neighbor) => neighbor.node.id)).toContain('source.xai-oauth');
@@ -46,7 +48,7 @@ describe('Agent CMDB V2 graph', () => {
 
 describe('Agent CMDB V2 preflight', () => {
   it('denies blocked action before route matters', () => {
-    const result = preflightAction(hermesV1ControlPlane, {
+    const result = preflightAction(controlPlane, {
       profile: 'gemma4cloud',
       action: 'x_account_post',
       tool: 'xurl',
@@ -61,7 +63,7 @@ describe('Agent CMDB V2 preflight', () => {
   });
 
   it('allows Gemma read-only research and attaches source route', () => {
-    const result = preflightAction(hermesV1ControlPlane, {
+    const result = preflightAction(controlPlane, {
       profile: 'gemma4cloud',
       action: 'x_research',
       tool: 'xai-oauth',
@@ -81,14 +83,14 @@ describe('Agent CMDB V2 preflight', () => {
 
 describe('Agent CMDB V2 validation and report', () => {
   it('validates starter control plane without errors', () => {
-    const issues = validateControlPlane(hermesV1ControlPlane);
+    const issues = validateControlPlane(controlPlane);
 
     expect(issues.filter((issue) => issue.severity === 'error')).toEqual([]);
   });
 
   it('warns when an earlier rule shadows a later policy rule', () => {
     const issues = validateControlPlane({
-      ...hermesV1ControlPlane,
+      ...controlPlane,
       policies: [
         {
           id: 'shadow-all-gemma',
@@ -115,7 +117,7 @@ describe('Agent CMDB V2 validation and report', () => {
   });
 
   it('generates readiness report counts', () => {
-    const report = generateReadinessReport(hermesV1ControlPlane);
+    const report = generateReadinessReport(controlPlane);
 
     expect(report.version).toBe('agent-cmdb-v2');
     expect(report.counts.profiles).toBe(2);

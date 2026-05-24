@@ -1,6 +1,6 @@
 import {
   generateReadinessReport,
-  hermesV1ControlPlane,
+  loadDefaultControlPlane,
   preflightAction,
   resolveSourceRoute,
   validateControlPlane
@@ -43,11 +43,12 @@ export interface IAgentCMDB {
 
 export interface AgentCmdbOptions {
   controlPlane?: ControlPlane;
-  storeDir: string;
+  storeDir?: string;
 }
 
 export function createAgentCmdb(options: AgentCmdbOptions): IAgentCMDB {
-  const controlPlane = options.controlPlane ?? hermesV1ControlPlane;
+  const controlPlane = options.controlPlane ?? loadDefaultControlPlane();
+  const storeDir = options.storeDir ?? process.env.AGENT_CMDB_STORE_DIR ?? 'agent-cmdb/state';
 
   return {
     preflight(request: PreflightRequest): PreflightResult {
@@ -57,16 +58,16 @@ export function createAgentCmdb(options: AgentCmdbOptions): IAgentCMDB {
       return resolveSourceRoute(controlPlane, request);
     },
     logEvidence(input: EvidenceInput): Promise<EvidenceRecord> {
-      return appendEvidence(options.storeDir, input);
+      return appendEvidence(storeDir, input);
     },
     listEvidence(query: EvidenceQuery = {}): Promise<EvidenceRecord[]> {
-      return listEvidence(options.storeDir, query);
+      return listEvidence(storeDir, query);
     },
     logChange(input: ChangeInput): Promise<ChangeRecord> {
-      return appendChange(options.storeDir, input);
+      return appendChange(storeDir, input);
     },
     listChanges(query: ChangeQuery = {}): Promise<ChangeRecord[]> {
-      return listChanges(options.storeDir, query);
+      return listChanges(storeDir, query);
     },
     validate(): ValidationIssue[] {
       return validateControlPlane(controlPlane);

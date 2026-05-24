@@ -20,4 +20,4 @@ V2 focuses on deterministic preflight safety before live Hermes integration. It 
 - what evidence and changes were recorded?
 - is the control plane valid?
 
-Live Hermes hooks are intentionally out of scope for V2. Hermes behavior is not changed until a separate preflight integration is implemented.
+Live Hermes mutation remains out of scope for V2. The repo now includes `src/hermes-preflight.ts` as a scaffolded one-call hook that Hermes can import later; it does not change a live Hermes profile by itself.

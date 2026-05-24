@@ -11,7 +11,7 @@ Agent CMDB is a network-style control plane for AI agents. V2 answers these ques
 
 It is intentionally local and deterministic. No live Hermes config is changed by this tool.
 
-For integration work, use the `IAgentCMDB` facade from `src/interface.ts` instead of importing engine internals directly.
+Control-plane data lives in `data/hermes-v2.json` and is loaded through `loadDefaultControlPlane()`. For integration work, use the `IAgentCMDB` facade from `src/interface.ts` or the one-call Hermes scaffold in `src/hermes-preflight.ts` instead of importing engine internals directly.
 
 ## Examples
 
@@ -88,6 +88,16 @@ npx tsx src/cli.ts report
 ```
 
 Expected: counts, denied actions, paused/blocked objects, and validation status.
+
+Hermes preflight scaffold:
+
+```ts
+import { hermesPreflight } from './src/hermes-preflight.js';
+
+const result = await hermesPreflight('x_account_post', 'gemma4cloud', 'xurl', 'x_research');
+```
+
+Expected: denied actions log evidence, and every decision logs a change record.
 
 ## V2 Guardrails
 

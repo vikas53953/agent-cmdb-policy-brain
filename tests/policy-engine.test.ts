@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { evaluatePolicy, hermesV1ControlPlane } from '../src/engine.js';
+import { evaluatePolicy, loadDefaultControlPlane } from '../src/engine.js';
+
+const controlPlane = loadDefaultControlPlane();
 
 describe('Agent CMDB policy engine', () => {
   it('denies xurl-backed X account posting even when research is otherwise allowed', () => {
-    const decision = evaluatePolicy(hermesV1ControlPlane, {
+    const decision = evaluatePolicy(controlPlane, {
       profile: 'gemma4cloud',
       action: 'x_account_post',
       tool: 'xurl'
@@ -15,7 +17,7 @@ describe('Agent CMDB policy engine', () => {
   });
 
   it('denies Bot Ops status sends for Gemma', () => {
-    const decision = evaluatePolicy(hermesV1ControlPlane, {
+    const decision = evaluatePolicy(controlPlane, {
       profile: 'gemma4cloud',
       action: 'send_bot_ops_status',
       tool: 'telegram'
@@ -27,7 +29,7 @@ describe('Agent CMDB policy engine', () => {
   });
 
   it('allows read-only X research for Gemma through xAI OAuth', () => {
-    const decision = evaluatePolicy(hermesV1ControlPlane, {
+    const decision = evaluatePolicy(controlPlane, {
       profile: 'gemma4cloud',
       action: 'x_research',
       tool: 'xai-oauth'
@@ -38,7 +40,7 @@ describe('Agent CMDB policy engine', () => {
   });
 
   it('denies X account actions even when no tool is provided', () => {
-    const decision = evaluatePolicy(hermesV1ControlPlane, {
+    const decision = evaluatePolicy(controlPlane, {
       profile: 'gemma4cloud',
       action: 'x_account_reply'
     });
@@ -51,7 +53,7 @@ describe('Agent CMDB policy engine', () => {
   it('supports wildcard actions for catch-all rules', () => {
     const decision = evaluatePolicy(
       {
-        ...hermesV1ControlPlane,
+        ...controlPlane,
         policies: [
           {
             id: 'gemma-maintenance-freeze',
@@ -77,7 +79,7 @@ describe('Agent CMDB policy engine', () => {
   });
 
   it('requires approval for unknown actions', () => {
-    const decision = evaluatePolicy(hermesV1ControlPlane, {
+    const decision = evaluatePolicy(controlPlane, {
       profile: 'gemma4cloud',
       action: 'new_unclassified_action',
       tool: 'unknown-tool'
