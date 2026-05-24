@@ -43,7 +43,6 @@ describe('OSS package shape', () => {
       'dist',
       'examples/basic',
       'examples/multi-agent',
-      'examples/langchain',
       'README.md',
       'LICENSE'
     ]);
@@ -113,8 +112,7 @@ describe('OSS package shape', () => {
   it('loads every shipped example control plane', () => {
     for (const examplePath of [
       join(process.cwd(), 'examples', 'basic', 'control-plane.yaml'),
-      join(process.cwd(), 'examples', 'multi-agent', 'control-plane.yaml'),
-      join(process.cwd(), 'examples', 'langchain', 'control-plane.yaml')
+      join(process.cwd(), 'examples', 'multi-agent', 'control-plane.yaml')
     ]) {
       expect(loadControlPlane(examplePath).profiles.length).toBeGreaterThan(0);
     }

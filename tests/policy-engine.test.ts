@@ -12,8 +12,8 @@ describe('Agent CMDB policy engine', () => {
     });
 
     expect(decision.effect).toBe('deny');
-    expect(decision.ruleId).toBe('global-deny-social-media-tool-account-actions');
-    expect(decision.reason).toContain('social-media-tool');
+    expect(decision.ruleId).toBe('object-status-blocked');
+    expect(decision.reason).toBe('Object tool.social-media-tool is blocked.');
   });
 
   it('denies Bot Ops status sends for Research', () => {
@@ -34,6 +34,74 @@ describe('Agent CMDB policy engine', () => {
       action: 'web_research',
       tool: 'web-search-api'
     });
+
+    expect(decision.effect).toBe('allow');
+    expect(decision.ruleId).toBe('research-allow-readonly-research');
+  });
+
+  it('denies a request when the referenced source object is blocked', () => {
+    const decision = evaluatePolicy(
+      {
+        ...controlPlane,
+        objects: controlPlane.objects.map((object) => object.id === 'source.web-search-api'
+          ? { ...object, status: 'blocked' }
+          : object)
+      },
+      {
+        profile: 'research-agent',
+        action: 'web_research',
+        tool: 'web-search-api'
+      }
+    );
+
+    expect(decision.effect).toBe('deny');
+    expect(decision.ruleId).toBe('object-status-blocked');
+    expect(decision.reason).toBe('Object source.web-search-api is blocked.');
+  });
+
+  it('denies a request when the referenced source object is paused', () => {
+    const decision = evaluatePolicy(
+      {
+        ...controlPlane,
+        objects: controlPlane.objects.map((object) => object.id === 'source.web-search-api'
+          ? { ...object, status: 'paused' }
+          : object)
+      },
+      {
+        profile: 'research-agent',
+        action: 'web_research',
+        tool: 'web-search-api'
+      }
+    );
+
+    expect(decision.effect).toBe('deny');
+    expect(decision.ruleId).toBe('object-status-paused');
+    expect(decision.reason).toBe('Object source.web-search-api is paused.');
+  });
+
+  it('uses normal policy evaluation when the referenced object is active', () => {
+    const decision = evaluatePolicy(controlPlane, {
+      profile: 'research-agent',
+      action: 'web_research',
+      tool: 'web-search-api'
+    });
+
+    expect(decision.effect).toBe('allow');
+    expect(decision.ruleId).toBe('research-allow-readonly-research');
+  });
+
+  it('uses normal policy evaluation when no source or tool object exists', () => {
+    const decision = evaluatePolicy(
+      {
+        ...controlPlane,
+        objects: controlPlane.objects.filter((object) => object.id !== 'source.web-search-api')
+      },
+      {
+        profile: 'research-agent',
+        action: 'web_research',
+        tool: 'web-search-api'
+      }
+    );
 
     expect(decision.effect).toBe('allow');
     expect(decision.ruleId).toBe('research-allow-readonly-research');

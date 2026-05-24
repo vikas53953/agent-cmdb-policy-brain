@@ -1,7 +1,7 @@
 {
   "name": "@pylabmit/agent-cmdb",
   "version": "1.5.0",
-  "description": "The firewall for AI agents: policy enforcement, source routing, and audit trails before your agent acts.",
+  "description": "Policy enforcement and memory for AI agents: preflight checks, source routing, and audit trails before your agent acts.",
   "type": "module",
   "license": "MIT",
   "repository": {
@@ -12,7 +12,6 @@
     "ai-agents",
     "agent-governance",
     "policy-engine",
-    "firewall",
     "cmdb",
     "preflight",
     "audit"
@@ -52,7 +51,6 @@
     "dist",
     "examples/basic",
     "examples/multi-agent",
-    "examples/langchain",
     "README.md",
     "LICENSE"
   ],

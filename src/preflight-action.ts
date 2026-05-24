@@ -1,10 +1,11 @@
 import { evaluatePolicy, normalizePolicyRequest } from './policy-engine.js';
 import { inspectProfile, resolveSourceRoute } from './route-resolver.js';
-import type { ControlPlane, PreflightRequest, PreflightResult, ResolvedSourceRoute } from './types.js';
+import type { ControlPlane, PolicyDecision, PreflightRequest, PreflightResult, ResolvedSourceRoute } from './types.js';
 
 export function preflightAction(controlPlane: ControlPlane, request: PreflightRequest): PreflightResult {
   const normalizedRequest = normalizePreflightRequest(request);
   const decision = evaluatePolicy(controlPlane, normalizedRequest);
+  let finalDecision: PolicyDecision = decision;
   let route: ResolvedSourceRoute | undefined;
   const warnings: string[] = [];
 
@@ -18,18 +19,32 @@ export function preflightAction(controlPlane: ControlPlane, request: PreflightRe
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      warnings.push(message);
+      const reason = `Route resolution failed: ${message}`;
+      warnings.push(reason);
+      if (decision.effect === 'allow') {
+        finalDecision = {
+          effect: 'deny',
+          ruleId: 'route-resolution-failed',
+          code: 'route_resolution_failed',
+          reason,
+          profile: normalizedRequest.profile,
+          action: normalizedRequest.action,
+          tool: normalizedRequest.tool,
+          canEscalate: false,
+          suggestedAlternative: 'Fix the source route for this profile and intent before executing.'
+        };
+      }
     }
   }
 
   const profile = inspectProfile(controlPlane, normalizedRequest.profile);
 
   return {
-    allowed: decision.effect === 'allow',
-    approvalRequired: decision.effect === 'approval_required',
-    decision,
+    allowed: finalDecision.effect === 'allow',
+    approvalRequired: finalDecision.effect === 'approval_required',
+    decision: finalDecision,
     route,
-    routeExecutable: decision.effect === 'allow' && Boolean(route),
+    routeExecutable: finalDecision.effect === 'allow' && Boolean(route),
     guardrails: route?.guardrails ?? profile.guardrails,
     warnings,
     dryRun: Boolean(normalizedRequest.dryRun)

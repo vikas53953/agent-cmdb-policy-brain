@@ -3,17 +3,17 @@
 *The full NMS for AI agents. Built by a network engineer.*
 
 Generated: 2026-05-24
-Current version: V1.5.0 (143 tests, policy + memory + digest + dry-run + freshness + doctor)
+Current version: V1.5.0 (153 tests, policy + memory + digest + dry-run + freshness + doctor)
 Repo: github.com/vikas53953/agent-cmdb-policy-brain
 Package: @pylabmit/agent-cmdb
 
 ---
 
-## What exists today (V1)
+## What exists today (shipped in V1/V1.5)
 
 V1 covers two of the five layers an agent operations stack needs.
 
-Layer 1 - Policy (the firewall): allow/deny/approval_required policy engine with deny-wins precedence, source routing with ordered preferences, CMDB object inventory, topology graph with typed relationships, policy shadow and conflict detection, control-plane validation, YAML/JSON config loader, preflight hook with structured denial responses.
+Layer 1 - Policy enforcement: allow/deny/approval_required policy engine with deny-wins precedence, source routing with ordered preferences, CMDB object inventory, topology graph with typed relationships, policy shadow and conflict detection, control-plane validation, YAML/JSON config loader, preflight hook with structured denial responses.
 
 Layer 2 - Memory (the knowledge base): markdown brain entity files with create/read/write/delete/search, append-only evidence timeline (JSONL), changelog with before/after diffs, daily and weekly digest generation, staleness detection with 7-day TTL, content sanitization against prompt injection.
 
@@ -25,17 +25,17 @@ What V1 does not solve: 18 problems related to reliability, security hardening, 
 
 ## Version plan overview
 
-| Version | Codename | Theme | New problems solved | Estimated Codex effort |
-| --- | --- | --- | --- | --- |
-| V1.0 | Firewall | Policy + memory | 12 of 30 | Done (122 tests, ~1.1M tokens) |
-| V1.5 | Hardline | Publish prep + quick wins | 14 of 30 | Done (143 tests) |
-| V2.0 | Monitor | SRE + reliability | 20 of 30 | ~400K tokens, ~30 min |
-| V3.0 | Shield | Security + observability | 26 of 30 | ~500K tokens, ~40 min |
-| V4.0 | Central | Management plane + dashboard | 30 of 30 | ~600K tokens, ~45 min |
+| Version | Status | Codename | Theme | New problems solved | Estimated Codex effort |
+| --- | --- | --- | --- | --- | --- |
+| V1.0 | Shipped | Foundation | Policy + memory | 12 of 30 | Done (122 tests, ~1.1M tokens) |
+| V1.5 | Shipped | Hardline | Publish prep + quick wins | 14 of 30 | Done (153 tests) |
+| V2.0 | Planned | Monitor | SRE + reliability | 20 of 30 | ~400K tokens, ~30 min |
+| V3.0 | Planned | Shield | Security + observability | 26 of 30 | ~500K tokens, ~40 min |
+| V4.0 | Planned | Central | Management plane + dashboard | 30 of 30 | ~600K tokens, ~45 min |
 
 ---
 
-## V1.5 - Hardline (publish prep + quick wins)
+## V1.5 - Hardline (shipped: publish prep + quick wins)
 
 Theme: Prepare the package for npm and add the features that are almost free because the infrastructure already exists.
 
@@ -92,12 +92,12 @@ Bump version to 1.5.0.
 Do NOT actually run npm publish - just confirm everything is ready.
 
 Commit: "feat: v1.5 - dry-run, source freshness, doctor command"
-Target: 130+ tests.
+Target: 153 tests.
 ```
 
 ---
 
-## V2.0 - Monitor (SRE + reliability)
+## V2.0 - Monitor (planned: SRE + reliability)
 
 Theme: Make agents reliable in production. When things fail, fail gracefully. When things degrade, detect it before the user notices. Focused on production monitoring and reliability.
 
@@ -258,7 +258,7 @@ Commit: "feat: v2.0 - health monitors, circuit breakers, SLOs, cost tracking, ch
 
 ---
 
-## V3.0 - Shield (security + observability)
+## V3.0 - Shield (planned: security + observability)
 
 Theme: Harden agents against attacks and give operators full visibility. Named after your Security Operations Center mindset from the Secure Intelligence Summit.
 
@@ -329,7 +329,7 @@ Final:
 
 ---
 
-## V4.0 - Central (management plane + dashboard)
+## V4.0 - Central (planned: management plane + dashboard)
 
 Theme: Central management, visual operations, and the features that turn Agent CMDB from a developer tool into an operations platform. Focused on central management for many agent profiles.
 
@@ -485,7 +485,7 @@ V4.0: The full NMS. No other project combines policy + memory + SRE + security +
 
 ## Build order recommendation
 
-V1.5 is complete. The package now has dry-run, doctor, source freshness metadata, and a clean 1.5.0 package surface.
+V1.5 is shipped. The package now has dry-run, doctor, source freshness metadata, object-status policy enforcement, route-failure deny behavior, and a clean 1.5.0 package surface.
 
 V2.0 next - this is the highest-value increment. Health monitors and circuit breakers are the features that make the difference between "interesting project" and "I need this in production." SLOs are the feature that makes managers care.
 

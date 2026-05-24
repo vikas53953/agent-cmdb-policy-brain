@@ -1,4 +1,4 @@
-import type { ControlPlane, PolicyDecision, PolicyEffect, PolicyRequest, PolicyRule } from './types.js';
+import type { CmdbObject, ControlPlane, PolicyDecision, PolicyEffect, PolicyRequest, PolicyRule } from './types.js';
 
 const effectRank: Record<PolicyEffect, number> = {
   deny: 3,
@@ -9,6 +9,21 @@ const effectRank: Record<PolicyEffect, number> = {
 export function evaluatePolicy(controlPlane: ControlPlane, request: PolicyRequest): PolicyDecision {
   const normalizedRequest = normalizePolicyRequest(request);
   ensureProfileExists(controlPlane, normalizedRequest.profile);
+  const blockedObject = findUnavailableReferencedObject(controlPlane, normalizedRequest);
+
+  if (blockedObject) {
+    return {
+      effect: 'deny',
+      ruleId: `object-status-${blockedObject.status}`,
+      code: `object_${blockedObject.status}`,
+      reason: `Object ${blockedObject.id} is ${blockedObject.status}.`,
+      profile: normalizedRequest.profile,
+      action: normalizedRequest.action,
+      tool: normalizedRequest.tool,
+      canEscalate: false,
+      suggestedAlternative: 'Use an active source or tool.'
+    };
+  }
 
   const matchingRules = controlPlane.policies.filter((rule) => policyMatches(rule, normalizedRequest));
   const selectedRule = matchingRules.sort((left, right) => {
@@ -101,6 +116,21 @@ function optionalListOverlaps(left: string[] | undefined, right: string[] | unde
 
 function listOverlaps(left: string[], right: string[]): boolean {
   return left.includes('*') || right.includes('*') || left.some((value) => right.includes(value));
+}
+
+function findUnavailableReferencedObject(controlPlane: ControlPlane, request: PolicyRequest): CmdbObject | undefined {
+  if (!request.tool) return undefined;
+
+  const candidateIds = new Set([
+    request.tool,
+    `source.${request.tool}`,
+    `tool.${request.tool}`
+  ]);
+
+  return controlPlane.objects.find((object) => (
+    candidateIds.has(object.id)
+    && (object.status === 'blocked' || object.status === 'paused')
+  ));
 }
 
 function ensureProfileExists(controlPlane: ControlPlane, profileId: string): void {

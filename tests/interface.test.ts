@@ -18,7 +18,7 @@ describe('IAgentCMDB contract', () => {
     });
 
     expect(preflight.allowed).toBe(false);
-    expect(preflight.decision.code).toBe('social_media_tool_account_actions_disabled');
+    expect(preflight.decision.code).toBe('object_blocked');
     expect(preflight.routeExecutable).toBe(false);
 
     const route = cmdb.resolveRoute({

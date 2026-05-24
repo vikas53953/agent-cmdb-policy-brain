@@ -36,7 +36,7 @@ describe('Agent CMDB CLI', () => {
     ]) as { allowed: boolean; decision: { ruleId: string } };
 
     expect(output.allowed).toBe(false);
-    expect(output.decision.ruleId).toBe('global-deny-social-media-tool-account-actions');
+    expect(output.decision.ruleId).toBe('object-status-blocked');
   });
 
   it('prints readiness report', () => {

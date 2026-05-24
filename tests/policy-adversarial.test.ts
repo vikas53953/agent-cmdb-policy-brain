@@ -31,7 +31,7 @@ describe('Agent CMDB policy adversarial behavior', () => {
     const decision = evaluatePolicy(withPolicies(policies), {
       profile: 'research-agent',
       action: 'social_post',
-      tool: 'social-media-tool'
+      tool: 'synthetic-social-tool'
     });
     const elapsedMs = performance.now() - startedAt;
 
@@ -58,7 +58,7 @@ describe('Agent CMDB policy adversarial behavior', () => {
           reason: 'Profile-specific allow.'
         }
       ]),
-      { profile: 'research-agent', action: 'social_post', tool: 'social-media-tool' }
+      { profile: 'research-agent', action: 'social_post', tool: 'synthetic-social-tool' }
     );
 
     expect(decision.effect).toBe('deny');
@@ -83,7 +83,7 @@ describe('Agent CMDB policy adversarial behavior', () => {
           reason: 'Global deny.'
         }
       ]),
-      { profile: 'research-agent', action: 'social_post', tool: 'social-media-tool' }
+      { profile: 'research-agent', action: 'social_post', tool: 'synthetic-social-tool' }
     );
 
     expect(decision.effect).toBe('deny');

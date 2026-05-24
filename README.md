@@ -1,6 +1,9 @@
 # Agent CMDB
 
-The firewall for AI agents.
+[![CI](https://github.com/vikas53953/agent-cmdb-policy-brain/actions/workflows/ci.yml/badge.svg)](https://github.com/vikas53953/agent-cmdb-policy-brain/actions/workflows/ci.yml)
+![Tests](https://img.shields.io/badge/tests-153_passing-brightgreen)
+
+Policy enforcement and memory for AI agents.
 
 Agent CMDB gives your agent a preflight check before it acts: policy enforcement, source routing, inventory, graph relationships, and audit trails.
 
@@ -11,6 +14,14 @@ Use it when you need to answer:
 - What rule blocked it, and why?
 - What evidence and config changes were recorded?
 - Is my agent control plane healthy enough to run?
+
+## How It Works
+
+Agent CMDB is a library your agent calls before acting. You wire `preflight()` into your agent's tool-call path. It evaluates policy, routes to the best source, and logs the decision. It does not automatically intercept tool calls - you integrate it into your agent framework.
+
+## What This Is NOT
+
+Agent CMDB is not a network proxy or middleware that sits between your agent and its tools. It is a policy evaluation library. For automatic tool-call interception, see Agent Airlock or `airlock-dev/airlock`.
 
 ## Install
 
@@ -148,11 +159,20 @@ Shipped examples:
 
 - [examples/basic/control-plane.yaml](examples/basic/control-plane.yaml): one profile, a few sources, simple allow/deny rules.
 - [examples/multi-agent/control-plane.yaml](examples/multi-agent/control-plane.yaml): three profiles with different permissions.
-- [examples/langchain](examples/langchain): a small LangChain-style pre-tool-call wrapper.
+
+Framework integrations are planned for V2. They are intentionally not shown as shipped examples until they import and wrap real framework APIs.
 
 ## Roadmap
 
 The product roadmap lives in [docs/agent-cmdb-roadmap.md](docs/agent-cmdb-roadmap.md). It maps production agent problems to release tiers from reliability hardening through central management and dashboard workflows.
+
+| Release | Status | Scope |
+| --- | --- | --- |
+| V1.0 | Shipped | Policy engine, source routing, CMDB inventory, evidence store, graph, brain, digest |
+| V1.5 | Shipped | npm packaging, dry-run, source freshness, doctor command |
+| V2.0 | Planned | Health monitors, circuit breakers, SLOs, cost tracking, checkpoint/resume |
+| V3.0 | Planned | Isolation, rate limiting, DLP inspection, trust scoring, schedules, webhooks |
+| V4.0 | Planned | REST/MCP API, dashboard, policy versioning, templates, incident response |
 
 ## CLI
 
@@ -212,7 +232,7 @@ src/cli.ts
 
 ## Design Boundary
 
-Agent CMDB combines policy enforcement with local agent memory. The brain is optional - omit `brainDir` if you only need the firewall.
+Agent CMDB combines policy enforcement with local agent memory. The brain is optional - omit `brainDir` if you only need policy evaluation, source routing, and audit trails.
 
 ## Development
 
@@ -224,6 +244,6 @@ npm run build
 
 Current verification target:
 
-- 130+ tests passing
+- 153 tests passing
 - strict TypeScript clean
 - clean `dist/` build

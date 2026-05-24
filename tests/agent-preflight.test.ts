@@ -35,7 +35,7 @@ describe('Agent preflight hook', () => {
     const result = await runAgentPreflight('social_post', 'research-agent', 'social-media-tool', 'web_research');
 
     expect(result.allowed).toBe(false);
-    expect(result.decision.ruleId).toBe('global-deny-social-media-tool-account-actions');
+    expect(result.decision.ruleId).toBe('object-status-blocked');
     expect(await listEvidence(storeDir, { profile: 'research-agent' })).toHaveLength(1);
     expect(await listChanges(storeDir, { actor: 'agent-preflight' })).toHaveLength(1);
   });
@@ -45,7 +45,7 @@ describe('Agent preflight hook', () => {
 
     expect(result.allowed).toBe(false);
     expect(result.dryRun).toBe(true);
-    expect(result.decision.ruleId).toBe('global-deny-social-media-tool-account-actions');
+    expect(result.decision.ruleId).toBe('object-status-blocked');
     expect(await listEvidence(storeDir)).toHaveLength(0);
     expect(await listChanges(storeDir)).toHaveLength(0);
   });

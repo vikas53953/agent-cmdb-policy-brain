@@ -59,7 +59,8 @@ describe('Agent CMDB V2 preflight', () => {
     expect(result.allowed).toBe(false);
     expect(result.decision.effect).toBe('deny');
     expect(result.decision.canEscalate).toBe(false);
-    expect(result.decision.suggestedAlternative).toContain('read-only research sources');
+    expect(result.decision.reason).toBe('Object tool.social-media-tool is blocked.');
+    expect(result.decision.suggestedAlternative).toContain('active source or tool');
     expect(result.route?.sources[0].id).toBe('web-search-api');
   });
 
@@ -79,6 +80,33 @@ describe('Agent CMDB V2 preflight', () => {
       'news-aggregator',
       'tech-forum'
     ]);
+  });
+
+  it('denies preflight when route resolution fails', () => {
+    const result = preflightAction(controlPlane, {
+      profile: 'research-agent',
+      action: 'web_research',
+      tool: 'web-search-api',
+      intent: 'missing_route'
+    });
+
+    expect(result.allowed).toBe(false);
+    expect(result.routeExecutable).toBe(false);
+    expect(result.decision.effect).toBe('deny');
+    expect(result.decision.ruleId).toBe('route-resolution-failed');
+  });
+
+  it('explains route resolution failures in the preflight decision reason', () => {
+    const result = preflightAction(controlPlane, {
+      profile: 'research-agent',
+      action: 'web_research',
+      tool: 'web-search-api',
+      intent: 'missing_route'
+    });
+
+    expect(result.decision.reason).toContain('Route resolution failed');
+    expect(result.decision.reason).toContain('missing_route');
+    expect(result.warnings).toContain(result.decision.reason);
   });
 });
 
