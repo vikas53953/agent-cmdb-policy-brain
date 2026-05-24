@@ -149,6 +149,10 @@ Shipped examples:
 - [examples/hermes/control-plane.json](examples/hermes/control-plane.json): a real-world Hermes profile map.
 - [examples/langchain](examples/langchain): a small LangChain-style pre-tool-call wrapper.
 
+## Roadmap
+
+The product roadmap lives in [docs/agent-cmdb-roadmap.md](docs/agent-cmdb-roadmap.md). It maps 30 production agent problems to release tiers from V1.5 Hardline through V4.0 FortiManager.
+
 ## CLI
 
 ```bash
