@@ -1,4 +1,4 @@
-﻿# Agent CMDB - Product roadmap
+# Agent CMDB - Product roadmap
 
 *The full NMS for AI agents. Built by a network engineer.*
 
@@ -29,9 +29,9 @@ What V1 does not solve: 18 problems related to reliability, security hardening, 
 | --- | --- | --- | --- | --- |
 | V1.0 | Firewall | Policy + memory | 12 of 30 | Done (122 tests, ~1.1M tokens) |
 | V1.5 | Hardline | Publish prep + quick wins | 14 of 30 | Done (143 tests) |
-| V2.0 | SevOne | SRE + reliability | 20 of 30 | ~400K tokens, ~30 min |
-| V3.0 | SOC | Security + observability | 26 of 30 | ~500K tokens, ~40 min |
-| V4.0 | FortiManager | Management plane + dashboard | 30 of 30 | ~600K tokens, ~45 min |
+| V2.0 | Monitor | SRE + reliability | 20 of 30 | ~400K tokens, ~30 min |
+| V3.0 | Shield | Security + observability | 26 of 30 | ~500K tokens, ~40 min |
+| V4.0 | Central | Management plane + dashboard | 30 of 30 | ~600K tokens, ~45 min |
 
 ---
 
@@ -43,11 +43,11 @@ Theme: Prepare the package for npm and add the features that are almost free bec
 
 1. npm publish preparation - package metadata, build, and pack verification for @pylabmit/agent-cmdb.
 
-2. Policy dry-run mode - preflight --dry-run that traces the evaluation path without logging evidence or changes. Lets you test "what would happen if" without side effects. Network analogy: diagnose debug flow on FortiGate.
+2. Policy dry-run mode - preflight --dry-run that traces the evaluation path without logging evidence or changes. Lets you test "what would happen if" without side effects. Network analogy: diagnose debug flow on firewall.
 
 3. Source freshness scoring - each source in the control plane gets an optional freshnessTtl field (e.g., "7d", "24h", "1h"). The route resolver checks brain entity age against TTL and marks stale sources in the PreflightResult. Network analogy: OSPF LSA MaxAge.
 
-4. npx agent-cmdb doctor - loads control plane, runs validation, checks brain health (entity count, stale entities, orphaned files), checks store health (evidence count, last write time). Prints a clean pass/fail report. Network analogy: show system status on FortiGate.
+4. npx agent-cmdb doctor - loads control plane, runs validation, checks brain health (entity count, stale entities, orphaned files), checks store health (evidence count, last write time). Prints a clean pass/fail report. Network analogy: show system status on firewall.
 
 ### Problems solved
 
@@ -97,9 +97,9 @@ Target: 130+ tests.
 
 ---
 
-## V2.0 - SevOne (SRE + reliability)
+## V2.0 - Monitor (SRE + reliability)
 
-Theme: Make agents reliable in production. When things fail, fail gracefully. When things degrade, detect it before the user notices. Named after SevOne, your network performance monitoring tool.
+Theme: Make agents reliable in production. When things fail, fail gracefully. When things degrade, detect it before the user notices. Focused on production monitoring and reliability.
 
 ### New features
 
@@ -107,9 +107,9 @@ Theme: Make agents reliable in production. When things fail, fail gracefully. Wh
 
 6. Circuit breakers - when a source goes down, set a recovery timeout (default 30 seconds). After timeout, status moves to half-open and one test call is allowed. If it succeeds, source returns to up. If it fails, back to down with another timeout. Network analogy: exact same pattern as circuit breakers in microservices, but applied at the source routing level.
 
-7. Agent SLOs - define reliability targets per profile in the control plane: "research-agent: 95% preflight-allow rate over 24 hours." Track from evidence records. When error budget is exhausted (too many denials or failures), emit a warning in the health report. Network analogy: SevOne SLA monitoring with threshold alerts.
+7. Agent SLOs - define reliability targets per profile in the control plane: "research-agent: 95% preflight-allow rate over 24 hours." Track from evidence records. When error budget is exhausted (too many denials or failures), emit a warning in the health report. Network analogy: SLA monitoring with threshold alerts.
 
-8. Error budgets - calculated from SLO targets. If the SLO is 95% over 24 hours and the agent has had 6 out of 100 actions denied or failed, the error budget is exhausted. The agent profile gets a degraded status. Network analogy: NRE error budget tracking.
+8. Error budgets - calculated from SLO targets. If the SLO is 95% over 24 hours and the agent has had 6 out of 100 actions denied or failed, the error budget is exhausted. The agent profile gets a degraded status. Network analogy: SRE error budget tracking.
 
 9. Token/cost tracking - every preflight decision records estimated token usage and cost (configurable per-source cost rates). Daily digest includes total tokens and cost for the day. Network analogy: bandwidth utilization tracking per interface.
 
@@ -258,21 +258,21 @@ Commit: "feat: v2.0 - health monitors, circuit breakers, SLOs, cost tracking, ch
 
 ---
 
-## V3.0 - SOC (security + observability)
+## V3.0 - Shield (security + observability)
 
 Theme: Harden agents against attacks and give operators full visibility. Named after your Security Operations Center mindset from the Secure Intelligence Summit.
 
 ### New features
 
-11. Multi-agent namespaces (VDOMs) - each agent profile gets its own isolated namespace. Profile A cannot read Profile B's brain entities, evidence, or checkpoints. Enforced at the filesystem level: each namespace gets its own storeDir and brainDir subdirectory. Network analogy: FortiGate VDOMs with per-VDOM routing and policy tables.
+11. Multi-agent namespaces (VDOMs) - each agent profile gets its own isolated namespace. Profile A cannot read Profile B's brain entities, evidence, or checkpoints. Enforced at the filesystem level: each namespace gets its own storeDir and brainDir subdirectory. Network analogy: isolated namespaces with per-VDOM routing and policy tables.
 
 12. Rate limiting - configurable limits per source per profile: "research-agent can make max 100 serpapi calls per hour." Track call counts in a rolling window. Block with a descriptive error when limit is hit. Network analogy: QoS rate limiting on interface.
 
-13. DLP / content inspection - before an agent writes to any external destination, scan the output for PII patterns (email, phone, SSN, credit card), API key patterns (sk-*, ghp_*, AKIA*), and internal URL patterns. Block or redact. Configurable sensitivity levels. Network analogy: FortiGate DLP profiles with content inspection.
+13. DLP / content inspection - before an agent writes to any external destination, scan the output for PII patterns (email, phone, SSN, credit card), API key patterns (sk-*, ghp_*, AKIA*), and internal URL patterns. Block or redact. Configurable sensitivity levels. Network analogy: firewall DLP profiles with content inspection.
 
 14. Agent trust scoring - each profile gets a trust score (0-100, default 80). Trust decreases on: policy violations (-10), SLO breaches (-5), failed health checks (-2). Trust increases on: successful task completion (+1), clean daily digest (+2). When trust drops below a threshold (default 50), the profile automatically downgrades to a restricted policy set. Network analogy: NAC trust scoring with quarantine VLAN.
 
-15. Time-based policies (schedule objects) - policies can have an optional schedule field: { days: ['mon','tue','wed','thu','fri'], startHour: 9, endHour: 18, timezone: 'Asia/Kolkata' }. Policy only applies during the scheduled window. Network analogy: FortiGate schedule objects on firewall policies.
+15. Time-based policies (schedule objects) - policies can have an optional schedule field: { days: ['mon','tue','wed','thu','fri'], startHour: 9, endHour: 18, timezone: 'Asia/Kolkata' }. Policy only applies during the scheduled window. Network analogy: firewall schedule objects on firewall policies.
 
 16. Webhook notifications - configurable webhooks that fire on: policy violation, SLO breach, circuit breaker trip, trust score drop, daily digest completion. Supports HTTP POST to any URL. Network analogy: SNMP traps to NMS.
 
@@ -295,7 +295,7 @@ Problem 26 (works in test not prod): trust scoring detects production-specific d
 Repo: agent-cmdb-policy-brain (local, on main)
 Read AGENTS.md first.
 
-/spawn --reasoning high "Build multi-agent namespaces: add namespace isolation to IAgentCMDB so each profile gets its own storeDir/brainDir subdirectory. createAgentCmdb({ namespace: 'gemma4cloud' }) scopes all operations to that namespace. Test that Profile A cannot read Profile B's brain entities. Write to /tmp/vdom-report.txt"
+/spawn --reasoning high "Build multi-agent namespaces: add namespace isolation to IAgentCMDB so each profile gets its own storeDir/brainDir subdirectory. createAgentCmdb({ namespace: 'research-agent' }) scopes all operations to that namespace. Test that Profile A cannot read Profile B's brain entities. Write to /tmp/vdom-report.txt"
 
 /spawn --reasoning high "Build rate limiting: create src/rate-limiter.ts with a sliding window counter per source per profile. Store counts in storeDir/rate-limits.json. Add rateLimit?: { maxCalls: number, windowMinutes: number } to SourceRef. Update route resolver to check rate limits before including a source. Block with descriptive error when limit hit. Write to /tmp/rate-limit-report.txt"
 
@@ -329,25 +329,25 @@ Final:
 
 ---
 
-## V4.0 - FortiManager (management plane + dashboard)
+## V4.0 - Central (management plane + dashboard)
 
-Theme: Central management, visual operations, and the features that turn Agent CMDB from a developer tool into an operations platform. Named after FortiManager, the central management system for your 800+ FortiGate fleet.
+Theme: Central management, visual operations, and the features that turn Agent CMDB from a developer tool into an operations platform. Focused on central management for many agent profiles.
 
 ### New features
 
-18. REST/MCP API - expose all IAgentCMDB operations as a local HTTP server (Hono or Express) and as an MCP server. Any agent framework can call Agent CMDB without importing the TypeScript package. Network analogy: FortiManager REST API / SNMP management interface.
+18. REST/MCP API - expose all IAgentCMDB operations as a local HTTP server (Hono or Express) and as an MCP server. Any agent framework can call Agent CMDB without importing the TypeScript package. Network analogy: management API.
 
-19. SOC dashboard (React UI) - a local Vite+React app that shows: policy table with hit counts, evidence timeline with search and filters, brain entity map with staleness indicators, source health status with circuit breaker state, SLO compliance gauges, trust score per profile, recent denials with reasons, daily/weekly digest viewer, cost tracking charts. Network analogy: FortiAnalyzer SOC dashboard.
+19. Operations dashboard (React UI) - a local Vite+React app that shows: policy table with hit counts, evidence timeline with search and filters, brain entity map with staleness indicators, source health status with circuit breaker state, SLO compliance gauges, trust score per profile, recent denials with reasons, daily/weekly digest viewer, cost tracking charts. Network analogy: log analytics Operations dashboard.
 
-20. Policy versioning with rollback - every policy change gets a revision number and timestamp. Store revisions in storeDir/revisions/ as timestamped JSON files. CLI command to diff revisions and rollback. Network analogy: FortiManager config revision history.
+20. Policy versioning with rollback - every policy change gets a revision number and timestamp. Store revisions in storeDir/revisions/ as timestamped JSON files. CLI command to diff revisions and rollback. Network analogy: config revision history.
 
-21. Agent onboarding templates - npx agent-cmdb template creates a new profile from a template. Ship templates for common agent types: research agent, content creator, code assistant, customer support. Each template has sensible default policies, sources, and guardrails. Network analogy: FortiManager device templates.
+21. Agent onboarding templates - npx agent-cmdb template creates a new profile from a template. Ship templates for common agent types: research agent, content creator, code assistant, customer support. Each template has sensible default policies, sources, and guardrails. Network analogy: agent templates.
 
-22. Incident response runbooks - when an agent violation occurs (policy deny, trust drop, SLO breach), automatically generate an incident record in brain/decisions/ with: what happened, which rule triggered, what the agent was trying to do, recommended next steps. Network analogy: SOC incident response playbooks.
+22. Incident response runbooks - when an agent violation occurs (policy deny, trust drop, SLO breach), automatically generate an incident record in brain/decisions/ with: what happened, which rule triggered, what the agent was trying to do, recommended next steps. Network analogy: security incident response playbooks.
 
-23. Agent HA / failover - define backup profiles in the control plane. When primary profile's trust drops below quarantine threshold or its error budget is exhausted, automatically failover to the backup profile (which may have more restricted permissions). Network analogy: FortiGate HA active-passive with automatic failover.
+23. Agent HA / failover - define backup profiles in the control plane. When primary profile's trust drops below quarantine threshold or its error budget is exhausted, automatically failover to the backup profile (which may have more restricted permissions). Network analogy: active-passive failover with automatic failover.
 
-24. Knowledge transfer between agents - export a brain entity set as a portable archive (tar.gz of markdown files + index.json). Import into another agent's brain. Network analogy: config export/import between FortiGate devices.
+24. Knowledge transfer between agents - export a brain entity set as a portable archive (tar.gz of markdown files + index.json). Import into another agent's brain. Network analogy: config export/import between managed agents.
 
 ### Problems solved
 
@@ -479,7 +479,7 @@ V2.0: First agent tool with source-level circuit breakers (Microsoft does agent-
 
 V3.0: First local-first agent tool with full security stack: VDOM isolation + rate limiting + DLP + trust scoring + time-based policies + webhooks. Microsoft has this at enterprise scale but not local-first.
 
-V4.0: The full NMS. No other project combines policy + memory + SRE + security + management plane + dashboard in one package. This is FortiGate + FortiAnalyzer + FortiManager + SevOne for AI agents.
+V4.0: The full NMS. No other project combines policy + memory + SRE + security + management plane + dashboard in one package. This is firewall + log analytics + Central + Monitor for AI agents.
 
 ---
 

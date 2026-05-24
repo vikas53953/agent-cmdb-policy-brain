@@ -24,7 +24,7 @@ describe('IAgentCMDB adversarial contract', () => {
     expect(() =>
       // @ts-expect-error runtime adversarial input
       cmdb.preflight({
-        profile: 'gemma4cloud'
+        profile: 'research-agent'
       })
     ).toThrow('Policy request action must be a non-empty string.');
   });
@@ -44,7 +44,7 @@ describe('IAgentCMDB adversarial contract', () => {
     await expect(
       // @ts-expect-error runtime adversarial input
       cmdb.logEvidence({
-        profile: 'gemma4cloud'
+        profile: 'research-agent'
       })
     ).rejects.toThrow('Evidence source must be a non-empty string.');
     await expect(cmdb.listEvidence()).resolves.toHaveLength(0);
@@ -55,9 +55,9 @@ describe('IAgentCMDB adversarial contract', () => {
 
     await expect(
       cmdb.logEvidence({
-        profile: 'gemma4cloud',
-        source: 'xai-oauth',
-        intent: 'x_research',
+        profile: 'research-agent',
+        source: 'web-search-api',
+        intent: 'web_research',
         summary: 'Invalid trust probe.',
         // @ts-expect-error runtime adversarial input
         trust: 'garbage',
@@ -86,7 +86,7 @@ describe('IAgentCMDB adversarial contract', () => {
     await expect(
       // @ts-expect-error runtime adversarial input
       cmdb.logChange({
-        target: 'policy.global-deny-xurl-account-actions'
+        target: 'policy.global-deny-social-media-tool-account-actions'
       })
     ).rejects.toThrow('Change targetType must be a non-empty string.');
     await expect(cmdb.listChanges()).resolves.toHaveLength(0);
@@ -97,7 +97,7 @@ describe('IAgentCMDB adversarial contract', () => {
 
     await expect(
       cmdb.logChange({
-        target: 'policy.global-deny-xurl-account-actions',
+        target: 'policy.global-deny-social-media-tool-account-actions',
         // @ts-expect-error runtime adversarial input
         targetType: 'bogus',
         action: 'verify',
@@ -109,7 +109,7 @@ describe('IAgentCMDB adversarial contract', () => {
 
     await expect(
       cmdb.logChange({
-        target: 'policy.global-deny-xurl-account-actions',
+        target: 'policy.global-deny-social-media-tool-account-actions',
         targetType: 'policy',
         // @ts-expect-error runtime adversarial input
         action: 'blocked',

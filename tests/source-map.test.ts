@@ -1,51 +1,51 @@
 import { describe, expect, it } from 'vitest';
-import { hermesExampleControlPlanePath, inspectProfile, loadControlPlane, resolveSourceRoute } from '../src/engine.js';
+import { multiAgentExampleControlPlanePath, inspectProfile, loadControlPlane, resolveSourceRoute } from '../src/engine.js';
 
-const controlPlane = loadControlPlane(hermesExampleControlPlanePath);
+const controlPlane = loadControlPlane(multiAgentExampleControlPlanePath);
 
 describe('Agent CMDB source map', () => {
-  it('routes apple-farming weather through wiki before PP weather tools', () => {
+  it('routes content-agent weather through local knowledge before weather tools', () => {
     const route = resolveSourceRoute(controlPlane, {
-      profile: 'apple-farming',
+      profile: 'content-agent',
       intent: 'weather'
     });
 
     expect(route.sources.map((source) => source.id)).toEqual([
-      'apple-wiki',
-      'open-meteo-pp-cli',
-      'weather-goat-pp-cli'
+      'local-knowledge-base',
+      'weather-api',
+      'weather-backup'
     ]);
-    expect(route.guardrails).toContain('Use Obsidian/wiki as primary truth before public sources.');
+    expect(route.guardrails).toContain('Prefer local knowledge before external sources.');
   });
 
-  it('routes Gemma X research through xAI OAuth before supporting PP sources', () => {
+  it('routes research-agent web research through read-only sources', () => {
     const route = resolveSourceRoute(controlPlane, {
-      profile: 'gemma4cloud',
-      intent: 'x_research'
+      profile: 'research-agent',
+      intent: 'web_research'
     });
 
     expect(route.sources.map((source) => source.id)).toEqual([
-      'xai-oauth',
-      'last30days',
-      'techmeme-pp-cli',
-      'hackernews-pp-cli'
+      'web-search-api',
+      'recent-history-cache',
+      'news-aggregator',
+      'tech-forum'
     ]);
   });
 
   it('returns profile inspection with routes and guardrails', () => {
-    const profile = inspectProfile(controlPlane, 'apple-farming');
+    const profile = inspectProfile(controlPlane, 'content-agent');
 
-    expect(profile.id).toBe('apple-farming');
-    expect(profile.guardrails).toContain('GBrain remains paused.');
+    expect(profile.id).toBe('content-agent');
+    expect(profile.guardrails).toContain('Prefer local knowledge before external sources.');
     expect(profile.routes.map((route) => route.intent)).toContain('weather');
   });
 
   it('throws a clear error for unknown source routes', () => {
     expect(() =>
       resolveSourceRoute(controlPlane, {
-        profile: 'apple-farming',
-        intent: 'x_account_post'
+        profile: 'content-agent',
+        intent: 'social_post'
       })
-    ).toThrow('No source route configured for profile apple-farming and intent x_account_post.');
+    ).toThrow('No source route configured for profile content-agent and intent social_post.');
   });
 });

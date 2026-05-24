@@ -37,22 +37,22 @@ function runCli(args: string[]): CliResult {
 
 describe('Agent CMDB CLI adversarial behavior', () => {
   it.each([
-    [['policy', '--action', 'x_account_post'], 'Missing required --profile.'],
-    [['policy', '--profile', 'gemma4cloud'], 'Missing required --action.'],
+    [['policy', '--action', 'social_post'], 'Missing required --profile.'],
+    [['policy', '--profile', 'research-agent'], 'Missing required --action.'],
     [['route', '--intent', 'weather'], 'Missing required --profile.'],
-    [['route', '--profile', 'apple-farming'], 'Missing required --intent.'],
+    [['route', '--profile', 'content-agent'], 'Missing required --intent.'],
     [['inspect'], 'Missing required --profile.'],
-    [['preflight', '--action', 'x_account_post'], 'Missing required --profile.'],
-    [['preflight', '--profile', 'gemma4cloud'], 'Missing required --action.'],
+    [['preflight', '--action', 'social_post'], 'Missing required --profile.'],
+    [['preflight', '--profile', 'research-agent'], 'Missing required --action.'],
     [['graph'], 'Missing required --id.'],
-    [['evidence-add', '--source', 'xai-oauth', '--intent', 'x_research', '--summary', 'probe'], 'Missing required --profile.'],
-    [['evidence-add', '--profile', 'gemma4cloud', '--intent', 'x_research', '--summary', 'probe'], 'Missing required --source.'],
-    [['evidence-add', '--profile', 'gemma4cloud', '--source', 'xai-oauth', '--summary', 'probe'], 'Missing required --intent.'],
-    [['evidence-add', '--profile', 'gemma4cloud', '--source', 'xai-oauth', '--intent', 'x_research'], 'Missing required --summary.'],
+    [['evidence-add', '--source', 'web-search-api', '--intent', 'web_research', '--summary', 'probe'], 'Missing required --profile.'],
+    [['evidence-add', '--profile', 'research-agent', '--intent', 'web_research', '--summary', 'probe'], 'Missing required --source.'],
+    [['evidence-add', '--profile', 'research-agent', '--source', 'web-search-api', '--summary', 'probe'], 'Missing required --intent.'],
+    [['evidence-add', '--profile', 'research-agent', '--source', 'web-search-api', '--intent', 'web_research'], 'Missing required --summary.'],
     [['change-add', '--target-type', 'policy', '--action', 'verify', '--reason', 'probe'], 'Missing required --target.'],
-    [['change-add', '--target', 'policy.global-deny-xurl-account-actions', '--action', 'verify', '--reason', 'probe'], 'Missing required --target-type.'],
-    [['change-add', '--target', 'policy.global-deny-xurl-account-actions', '--target-type', 'policy', '--reason', 'probe'], 'Missing required --action.'],
-    [['change-add', '--target', 'policy.global-deny-xurl-account-actions', '--target-type', 'policy', '--action', 'verify'], 'Missing required --reason.']
+    [['change-add', '--target', 'policy.global-deny-social-media-tool-account-actions', '--action', 'verify', '--reason', 'probe'], 'Missing required --target-type.'],
+    [['change-add', '--target', 'policy.global-deny-social-media-tool-account-actions', '--target-type', 'policy', '--reason', 'probe'], 'Missing required --action.'],
+    [['change-add', '--target', 'policy.global-deny-social-media-tool-account-actions', '--target-type', 'policy', '--action', 'verify'], 'Missing required --reason.']
   ])('prints a clean error for missing required flags: %s', (args, expectedError) => {
     const result = runCli(args);
 
@@ -85,11 +85,11 @@ describe('Agent CMDB CLI adversarial behavior', () => {
       '--store',
       storeDir,
       '--profile',
-      'gemma4cloud',
+      'research-agent',
       '--source',
-      'xai-oauth',
+      'web-search-api',
       '--intent',
-      'x_research',
+      'web_research',
       '--summary',
       'CLI evidence store creation probe'
     ]);
@@ -106,7 +106,7 @@ describe('Agent CMDB CLI adversarial behavior', () => {
       '--store',
       storeDir,
       '--target',
-      'policy.global-deny-xurl-account-actions',
+      'policy.global-deny-social-media-tool-account-actions',
       '--target-type',
       'policy',
       '--action',

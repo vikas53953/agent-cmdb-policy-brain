@@ -2,7 +2,7 @@
 
 The firewall for AI agents.
 
-Agent CMDB gives agents the control-plane primitives network engineers already trust: policy enforcement, source routing, inventory, graph relationships, and audit trails before an agent acts.
+Agent CMDB gives your agent a preflight check before it acts: policy enforcement, source routing, inventory, graph relationships, and audit trails.
 
 Use it when you need to answer:
 
@@ -148,12 +148,11 @@ Shipped examples:
 
 - [examples/basic/control-plane.yaml](examples/basic/control-plane.yaml): one profile, a few sources, simple allow/deny rules.
 - [examples/multi-agent/control-plane.yaml](examples/multi-agent/control-plane.yaml): three profiles with different permissions.
-- [examples/hermes/control-plane.json](examples/hermes/control-plane.json): a real-world Hermes profile map.
 - [examples/langchain](examples/langchain): a small LangChain-style pre-tool-call wrapper.
 
 ## Roadmap
 
-The product roadmap lives in [docs/agent-cmdb-roadmap.md](docs/agent-cmdb-roadmap.md). It maps 30 production agent problems to release tiers from V1.5 Hardline through V4.0 FortiManager.
+The product roadmap lives in [docs/agent-cmdb-roadmap.md](docs/agent-cmdb-roadmap.md). It maps production agent problems to release tiers from reliability hardening through central management and dashboard workflows.
 
 ## CLI
 
@@ -173,22 +172,22 @@ npx agent-cmdb report
 Use a specific config file:
 
 ```bash
-npx agent-cmdb preflight --config ./examples/hermes/control-plane.json --profile gemma4cloud --action x_account_post --tool xurl --intent x_research
+npx agent-cmdb preflight --config ./examples/multi-agent/control-plane.yaml --profile research-agent --action social_post --tool social-media-tool --intent web_research
 ```
 
 ## Mental Model
 
-If you know network operations, you already know Agent CMDB:
+If you know infrastructure operations, you already know Agent CMDB:
 
-| Network concept | Agent CMDB |
+| Infrastructure concept | Agent CMDB |
 | --- | --- |
 | Firewall policy | Policy engine |
 | Routing table | Source routing |
-| SIEM / syslog | Evidence timeline |
-| Config archive | Brain entity files |
-| FortiAnalyzer reports | Daily/weekly digests |
-| Runbook library | Decision records |
-| CMDB | Entity index |
+| Log management | Evidence timeline |
+| Config backups | Brain entity files |
+| Automated reports | Daily/weekly digests |
+| Operations runbooks | Decision records |
+| Asset inventory | Entity index |
 
 `preflight()` is the packet filter before the agent executes.
 

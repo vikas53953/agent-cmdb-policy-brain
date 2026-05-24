@@ -1,119 +1,352 @@
-version: "1.0"
+version: "agent-cmdb-v2"
 updatedAt: "2026-05-25"
 
 sources:
-  - id: local-docs
-    label: Local Documentation
+  - id: web-search-api
+    label: Web Search API
+    kind: oauth
+    readOnly: true
+    notes: Read-only external research source.
+    freshnessTtl: 2h
+    brainEntityId: web-research
+
+  - id: recent-history-cache
+    label: Recent History Cache
+    kind: memory
+    readOnly: true
+    notes: Local record of recent findings.
+
+  - id: news-aggregator
+    label: News Aggregator
+    kind: tool
+    readOnly: true
+    notes: Curated startup and technology news source.
+
+  - id: tech-forum
+    label: Technical Forum
+    kind: web
+    readOnly: true
+    notes: Community technology discussion source.
+
+  - id: vulnerability-scanner
+    label: Vulnerability Scanner
+    kind: tool
+    readOnly: true
+    notes: Public vulnerability and security advisory lookup.
+
+  - id: local-knowledge-base
+    label: Local Knowledge Base
     kind: wiki
     readOnly: true
+    notes: Human-maintained local project knowledge.
+    freshnessTtl: 7d
+    brainEntityId: local-knowledge
 
-  - id: web-search
-    label: Web Search
+  - id: weather-api
+    label: Weather API
     kind: tool
     readOnly: true
+    notes: Primary weather signal source.
 
-  - id: social-api
-    label: Social API
+  - id: weather-backup
+    label: Weather Backup
+    kind: tool
+    readOnly: true
+    notes: Secondary weather signal source.
+
+  - id: video-summary-tool
+    label: Video Summary Tool
+    kind: tool
+    readOnly: true
+    notes: Read-only video summary source.
+
+  - id: podcast-summary-tool
+    label: Podcast Summary Tool
+    kind: tool
+    readOnly: true
+    notes: Read-only podcast summary source.
+
+  - id: social-media-tool
+    label: Social Media Tool
     kind: tool
     readOnly: false
+    notes: Account-mutation tool disabled by default policy.
 
 profiles:
   - id: research-agent
     name: Research Agent
-    purpose: Read-only research and summarization
+    purpose: Read-only agent research, market scans, and security summaries.
     guardrails:
-      - Read-only tools only
-      - Cite source routes
+      - Use read-only sources for research.
+      - Do not mutate social accounts.
+      - Log policy denials and source decisions.
     routes:
-      - intent: research
+      - intent: web_research
         sources:
-          - local-docs
-          - web-search
+          - web-search-api
+          - recent-history-cache
+          - news-aggregator
+          - tech-forum
+        notes: Prefer read-only research and recent local context.
+      - intent: security_research
+        sources:
+          - vulnerability-scanner
+          - web-search-api
+          - news-aggregator
+          - tech-forum
+        notes: Check vulnerability sources before broader web context.
+
+  - id: content-agent
+    name: Content Agent
+    purpose: Read-only content research with local knowledge as primary truth.
+    guardrails:
+      - Prefer local knowledge before external sources.
+      - Draft content only.
+      - Do not mutate social accounts.
+    routes:
+      - intent: weather
+        sources:
+          - local-knowledge-base
+          - weather-api
+          - weather-backup
+        notes: Start from local knowledge, then verify live weather.
+      - intent: content_research
+        sources:
+          - local-knowledge-base
+          - video-summary-tool
+          - podcast-summary-tool
+        notes: Use local knowledge before external media summaries.
 
   - id: support-agent
     name: Support Agent
-    purpose: Customer support draft generation
+    purpose: Customer-support lookup and draft generation.
     guardrails:
-      - Draft responses only
-      - Do not send messages directly
+      - Draft responses only.
+      - Do not send direct messages.
+      - Escalate unknown customer-impacting actions.
     routes:
       - intent: support_lookup
         sources:
-          - local-docs
-
-  - id: publishing-agent
-    name: Publishing Agent
-    purpose: Human-approved publishing workflow
-    guardrails:
-      - Posting requires approval
-      - Never DM users
-    routes:
-      - intent: publish_review
-        sources:
-          - local-docs
-          - social-api
+          - local-knowledge-base
+          - recent-history-cache
 
 policies:
-  - id: global-deny-direct-dm
+  - id: global-deny-social-media-tool-account-actions
     effect: deny
     actions:
+      - social_post
+      - social_reply
+      - social_like
+      - social_bookmark
       - social_dm
-    reason: Direct messages are disabled for all agents
+      - media_upload
+    tools:
+      - social-media-tool
+    reason: The social-media-tool source is disabled for account mutations.
+    code: social_media_tool_account_actions_disabled
+    canEscalate: false
+    suggestedAlternative: Use read-only research sources and prepare a draft for review.
 
-  - id: global-approval-social-post
-    effect: approval_required
+  - id: global-deny-social-account-actions
+    effect: deny
     actions:
       - social_post
-    tools:
-      - social-api
-    reason: Social posts require human approval
-    canEscalate: true
+      - social_reply
+      - social_like
+      - social_bookmark
+      - social_dm
+      - media_upload
+    reason: Social account actions are disabled for this example control plane.
+    code: social_account_actions_disabled
+    canEscalate: false
+    suggestedAlternative: Draft the action for a human operator or use read-only research sources.
 
-  - id: allow-research-agent
+  - id: global-deny-bot-ops-status
+    effect: deny
+    actions:
+      - send_bot_ops_status
+    reason: Internal bot operations status messages are disabled in user-facing channels.
+    code: bot_ops_status_disabled
+    canEscalate: false
+    suggestedAlternative: Write operational status to logs or an internal dashboard.
+
+  - id: research-allow-readonly-research
     effect: allow
     profiles:
       - research-agent
     actions:
-      - web_search
+      - web_research
+      - summarize
+      - security_research
+    tools:
+      - web-search-api
+      - recent-history-cache
+      - news-aggregator
+      - tech-forum
+      - vulnerability-scanner
+    reason: Research agent can use read-only research sources.
+    code: research_readonly_allowed
+    canEscalate: false
+
+  - id: content-allow-readonly-research
+    effect: allow
+    profiles:
+      - content-agent
+    actions:
+      - weather_lookup
+      - content_research
       - summarize
     tools:
-      - local-docs
-      - web-search
-    reason: Research agent can use read-only sources
+      - local-knowledge-base
+      - weather-api
+      - weather-backup
+      - video-summary-tool
+      - podcast-summary-tool
+    reason: Content agent can use read-only knowledge and media sources.
+    code: content_readonly_allowed
+    canEscalate: false
+
+  - id: support-allow-lookup
+    effect: allow
+    profiles:
+      - support-agent
+    actions:
+      - support_lookup
+      - summarize
+    tools:
+      - local-knowledge-base
+      - recent-history-cache
+    reason: Support agent can look up local support context.
+    code: support_lookup_allowed
+    canEscalate: false
 
 objects:
   - id: profile.research-agent
     kind: profile
-    label: Research Agent
+    label: Research Agent Profile
     status: active
     profile: research-agent
     tags:
       - agent
       - research
 
+  - id: profile.content-agent
+    kind: profile
+    label: Content Agent Profile
+    status: active
+    profile: content-agent
+    tags:
+      - agent
+      - content
+
   - id: profile.support-agent
     kind: profile
-    label: Support Agent
+    label: Support Agent Profile
     status: active
     profile: support-agent
     tags:
       - agent
       - support
 
-  - id: profile.publishing-agent
-    kind: profile
-    label: Publishing Agent
+  - id: source.web-search-api
+    kind: source
+    label: Web Search API
     status: active
-    profile: publishing-agent
+    profile: research-agent
     tags:
-      - agent
-      - publishing
+      - research
+      - read-only
+
+  - id: source.local-knowledge-base
+    kind: source
+    label: Local Knowledge Base
+    status: active
+    profile: content-agent
+    tags:
+      - knowledge
+      - read-only
+
+  - id: source.news-aggregator
+    kind: source
+    label: News Aggregator
+    status: active
+    profile: research-agent
+    tags:
+      - news
+      - read-only
+
+  - id: source.weather-api
+    kind: source
+    label: Weather API
+    status: active
+    profile: content-agent
+    tags:
+      - weather
+      - read-only
+
+  - id: tool.social-media-tool
+    kind: tool
+    label: Social Media Tool
+    status: blocked
+    tags:
+      - social
+      - mutation
+
+  - id: memory.local-brain
+    kind: memory
+    label: Local Brain
+    status: paused
+    tags:
+      - memory
+      - optional
+    notes: Optional local markdown memory is disabled until a brain directory is configured.
+
+  - id: job.research-radar
+    kind: job
+    label: Research Radar Job
+    status: active
+    profile: research-agent
+    tags:
+      - scheduled
+      - research
+
+  - id: job.content-brief
+    kind: job
+    label: Content Brief Job
+    status: active
+    profile: content-agent
+    tags:
+      - scheduled
+      - content
+
+  - id: policy.global-deny-social-media-tool-account-actions
+    kind: policy
+    label: Deny Social Media Tool Account Actions
+    status: active
+    tags:
+      - policy
+      - deny
 
 relationships:
   - from: profile.research-agent
-    to: local-docs
+    to: source.web-search-api
     type: uses
+    notes: Research agent uses read-only web search.
 
-  - from: profile.publishing-agent
-    to: social-api
+  - from: profile.research-agent
+    to: job.research-radar
+    type: owns
+
+  - from: profile.content-agent
+    to: source.local-knowledge-base
     type: uses
+    notes: Content agent starts from local knowledge.
+
+  - from: profile.content-agent
+    to: job.content-brief
+    type: owns
+
+  - from: tool.social-media-tool
+    to: policy.global-deny-social-media-tool-account-actions
+    type: governed_by
+    notes: Account mutation tool is blocked by policy.

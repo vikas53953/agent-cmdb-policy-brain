@@ -16,7 +16,13 @@ import type {
 const moduleDir = dirname(fileURLToPath(import.meta.url));
 
 export const defaultControlPlanePath = resolve(moduleDir, '..', 'examples', 'basic', 'control-plane.yaml');
-export const hermesExampleControlPlanePath = resolve(moduleDir, '..', 'examples', 'hermes', 'control-plane.json');
+export const multiAgentExampleControlPlanePath = resolve(
+  moduleDir,
+  '..',
+  'examples',
+  'multi-agent',
+  'control-plane.yaml'
+);
 
 export class ControlPlaneLoadError extends Error {
   constructor(message: string) {

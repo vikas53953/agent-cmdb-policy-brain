@@ -50,14 +50,16 @@
   },
   "files": [
     "dist",
-    "examples",
+    "examples/basic",
+    "examples/multi-agent",
+    "examples/langchain",
     "README.md",
     "LICENSE"
   ],
   "scripts": {
     "test": "vitest run",
     "typecheck": "tsc --noEmit --pretty false",
-    "build": "tsc -p tsconfig.build.json",
+    "build": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\" && tsc -p tsconfig.build.json",
     "prepack": "npm run build",
     "policy": "tsx src/cli.ts policy",
     "route": "tsx src/cli.ts route",

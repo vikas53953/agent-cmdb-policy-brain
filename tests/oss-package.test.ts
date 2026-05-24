@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -30,7 +30,64 @@ describe('OSS package shape', () => {
     expect(packageJson.exports['./doctor']).toBeDefined();
     expect(packageJson.exports['./duration']).toBeDefined();
     expect(packageJson.exports['./freshness']).toBeDefined();
-    expect(packageJson.scripts.build).toBe('tsc -p tsconfig.build.json');
+    expect(packageJson.scripts.build).toContain("rmSync('dist'");
+    expect(packageJson.scripts.build).toContain('tsc -p tsconfig.build.json');
+  });
+
+  it('keeps private examples and internal reports out of the publish surface', () => {
+    const packageJson = JSON.parse(readFileSync(join(process.cwd(), 'package.json'), 'utf8')) as {
+      files: string[];
+    };
+
+    expect(packageJson.files).toEqual([
+      'dist',
+      'examples/basic',
+      'examples/multi-agent',
+      'examples/langchain',
+      'README.md',
+      'LICENSE'
+    ]);
+    expect(existsSync(join(process.cwd(), 'examples', ['he', 'rmes'].join('')))).toBe(false);
+    expect(packageJson.files).not.toContain('examples');
+    expect(packageJson.files).not.toContain('reports');
+    expect(packageJson.files).not.toContain('docs');
+  });
+
+  it('does not expose personal or vendor-specific terms in publishable source files', () => {
+    const blockedTerms = [
+      blockedTerm(['ge', 'mma', '4cloud'], 'i'),
+      blockedTerm(['apple', '-farming'], 'i'),
+      blockedTerm(['xu', 'rl'], 'i'),
+      blockedTerm(['x', 'ai', '-oauth'], 'i'),
+      blockedTerm(['pp', '-cli'], 'i'),
+      blockedTerm(['neha', '-insta'], 'i'),
+      blockedTerm(['NO', 'VA']),
+      blockedTerm(['AT', 'LAS']),
+      blockedTerm(['CI', 'PHER']),
+      blockedTerm(['KI', 'RA']),
+      blockedTerm(['Her', 'mes'], 'i'),
+      blockedTerm(['Printing', ' Press'], 'i'),
+      blockedTerm(['Forti', 'Manager']),
+      blockedTerm(['Forti', 'Gate']),
+      blockedTerm(['Forti', 'Analyzer']),
+      blockedTerm(['Sev', 'One']),
+      blockedTerm(['NP', '7'])
+    ];
+    const publishableFiles = collectTextFiles([
+      join(process.cwd(), 'src'),
+      join(process.cwd(), 'tests'),
+      join(process.cwd(), 'examples'),
+      join(process.cwd(), 'README.md'),
+      join(process.cwd(), 'package.json')
+    ]);
+    const leaks = publishableFiles.flatMap((filePath) => {
+      const content = readFileSync(filePath, 'utf8');
+      return blockedTerms
+        .filter((term) => term.test(content))
+        .map((term) => `${filePath}: ${term.source}`);
+    });
+
+    expect(leaks).toEqual([]);
   });
 
   it('keeps framework concerns split into dedicated modules', () => {
@@ -57,7 +114,6 @@ describe('OSS package shape', () => {
     for (const examplePath of [
       join(process.cwd(), 'examples', 'basic', 'control-plane.yaml'),
       join(process.cwd(), 'examples', 'multi-agent', 'control-plane.yaml'),
-      join(process.cwd(), 'examples', 'hermes', 'control-plane.json'),
       join(process.cwd(), 'examples', 'langchain', 'control-plane.yaml')
     ]) {
       expect(loadControlPlane(examplePath).profiles.length).toBeGreaterThan(0);
@@ -120,3 +176,18 @@ describe('OSS package shape', () => {
     expect(readFileSync(evidencePath, 'utf8')).toBe('{"id":"ev_keep"}\n');
   });
 });
+
+function collectTextFiles(paths: string[]): string[] {
+  return paths.flatMap((path) => {
+    if (!existsSync(path)) return [];
+    const stat = statSync(path);
+    if (stat.isFile()) return [path];
+    return readdirSync(path)
+      .flatMap((entry) => collectTextFiles([join(path, entry)]))
+      .filter((filePath) => /\.(ts|json|ya?ml|md)$/.test(filePath));
+  });
+}
+
+function blockedTerm(parts: string[], flags = ''): RegExp {
+  return new RegExp(parts.join(''), flags);
+}

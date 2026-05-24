@@ -11,7 +11,7 @@ Agent CMDB is a network-style control plane for AI agents. It maps familiar netw
 - relationships = topology graph
 - updates = config diff and audit log
 
-V2 focuses on deterministic preflight safety before live Hermes integration. It can answer:
+V2 focuses on deterministic preflight safety before live Agent integration. It can answer:
 
 - is this action allowed, denied, or approval-required?
 - which source route should a profile use for an intent?
@@ -20,4 +20,4 @@ V2 focuses on deterministic preflight safety before live Hermes integration. It 
 - what evidence and changes were recorded?
 - is the control plane valid?
 
-Live Hermes mutation remains out of scope for V2. The repo now includes `src/hermes-preflight.ts` as a scaffolded one-call hook that Hermes can import later; it does not change a live Hermes profile by itself.
+Live Agent mutation remains out of scope for V2. The repo now includes `src/agent-preflight.ts` as a scaffolded one-call hook that Agent can import later; it does not change a live Agent profile by itself.

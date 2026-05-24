@@ -2,43 +2,43 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { hermesExampleControlPlanePath } from '../src/engine.js';
+import { multiAgentExampleControlPlanePath } from '../src/engine.js';
 import { createAgentCmdb } from '../src/interface.js';
 
 describe('IAgentCMDB contract', () => {
   it('exposes preflight, routes, evidence, changes, and health through one stable facade', async () => {
     const storeDir = mkdtempSync(join(tmpdir(), 'agent-cmdb-interface-'));
-    const cmdb = createAgentCmdb({ configPath: hermesExampleControlPlanePath, storeDir });
+    const cmdb = createAgentCmdb({ configPath: multiAgentExampleControlPlanePath, storeDir });
 
     const preflight = cmdb.preflight({
-      profile: 'gemma4cloud',
-      action: 'x_account_post',
-      tool: 'xurl',
-      intent: 'x_research'
+      profile: 'research-agent',
+      action: 'social_post',
+      tool: 'social-media-tool',
+      intent: 'web_research'
     });
 
     expect(preflight.allowed).toBe(false);
-    expect(preflight.decision.code).toBe('xurl_account_actions_disabled');
+    expect(preflight.decision.code).toBe('social_media_tool_account_actions_disabled');
     expect(preflight.routeExecutable).toBe(false);
 
     const route = cmdb.resolveRoute({
-      profile: 'apple-farming',
+      profile: 'content-agent',
       intent: 'weather'
     });
 
-    expect(route.sources[0].id).toBe('apple-wiki');
+    expect(route.sources[0].id).toBe('local-knowledge-base');
 
     await cmdb.logEvidence({
-      profile: 'gemma4cloud',
-      source: 'techmeme-pp-cli',
-      intent: 'x_research',
+      profile: 'research-agent',
+      source: 'news-aggregator',
+      intent: 'web_research',
       summary: 'Interface smoke evidence',
       trust: 'medium',
       capturedAt: '2026-05-24T00:20:00.000Z'
     });
 
     await cmdb.logChange({
-      target: 'policy.global-deny-xurl-account-actions',
+      target: 'policy.global-deny-social-media-tool-account-actions',
       targetType: 'policy',
       action: 'verify',
       actor: 'codex',
@@ -46,7 +46,7 @@ describe('IAgentCMDB contract', () => {
       changedAt: '2026-05-24T00:21:00.000Z'
     });
 
-    expect(await cmdb.listEvidence({ profile: 'gemma4cloud' })).toHaveLength(1);
+    expect(await cmdb.listEvidence({ profile: 'research-agent' })).toHaveLength(1);
     expect(await cmdb.listChanges({ actor: 'codex' })).toHaveLength(1);
     expect(cmdb.health().ok).toBe(true);
   });

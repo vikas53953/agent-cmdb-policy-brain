@@ -1,20 +1,22 @@
 import { createAgentCmdb } from './interface.js';
-import { hermesExampleControlPlanePath } from './loader.js';
+import { multiAgentExampleControlPlanePath } from './loader.js';
 import type { PreflightResult } from './types.js';
 
-export async function hermesPreflight(
+export async function runAgentPreflight(
   action: string,
   profile: string,
   tool?: string,
   intent?: string,
-  options: { dryRun?: boolean } = {}
+  options: { configPath?: string; dryRun?: boolean } = {}
 ): Promise<PreflightResult> {
-  const normalizedAction = requireNonEmptyString(action, 'Hermes preflight action');
-  const normalizedProfile = requireNonEmptyString(profile, 'Hermes preflight profile');
-  const normalizedTool = tool === undefined ? undefined : requireNonEmptyString(tool, 'Hermes preflight tool');
-  const normalizedIntent = intent === undefined ? undefined : requireNonEmptyString(intent, 'Hermes preflight intent');
+  const normalizedAction = requireNonEmptyString(action, 'Agent preflight action');
+  const normalizedProfile = requireNonEmptyString(profile, 'Agent preflight profile');
+  const normalizedTool = tool === undefined ? undefined : requireNonEmptyString(tool, 'Agent preflight tool');
+  const normalizedIntent = intent === undefined ? undefined : requireNonEmptyString(intent, 'Agent preflight intent');
 
-  const cmdb = createAgentCmdb({ configPath: hermesExampleControlPlanePath });
+  const cmdb = createAgentCmdb({
+    configPath: options.configPath ?? multiAgentExampleControlPlanePath
+  });
   const result = cmdb.preflight({
     action: normalizedAction,
     profile: normalizedProfile,
@@ -33,10 +35,10 @@ export async function hermesPreflight(
       profile: normalizedProfile,
       source: 'agent-cmdb-preflight',
       intent: normalizedIntent ?? normalizedAction,
-      summary: `Hermes preflight ${result.decision.effect}: ${result.decision.ruleId}. ${result.decision.reason}`,
+      summary: `Agent preflight ${result.decision.effect}: ${result.decision.ruleId}. ${result.decision.reason}`,
       trust: 'high',
       capturedAt: now,
-      tags: ['hermes-preflight', result.decision.effect, result.decision.ruleId]
+      tags: ['agent-preflight', result.decision.effect, result.decision.ruleId]
     });
   }
 
@@ -44,7 +46,7 @@ export async function hermesPreflight(
     target: result.decision.ruleId,
     targetType: 'policy',
     action: 'verify',
-    actor: 'hermes-preflight',
+    actor: 'agent-preflight',
     reason: `Preflight ${result.decision.effect} for ${normalizedProfile}/${normalizedAction}.`,
     changedAt: now,
     after: {

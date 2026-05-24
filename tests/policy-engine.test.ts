@@ -1,24 +1,24 @@
 import { describe, expect, it } from 'vitest';
-import { evaluatePolicy, hermesExampleControlPlanePath, loadControlPlane } from '../src/engine.js';
+import { evaluatePolicy, multiAgentExampleControlPlanePath, loadControlPlane } from '../src/engine.js';
 
-const controlPlane = loadControlPlane(hermesExampleControlPlanePath);
+const controlPlane = loadControlPlane(multiAgentExampleControlPlanePath);
 
 describe('Agent CMDB policy engine', () => {
-  it('denies xurl-backed X account posting even when research is otherwise allowed', () => {
+  it('denies social-media-tool-backed social account posting even when research is otherwise allowed', () => {
     const decision = evaluatePolicy(controlPlane, {
-      profile: 'gemma4cloud',
-      action: 'x_account_post',
-      tool: 'xurl'
+      profile: 'research-agent',
+      action: 'social_post',
+      tool: 'social-media-tool'
     });
 
     expect(decision.effect).toBe('deny');
-    expect(decision.ruleId).toBe('global-deny-xurl-account-actions');
-    expect(decision.reason).toContain('xurl');
+    expect(decision.ruleId).toBe('global-deny-social-media-tool-account-actions');
+    expect(decision.reason).toContain('social-media-tool');
   });
 
-  it('denies Bot Ops status sends for Gemma', () => {
+  it('denies Bot Ops status sends for Research', () => {
     const decision = evaluatePolicy(controlPlane, {
-      profile: 'gemma4cloud',
+      profile: 'research-agent',
       action: 'send_bot_ops_status',
       tool: 'telegram'
     });
@@ -28,26 +28,26 @@ describe('Agent CMDB policy engine', () => {
     expect(decision.canEscalate).toBe(false);
   });
 
-  it('allows read-only X research for Gemma through xAI OAuth', () => {
+  it('allows read-only web research through read-only sources', () => {
     const decision = evaluatePolicy(controlPlane, {
-      profile: 'gemma4cloud',
-      action: 'x_research',
-      tool: 'xai-oauth'
+      profile: 'research-agent',
+      action: 'web_research',
+      tool: 'web-search-api'
     });
 
     expect(decision.effect).toBe('allow');
-    expect(decision.ruleId).toBe('gemma-allow-readonly-research');
+    expect(decision.ruleId).toBe('research-allow-readonly-research');
   });
 
-  it('denies X account actions even when no tool is provided', () => {
+  it('denies social account actions even when no tool is provided', () => {
     const decision = evaluatePolicy(controlPlane, {
-      profile: 'gemma4cloud',
-      action: 'x_account_reply'
+      profile: 'research-agent',
+      action: 'social_reply'
     });
 
     expect(decision.effect).toBe('deny');
-    expect(decision.ruleId).toBe('global-deny-x-account-actions');
-    expect(decision.suggestedAlternative).toContain('Grok/xAI OAuth');
+    expect(decision.ruleId).toBe('global-deny-social-account-actions');
+    expect(decision.suggestedAlternative).toContain('read-only research sources');
   });
 
   it('supports wildcard actions for catch-all rules', () => {
@@ -56,9 +56,9 @@ describe('Agent CMDB policy engine', () => {
         ...controlPlane,
         policies: [
           {
-            id: 'gemma-maintenance-freeze',
+            id: 'research-maintenance-freeze',
             effect: 'deny',
-            profiles: ['gemma4cloud'],
+            profiles: ['research-agent'],
             actions: ['*'],
             reason: 'Profile is in a maintenance freeze.',
             canEscalate: true,
@@ -67,20 +67,20 @@ describe('Agent CMDB policy engine', () => {
         ]
       },
       {
-        profile: 'gemma4cloud',
-        action: 'x_research',
-        tool: 'xai-oauth'
+        profile: 'research-agent',
+        action: 'web_research',
+        tool: 'web-search-api'
       }
     );
 
     expect(decision.effect).toBe('deny');
-    expect(decision.ruleId).toBe('gemma-maintenance-freeze');
+    expect(decision.ruleId).toBe('research-maintenance-freeze');
     expect(decision.canEscalate).toBe(true);
   });
 
   it('requires approval for unknown actions', () => {
     const decision = evaluatePolicy(controlPlane, {
-      profile: 'gemma4cloud',
+      profile: 'research-agent',
       action: 'new_unclassified_action',
       tool: 'unknown-tool'
     });

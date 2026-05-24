@@ -4,10 +4,10 @@ import { describe, expect, it } from 'vitest';
 
 const tsxCli = join(process.cwd(), 'node_modules', 'tsx', 'dist', 'cli.mjs');
 const cliPath = 'src/cli.ts';
-const hermesConfig = join(process.cwd(), 'examples', 'hermes', 'control-plane.json');
+const exampleConfig = join(process.cwd(), 'examples', 'multi-agent', 'control-plane.yaml');
 
 function runCli(args: string[]): unknown {
-  const output = execFileSync(process.execPath, [tsxCli, cliPath, ...args, '--config', hermesConfig], {
+  const output = execFileSync(process.execPath, [tsxCli, cliPath, ...args, '--config', exampleConfig], {
     cwd: process.cwd(),
     encoding: 'utf8'
   });
@@ -17,32 +17,32 @@ function runCli(args: string[]): unknown {
 
 describe('Agent CMDB CLI', () => {
   it('prints inventory objects for a profile', () => {
-    const output = runCli(['inventory', '--profile', 'gemma4cloud']) as Array<{ id: string }>;
+    const output = runCli(['inventory', '--profile', 'research-agent']) as Array<{ id: string }>;
 
-    expect(output.map((object) => object.id)).toContain('job.gemma-pp-radar');
+    expect(output.map((object) => object.id)).toContain('job.research-radar');
   });
 
-  it('runs preflight for a blocked xurl action', () => {
+  it('runs preflight for a blocked social-media-tool action', () => {
     const output = runCli([
       'preflight',
       '--profile',
-      'gemma4cloud',
+      'research-agent',
       '--action',
-      'x_account_post',
+      'social_post',
       '--tool',
-      'xurl',
+      'social-media-tool',
       '--intent',
-      'x_research'
+      'web_research'
     ]) as { allowed: boolean; decision: { ruleId: string } };
 
     expect(output.allowed).toBe(false);
-    expect(output.decision.ruleId).toBe('global-deny-xurl-account-actions');
+    expect(output.decision.ruleId).toBe('global-deny-social-media-tool-account-actions');
   });
 
   it('prints readiness report', () => {
     const output = runCli(['report']) as { validation: { errors: number }; counts: { profiles: number } };
 
     expect(output.validation.errors).toBe(0);
-    expect(output.counts.profiles).toBe(2);
+    expect(output.counts.profiles).toBe(3);
   });
 });

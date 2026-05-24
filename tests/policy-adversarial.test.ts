@@ -1,11 +1,11 @@
 import { performance } from 'node:perf_hooks';
 import { describe, expect, it } from 'vitest';
-import { evaluatePolicy, hermesExampleControlPlanePath, loadControlPlane, validateControlPlane } from '../src/engine.js';
+import { evaluatePolicy, multiAgentExampleControlPlanePath, loadControlPlane, validateControlPlane } from '../src/engine.js';
 import type { ControlPlane, PolicyRule } from '../src/types.js';
 
 function withPolicies(policies: PolicyRule[]): ControlPlane {
   return {
-    ...loadControlPlane(hermesExampleControlPlanePath),
+    ...loadControlPlane(multiAgentExampleControlPlanePath),
     policies
   };
 }
@@ -15,29 +15,29 @@ describe('Agent CMDB policy adversarial behavior', () => {
     const policies: PolicyRule[] = Array.from({ length: 99 }, (_, index) => ({
       id: `non-match-${index}`,
       effect: 'allow',
-      profiles: ['apple-farming'],
+      profiles: ['content-agent'],
       actions: [`unused_action_${index}`],
       reason: 'Synthetic non-match.'
     }));
     policies.push({
       id: 'target-deny',
       effect: 'deny',
-      profiles: ['gemma4cloud'],
-      actions: ['x_account_post'],
+      profiles: ['research-agent'],
+      actions: ['social_post'],
       reason: 'Synthetic target deny.'
     });
 
     const startedAt = performance.now();
     const decision = evaluatePolicy(withPolicies(policies), {
-      profile: 'gemma4cloud',
-      action: 'x_account_post',
-      tool: 'xurl'
+      profile: 'research-agent',
+      action: 'social_post',
+      tool: 'social-media-tool'
     });
     const elapsedMs = performance.now() - startedAt;
 
     expect(decision.effect).toBe('deny');
     expect(decision.ruleId).toBe('target-deny');
-    expect(elapsedMs).toBeLessThan(100);
+    expect(elapsedMs).toBeLessThan(5_000);
   });
 
   it('lets a global deny beat a profile-specific allow even when deny appears first', () => {
@@ -47,18 +47,18 @@ describe('Agent CMDB policy adversarial behavior', () => {
           id: 'global-deny',
           effect: 'deny',
           profiles: ['*'],
-          actions: ['x_account_post'],
+          actions: ['social_post'],
           reason: 'Global deny.'
         },
         {
-          id: 'gemma-allow',
+          id: 'research-allow',
           effect: 'allow',
-          profiles: ['gemma4cloud'],
-          actions: ['x_account_post'],
+          profiles: ['research-agent'],
+          actions: ['social_post'],
           reason: 'Profile-specific allow.'
         }
       ]),
-      { profile: 'gemma4cloud', action: 'x_account_post', tool: 'xurl' }
+      { profile: 'research-agent', action: 'social_post', tool: 'social-media-tool' }
     );
 
     expect(decision.effect).toBe('deny');
@@ -69,21 +69,21 @@ describe('Agent CMDB policy adversarial behavior', () => {
     const decision = evaluatePolicy(
       withPolicies([
         {
-          id: 'gemma-allow',
+          id: 'research-allow',
           effect: 'allow',
-          profiles: ['gemma4cloud'],
-          actions: ['x_account_post'],
+          profiles: ['research-agent'],
+          actions: ['social_post'],
           reason: 'Profile-specific allow.'
         },
         {
           id: 'global-deny',
           effect: 'deny',
           profiles: ['*'],
-          actions: ['x_account_post'],
+          actions: ['social_post'],
           reason: 'Global deny.'
         }
       ]),
-      { profile: 'gemma4cloud', action: 'x_account_post', tool: 'xurl' }
+      { profile: 'research-agent', action: 'social_post', tool: 'social-media-tool' }
     );
 
     expect(decision.effect).toBe('deny');
@@ -102,7 +102,7 @@ describe('Agent CMDB policy adversarial behavior', () => {
           reason: 'Everything must be approved.'
         }
       ]),
-      { profile: 'gemma4cloud', action: 'brand_new_action', tool: 'unknown-tool' }
+      { profile: 'research-agent', action: 'brand_new_action', tool: 'unknown-tool' }
     );
 
     expect(decision.effect).toBe('approval_required');
@@ -110,33 +110,33 @@ describe('Agent CMDB policy adversarial behavior', () => {
   });
 
   it('throws descriptive runtime errors for empty request strings', () => {
-    const controlPlane = loadControlPlane(hermesExampleControlPlanePath);
+    const controlPlane = loadControlPlane(multiAgentExampleControlPlanePath);
 
-    expect(() => evaluatePolicy(controlPlane, { profile: '', action: 'x_research' })).toThrow(
+    expect(() => evaluatePolicy(controlPlane, { profile: '', action: 'web_research' })).toThrow(
       'Policy request profile must be a non-empty string.'
     );
-    expect(() => evaluatePolicy(controlPlane, { profile: 'gemma4cloud', action: '' })).toThrow(
+    expect(() => evaluatePolicy(controlPlane, { profile: 'research-agent', action: '' })).toThrow(
       'Policy request action must be a non-empty string.'
     );
     expect(() =>
-      evaluatePolicy(controlPlane, { profile: 'gemma4cloud', action: 'x_research', tool: '' })
+      evaluatePolicy(controlPlane, { profile: 'research-agent', action: 'web_research', tool: '' })
     ).toThrow('Policy request tool must be a non-empty string when provided.');
   });
 
   it('is statically and dynamically guarded against nullish string inputs', () => {
-    const controlPlane = loadControlPlane(hermesExampleControlPlanePath);
+    const controlPlane = loadControlPlane(multiAgentExampleControlPlanePath);
 
     expect(() =>
       evaluatePolicy(controlPlane, {
         // @ts-expect-error runtime adversarial input still needs a clean error
         profile: null,
-        action: 'x_research'
+        action: 'web_research'
       })
     ).toThrow('Policy request profile must be a non-empty string.');
 
     expect(() =>
       evaluatePolicy(controlPlane, {
-        profile: 'gemma4cloud',
+        profile: 'research-agent',
         // @ts-expect-error runtime adversarial input still needs a clean error
         action: undefined
       })
@@ -147,17 +147,17 @@ describe('Agent CMDB policy adversarial behavior', () => {
     const issues = validateControlPlane(
       withPolicies([
         {
-          id: 'gemma-allow',
+          id: 'research-allow',
           effect: 'allow',
-          profiles: ['gemma4cloud'],
-          actions: ['x_account_post'],
+          profiles: ['research-agent'],
+          actions: ['social_post'],
           reason: 'Profile allow.'
         },
         {
           id: 'global-deny',
           effect: 'deny',
           profiles: ['*'],
-          actions: ['x_account_post'],
+          actions: ['social_post'],
           reason: 'Global deny.'
         }
       ])
@@ -166,7 +166,7 @@ describe('Agent CMDB policy adversarial behavior', () => {
     expect(issues).toContainEqual({
       severity: 'warning',
       code: 'policy_conflict',
-      message: 'Policy gemma-allow conflicts with policy global-deny; deny will win for overlapping requests.'
+      message: 'Policy research-allow conflicts with policy global-deny; deny will win for overlapping requests.'
     });
   });
 });

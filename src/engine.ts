@@ -1,9 +1,9 @@
 export {
   ControlPlaneLoadError,
   defaultControlPlanePath,
-  hermesExampleControlPlanePath,
   loadControlPlane,
-  loadDefaultControlPlane
+  loadDefaultControlPlane,
+  multiAgentExampleControlPlanePath
 } from './loader.js';
 export {
   evaluatePolicy,
@@ -33,7 +33,3 @@ export * from './digest.js';
 export * from './doctor.js';
 export * from './duration.js';
 export * from './freshness.js';
-
-import { hermesExampleControlPlanePath, loadControlPlane } from './loader.js';
-
-export const hermesV1ControlPlane = loadControlPlane(hermesExampleControlPlanePath);
