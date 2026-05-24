@@ -1,5 +1,17 @@
 # Agent CMDB - Codex Rules
 
+## Process
+
+This project follows SHIP v4 (docs/SHIP-v4.md).
+Every feature must pass Gate 0 (adversarial design review) before code is written and Gate 9 (multi-persona adversarial review) before publish.
+
+Key rules from SHIP v4:
+- Every new feature needs 3 test types: positive, negative, bypass
+- Every README claim must have a matching test
+- No public exports of internal functions (evaluatePolicy, evaluatePreflight)
+- Default deny on unmatched policy
+- Single entry point per concern -- no duplicate API paths
+
 ## OSS hygiene rules
 
 - Never commit personal profile names, tool names, or private agent names.
