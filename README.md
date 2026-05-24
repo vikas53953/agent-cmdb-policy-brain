@@ -115,6 +115,8 @@ sources:
     label: Local Documentation
     kind: wiki
     readOnly: true
+    freshnessTtl: 7d
+    brainEntityId: agent-security
 
 profiles:
   - id: research-agent
@@ -157,7 +159,9 @@ The product roadmap lives in [docs/agent-cmdb-roadmap.md](docs/agent-cmdb-roadma
 
 ```bash
 npx agent-cmdb init
+npx agent-cmdb doctor
 npx agent-cmdb preflight --profile research-agent --action web_search --tool serpapi --intent web_research
+npx agent-cmdb preflight --profile research-agent --action web_search --tool serpapi --intent web_research --dry-run
 npx agent-cmdb policy --profile research-agent --action social_post --tool x
 npx agent-cmdb route --profile research-agent --intent web_research
 npx agent-cmdb brain list --brain-dir ./agent-cmdb/brain
@@ -221,6 +225,6 @@ npm run build
 
 Current verification target:
 
-- 110+ tests passing
+- 130+ tests passing
 - strict TypeScript clean
 - clean `dist/` build

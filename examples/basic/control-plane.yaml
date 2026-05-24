@@ -16,6 +16,8 @@ sources:
     label: Local Documentation
     kind: wiki
     readOnly: true
+    freshnessTtl: 7d
+    brainEntityId: agent-security
 
 profiles:
   - id: research-agent

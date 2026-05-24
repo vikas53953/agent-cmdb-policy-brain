@@ -40,6 +40,16 @@ describe('Hermes preflight hook', () => {
     expect(await listChanges(storeDir, { actor: 'hermes-preflight' })).toHaveLength(1);
   });
 
+  it('dry-runs X account posting without writing audit records', async () => {
+    const result = await hermesPreflight('x_account_post', 'gemma4cloud', 'xurl', 'x_research', { dryRun: true });
+
+    expect(result.allowed).toBe(false);
+    expect(result.dryRun).toBe(true);
+    expect(result.decision.ruleId).toBe('global-deny-xurl-account-actions');
+    expect(await listEvidence(storeDir)).toHaveLength(0);
+    expect(await listChanges(storeDir)).toHaveLength(0);
+  });
+
   it('returns approval_required for unknown actions and logs the decision', async () => {
     const result = await hermesPreflight('unknown_action', 'gemma4cloud', 'xai-oauth', 'x_research');
 

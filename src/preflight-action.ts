@@ -12,7 +12,9 @@ export function preflightAction(controlPlane: ControlPlane, request: PreflightRe
     try {
       route = resolveSourceRoute(controlPlane, {
         profile: normalizedRequest.profile,
-        intent: normalizedRequest.intent
+        intent: normalizedRequest.intent,
+        freshness: normalizedRequest.freshness,
+        now: normalizedRequest.now
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -29,7 +31,8 @@ export function preflightAction(controlPlane: ControlPlane, request: PreflightRe
     route,
     routeExecutable: decision.effect === 'allow' && Boolean(route),
     guardrails: route?.guardrails ?? profile.guardrails,
-    warnings
+    warnings,
+    dryRun: Boolean(normalizedRequest.dryRun)
   };
 }
 
@@ -39,11 +42,40 @@ function normalizePreflightRequest(request: PreflightRequest): PreflightRequest 
   const intent = record.intent === undefined
     ? undefined
     : requireNonEmptyString(record.intent, 'Preflight request intent', 'when provided');
+  const dryRun = record.dryRun === undefined ? undefined : requireBoolean(record.dryRun, 'Preflight request dryRun');
+  const freshness = normalizeFreshness(record.freshness);
+  const now = record.now === undefined
+    ? undefined
+    : requireNonEmptyString(record.now, 'Preflight request now', 'when provided');
 
   return {
     ...normalizedPolicy,
-    intent
+    intent,
+    dryRun,
+    freshness,
+    now
   };
+}
+
+function normalizeFreshness(value: unknown): PreflightRequest['freshness'] {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value)) {
+    throw new Error('Preflight request freshness must be an array.');
+  }
+  return value.map((entry) => {
+    const record = requireRecord(entry, 'Preflight freshness input');
+    return {
+      sourceId: requireNonEmptyString(record.sourceId, 'Preflight freshness sourceId'),
+      lastUpdated: requireNonEmptyString(record.lastUpdated, 'Preflight freshness lastUpdated')
+    };
+  });
+}
+
+function requireBoolean(value: unknown, label: string): boolean {
+  if (typeof value !== 'boolean') {
+    throw new Error(`${label} must be a boolean.`);
+  }
+  return value;
 }
 
 function requireRecord(value: unknown, label: string): Record<string, unknown> {

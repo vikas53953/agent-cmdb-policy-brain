@@ -1,5 +1,6 @@
 import { ensureGraphNode } from './graph-engine.js';
 import { policiesConflict, policyShadows } from './policy-engine.js';
+import { parseDuration } from './duration.js';
 import type {
   AgentCmdbReport,
   CmdbObject,
@@ -44,6 +45,20 @@ export function validateControlPlane(controlPlane: ControlPlane): ValidationIssu
             message: `Route ${profile.id}/${route.intent} references unknown source ${sourceId}.`
           });
         }
+      }
+    }
+  }
+
+  for (const source of controlPlane.sources) {
+    if (source.freshnessTtl) {
+      try {
+        parseDuration(source.freshnessTtl);
+      } catch (error) {
+        issues.push({
+          severity: 'error',
+          code: 'source_invalid_freshness_ttl',
+          message: `Source ${source.id} has invalid freshnessTtl ${source.freshnessTtl}: ${error instanceof Error ? error.message : String(error)}`
+        });
       }
     }
   }

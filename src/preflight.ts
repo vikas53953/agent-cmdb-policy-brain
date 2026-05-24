@@ -9,6 +9,10 @@ export async function agentPreflight(
   const result = cmdb.preflight(request);
   const now = new Date().toISOString();
 
+  if (result.dryRun) {
+    return result;
+  }
+
   if (result.decision.effect === 'deny') {
     await cmdb.logEvidence({
       profile: result.decision.profile,

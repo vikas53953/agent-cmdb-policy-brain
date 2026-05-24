@@ -12,6 +12,8 @@ export interface SourceRef {
   kind: 'memory' | 'tool' | 'oauth' | 'wiki' | 'web' | 'evidence';
   readOnly: boolean;
   notes?: string;
+  freshnessTtl?: string;
+  brainEntityId?: string;
 }
 
 export interface SourceRoute {
@@ -89,6 +91,22 @@ export interface PolicyDecision {
 export interface SourceRouteRequest {
   profile: string;
   intent: string;
+  freshness?: SourceFreshnessInput[];
+  now?: string;
+}
+
+export interface SourceFreshnessInput {
+  sourceId: string;
+  lastUpdated: string;
+}
+
+export interface SourceFreshnessStatus {
+  sourceId: string;
+  ttl: string;
+  lastUpdated?: string;
+  ageMs?: number;
+  stale: boolean;
+  reason?: string;
 }
 
 export interface ResolvedSourceRoute {
@@ -97,6 +115,8 @@ export interface ResolvedSourceRoute {
   sources: SourceRef[];
   guardrails: string[];
   notes?: string;
+  staleSourceIds: string[];
+  freshness: SourceFreshnessStatus[];
 }
 
 export interface ProfileInspection {
@@ -132,6 +152,9 @@ export interface ValidationIssue {
 
 export interface PreflightRequest extends PolicyRequest {
   intent?: string;
+  dryRun?: boolean;
+  freshness?: SourceFreshnessInput[];
+  now?: string;
 }
 
 export interface PreflightResult {
@@ -142,6 +165,7 @@ export interface PreflightResult {
   routeExecutable: boolean;
   guardrails: string[];
   warnings: string[];
+  dryRun: boolean;
 }
 
 export interface AgentCmdbReport {
@@ -259,4 +283,28 @@ export interface DigestResult {
   entitiesUpdated: string[];
   digestPath: string;
   summary: string;
+}
+
+export interface DoctorReport {
+  ok: boolean;
+  checkedAt: string;
+  errors: string[];
+  warnings: string[];
+  controlPlane: {
+    errors: number;
+    warnings: number;
+  };
+  store: {
+    writable: boolean;
+    evidenceCount: number;
+    changesCount: number;
+    lastWriteAt?: string;
+  };
+  brain: {
+    configured: boolean;
+    indexReadable: boolean;
+    entityCount: number;
+    staleEntityCount: number;
+    orphanedFiles: string[];
+  };
 }

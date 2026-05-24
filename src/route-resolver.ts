@@ -1,4 +1,14 @@
-import type { AgentProfile, ControlPlane, ProfileInspection, ResolvedSourceRoute, SourceRef, SourceRouteRequest } from './types.js';
+import { parseDuration } from './duration.js';
+import type {
+  AgentProfile,
+  ControlPlane,
+  ProfileInspection,
+  ResolvedSourceRoute,
+  SourceFreshnessInput,
+  SourceFreshnessStatus,
+  SourceRef,
+  SourceRouteRequest
+} from './types.js';
 
 export function resolveSourceRoute(
   controlPlane: ControlPlane,
@@ -19,7 +29,12 @@ export function resolveSourceRoute(
     intent: normalizedRequest.intent,
     sources: route.sources.map((sourceId) => ensureSource(controlPlane, sourceId)),
     guardrails: profile.guardrails,
-    notes: route.notes
+    notes: route.notes,
+    ...resolveFreshness(
+      route.sources.map((sourceId) => ensureSource(controlPlane, sourceId)),
+      normalizedRequest.freshness,
+      normalizedRequest.now
+    )
   };
 }
 
@@ -60,8 +75,82 @@ function normalizeSourceRouteRequest(request: SourceRouteRequest): SourceRouteRe
 
   return {
     profile: requireNonEmptyString(record.profile, 'Source route request profile'),
-    intent: requireNonEmptyString(record.intent, 'Source route request intent')
+    intent: requireNonEmptyString(record.intent, 'Source route request intent'),
+    freshness: normalizeFreshness(record.freshness),
+    now: record.now === undefined ? undefined : requireNonEmptyString(record.now, 'Source route request now')
   };
+}
+
+function resolveFreshness(
+  sources: SourceRef[],
+  freshness: SourceFreshnessInput[] | undefined,
+  nowInput: string | undefined
+): Pick<ResolvedSourceRoute, 'staleSourceIds' | 'freshness'> {
+  if (!freshness || freshness.length === 0) {
+    return {
+      staleSourceIds: [],
+      freshness: []
+    };
+  }
+
+  const bySource = new Map(freshness.map((entry) => [entry.sourceId, entry]));
+  const now = nowInput ? parseTimestamp(nowInput, 'Source route request now') : Date.now();
+  const statuses: SourceFreshnessStatus[] = sources
+    .filter((source) => source.freshnessTtl)
+    .map((source) => {
+      const ttl = source.freshnessTtl;
+      if (!ttl) {
+        throw new Error(`Source ${source.id} has missing freshness TTL.`);
+      }
+      const snapshot = bySource.get(source.id);
+      if (!snapshot) {
+        return {
+          sourceId: source.id,
+          ttl,
+          stale: true,
+          reason: 'No freshness snapshot supplied.'
+        };
+      }
+      const lastUpdatedMs = parseTimestamp(snapshot.lastUpdated, `Freshness lastUpdated for ${source.id}`);
+      const ageMs = Math.max(0, now - lastUpdatedMs);
+      const stale = ageMs > parseDuration(ttl);
+
+      return {
+        sourceId: source.id,
+        ttl,
+        lastUpdated: snapshot.lastUpdated,
+        ageMs,
+        stale,
+        reason: stale ? `Source ${source.id} is older than ${ttl}.` : undefined
+      };
+    });
+
+  return {
+    staleSourceIds: statuses.filter((status) => status.stale).map((status) => status.sourceId),
+    freshness: statuses
+  };
+}
+
+function normalizeFreshness(value: unknown): SourceFreshnessInput[] | undefined {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value)) {
+    throw new Error('Source route request freshness must be an array.');
+  }
+  return value.map((entry) => {
+    const record = requireRecord(entry, 'Source freshness input');
+    return {
+      sourceId: requireNonEmptyString(record.sourceId, 'Source freshness sourceId'),
+      lastUpdated: requireNonEmptyString(record.lastUpdated, 'Source freshness lastUpdated')
+    };
+  });
+}
+
+function parseTimestamp(value: string, label: string): number {
+  const timestamp = Date.parse(value);
+  if (Number.isNaN(timestamp)) {
+    throw new Error(`${label} must be an ISO timestamp.`);
+  }
+  return timestamp;
 }
 
 function requireRecord(value: unknown, label: string): Record<string, unknown> {

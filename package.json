@@ -1,6 +1,6 @@
 {
   "name": "@pylabmit/agent-cmdb",
-  "version": "1.0.0",
+  "version": "1.5.0",
   "description": "The firewall for AI agents: policy enforcement, source routing, and audit trails before your agent acts.",
   "type": "module",
   "license": "MIT",
@@ -34,6 +34,18 @@
     "./digest": {
       "import": "./dist/digest.js",
       "types": "./dist/digest.d.ts"
+    },
+    "./doctor": {
+      "import": "./dist/doctor.js",
+      "types": "./dist/doctor.d.ts"
+    },
+    "./duration": {
+      "import": "./dist/duration.js",
+      "types": "./dist/duration.d.ts"
+    },
+    "./freshness": {
+      "import": "./dist/freshness.js",
+      "types": "./dist/freshness.d.ts"
     }
   },
   "files": [

@@ -17,15 +17,19 @@ describe('OSS package shape', () => {
       main: string;
       types: string;
       bin: Record<string, string>;
+      exports: Record<string, unknown>;
       scripts: Record<string, string>;
     };
 
     expect(packageJson.name).toBe('@pylabmit/agent-cmdb');
     expect(packageJson.private).toBeUndefined();
-    expect(packageJson.version).toBe('1.0.0');
+    expect(packageJson.version).toBe('1.5.0');
     expect(packageJson.main).toBe('dist/interface.js');
     expect(packageJson.types).toBe('dist/interface.d.ts');
     expect(packageJson.bin['agent-cmdb']).toBe('dist/cli.js');
+    expect(packageJson.exports['./doctor']).toBeDefined();
+    expect(packageJson.exports['./duration']).toBeDefined();
+    expect(packageJson.exports['./freshness']).toBeDefined();
     expect(packageJson.scripts.build).toBe('tsc -p tsconfig.build.json');
   });
 

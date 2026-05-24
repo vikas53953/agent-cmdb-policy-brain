@@ -3,7 +3,7 @@
 *The full NMS for AI agents. Built by a network engineer.*
 
 Generated: 2026-05-24
-Current version: V1.0.0 (122 tests, policy + memory + digest + security hardening)
+Current version: V1.5.0 (143 tests, policy + memory + digest + dry-run + freshness + doctor)
 Repo: github.com/vikas53953/agent-cmdb-policy-brain
 Package: @pylabmit/agent-cmdb
 
@@ -28,20 +28,20 @@ What V1 does not solve: 18 problems related to reliability, security hardening, 
 | Version | Codename | Theme | New problems solved | Estimated Codex effort |
 | --- | --- | --- | --- | --- |
 | V1.0 | Firewall | Policy + memory | 12 of 30 | Done (122 tests, ~1.1M tokens) |
-| V1.5 | Hardline | Publish to npm + quick wins | 14 of 30 | ~200K tokens, ~15 min |
+| V1.5 | Hardline | Publish prep + quick wins | 14 of 30 | Done (143 tests) |
 | V2.0 | SevOne | SRE + reliability | 20 of 30 | ~400K tokens, ~30 min |
 | V3.0 | SOC | Security + observability | 26 of 30 | ~500K tokens, ~40 min |
 | V4.0 | FortiManager | Management plane + dashboard | 30 of 30 | ~600K tokens, ~45 min |
 
 ---
 
-## V1.5 - Hardline (publish + quick wins)
+## V1.5 - Hardline (publish prep + quick wins)
 
-Theme: Get the package on npm and add the features that are almost free because the infrastructure already exists.
+Theme: Prepare the package for npm and add the features that are almost free because the infrastructure already exists.
 
 ### New features
 
-1. npm publish - actually publish @pylabmit/agent-cmdb to the npm registry.
+1. npm publish preparation - package metadata, build, and pack verification for @pylabmit/agent-cmdb.
 
 2. Policy dry-run mode - preflight --dry-run that traces the evaluation path without logging evidence or changes. Lets you test "what would happen if" without side effects. Network analogy: diagnose debug flow on FortiGate.
 
@@ -485,7 +485,7 @@ V4.0: The full NMS. No other project combines policy + memory + SRE + security +
 
 ## Build order recommendation
 
-V1.5 first - it's 15 minutes of Codex time and gives you something publishable on npm immediately. The dry-run and doctor commands are quick wins that make the package feel polished.
+V1.5 is complete. The package now has dry-run, doctor, source freshness metadata, and a clean 1.5.0 package surface.
 
 V2.0 next - this is the highest-value increment. Health monitors and circuit breakers are the features that make the difference between "interesting project" and "I need this in production." SLOs are the feature that makes managers care.
 

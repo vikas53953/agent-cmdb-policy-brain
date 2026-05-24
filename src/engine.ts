@@ -30,6 +30,9 @@ export {
 } from './validator.js';
 export * from './brain.js';
 export * from './digest.js';
+export * from './doctor.js';
+export * from './duration.js';
+export * from './freshness.js';
 
 import { hermesExampleControlPlanePath, loadControlPlane } from './loader.js';
 

@@ -28,6 +28,44 @@ describe('Control plane loader', () => {
     expect(() => loadControlPlane(file)).toThrow(`Failed to parse control plane JSON at ${file}:`);
   });
 
+  it('parses source freshness metadata', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'agent-cmdb-loader-freshness-'));
+    const file = join(dir, 'fresh.yaml');
+    writeFileSync(
+      file,
+      `version: "1.5"
+updatedAt: "2026-05-24"
+sources:
+  - id: local-docs
+    label: Local Docs
+    kind: wiki
+    readOnly: true
+    freshnessTtl: 7d
+    brainEntityId: agent-security
+profiles: []
+policies: []
+objects: []
+relationships: []
+`,
+      'utf8'
+    );
+
+    const controlPlane = loadControlPlane(file);
+
+    expect(controlPlane.sources[0].freshnessTtl).toBe('7d');
+    expect(controlPlane.sources[0].brainEntityId).toBe('agent-security');
+  });
+
+  it('refuses invalid source freshness TTLs', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'agent-cmdb-loader-bad-freshness-'));
+    const file = join(dir, 'fresh.json');
+    const controlPlane = loadDefaultControlPlane();
+    controlPlane.sources[0].freshnessTtl = '1w';
+    writeFileSync(file, JSON.stringify(controlPlane), 'utf8');
+
+    expect(() => loadControlPlane(file)).toThrow('source_invalid_freshness_ttl');
+  });
+
   it('throws a clean loader error when required arrays are missing', () => {
     const dir = mkdtempSync(join(tmpdir(), 'agent-cmdb-loader-missing-arrays-'));
     const file = join(dir, 'bad.json');

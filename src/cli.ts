@@ -16,6 +16,11 @@ import {
   generateWeeklyDigest
 } from './digest.js';
 import {
+  formatDoctorReport,
+  runDoctor
+} from './doctor.js';
+import { sourceFreshnessFromBrain } from './freshness.js';
+import {
   evaluatePolicy,
   generateReadinessReport,
   inspectProfile,
@@ -35,6 +40,7 @@ type Command =
   | 'brain'
   | 'digest'
   | 'digest-weekly'
+  | 'doctor'
   | 'policy'
   | 'route'
   | 'inspect'
@@ -93,6 +99,19 @@ async function main(argv: string[]): Promise<void> {
 
   const controlPlane = loadCliControlPlane(parsed.flags);
 
+  if (parsed.command === 'doctor') {
+    console.log(
+      formatDoctorReport(
+        await runDoctor({
+          controlPlane,
+          storeDir: storeDir(parsed.flags),
+          brainDir: brainDir(parsed.flags)
+        })
+      )
+    );
+    return;
+  }
+
   if (parsed.command === 'policy') {
     const profile = required(parsed.flags, 'profile');
     const action = required(parsed.flags, 'action');
@@ -104,7 +123,13 @@ async function main(argv: string[]): Promise<void> {
   if (parsed.command === 'route') {
     const profile = required(parsed.flags, 'profile');
     const intent = required(parsed.flags, 'intent');
-    printJson(resolveSourceRoute(controlPlane, { profile, intent }));
+    printJson(
+      resolveSourceRoute(controlPlane, {
+        profile,
+        intent,
+        freshness: await cliFreshness(controlPlane, parsed.flags)
+      })
+    );
     return;
   }
 
@@ -136,7 +161,16 @@ async function main(argv: string[]): Promise<void> {
     const action = required(parsed.flags, 'action');
     const tool = parsed.flags.tool;
     const intent = parsed.flags.intent;
-    printJson(preflightAction(controlPlane, { profile, action, tool, intent }));
+    printJson(
+      preflightAction(controlPlane, {
+        profile,
+        action,
+        tool,
+        intent,
+        dryRun: booleanFlag(parsed.flags, 'dry-run'),
+        freshness: await cliFreshness(controlPlane, parsed.flags)
+      })
+    );
     return;
   }
 
@@ -220,6 +254,7 @@ function parseArgs(argv: string[]): ParsedArgs {
     'brain',
     'digest',
     'digest-weekly',
+    'doctor',
     'route',
     'inspect',
     'inventory',
@@ -236,7 +271,7 @@ function parseArgs(argv: string[]): ParsedArgs {
 
   if (!command || !commands.includes(command as Command)) {
     throw new Error(
-      'Usage: agent-cmdb <init|policy|route|inspect|inventory|sources|preflight|validate|graph|evidence-add|evidence-list|change-add|change-list|brain|digest|digest-weekly|report> [--key value]'
+      'Usage: agent-cmdb <init|policy|route|inspect|inventory|sources|preflight|validate|graph|evidence-add|evidence-list|change-add|change-list|brain|digest|digest-weekly|doctor|report> [--key value]'
     );
   }
 
@@ -251,15 +286,28 @@ function parseArgs(argv: string[]): ParsedArgs {
     startIndex = 1;
   }
 
-  for (let index = startIndex; index < rest.length; index += 2) {
+  const booleanFlags = new Set(['dry-run']);
+  for (let index = startIndex; index < rest.length;) {
     const key = rest[index];
     const value = rest[index + 1];
 
-    if (!key?.startsWith('--') || !value) {
+    if (!key?.startsWith('--')) {
       throw new Error(`Invalid argument near ${key ?? '<end>'}.`);
     }
 
-    flags[key.slice(2)] = value;
+    const flagName = key.slice(2);
+    if (booleanFlags.has(flagName) && (!value || value.startsWith('--'))) {
+      flags[flagName] = 'true';
+      index += 1;
+      continue;
+    }
+
+    if (!value || value.startsWith('--')) {
+      throw new Error(`Invalid argument near ${key ?? '<end>'}.`);
+    }
+
+    flags[flagName] = value;
+    index += 2;
   }
 
   return {
@@ -281,11 +329,26 @@ function printJson(value: unknown): void {
 }
 
 function storeDir(flags: Record<string, string>): string {
-  return flags.store ?? join(process.cwd(), 'agent-cmdb', 'state');
+  return flags.store ?? flags['store-dir'] ?? join(process.cwd(), 'agent-cmdb', 'state');
 }
 
 function brainDir(flags: Record<string, string>): string {
   return flags['brain-dir'] ?? join(process.cwd(), 'agent-cmdb', 'brain');
+}
+
+function booleanFlag(flags: Record<string, string>, key: string): boolean {
+  const value = flags[key];
+  if (value === undefined) return false;
+  if (value === 'true') return true;
+  if (value === 'false') return false;
+  throw new Error(`Invalid boolean flag --${key}: ${value}. Valid values: true, false.`);
+}
+
+async function cliFreshness(controlPlane: ReturnType<typeof loadCliControlPlane>, flags: Record<string, string>) {
+  if (!controlPlane.sources.some((source) => source.freshnessTtl)) {
+    return undefined;
+  }
+  return sourceFreshnessFromBrain(controlPlane, brainDir(flags));
 }
 
 function loadCliControlPlane(flags: Record<string, string>) {
@@ -473,6 +536,8 @@ sources:
     label: Local Documentation
     kind: wiki
     readOnly: true
+    freshnessTtl: 7d
+    brainEntityId: agent-security
 
 profiles:
   - id: research-agent

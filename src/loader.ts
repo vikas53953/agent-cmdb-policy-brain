@@ -94,7 +94,9 @@ function parseSourceRef(value: unknown): SourceRef {
     label: readString(record, 'label', 'Source label'),
     kind: kind as SourceRef['kind'],
     readOnly: readBoolean(record, 'readOnly', 'Source readOnly'),
-    notes: optionalString(record, 'notes')
+    notes: optionalString(record, 'notes'),
+    freshnessTtl: optionalString(record, 'freshnessTtl'),
+    brainEntityId: optionalString(record, 'brainEntityId')
   };
 }
 
