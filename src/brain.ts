@@ -1,8 +1,8 @@
 import { randomUUID } from 'node:crypto';
-import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { dirname, relative, resolve, sep } from 'node:path';
-import { appendChange } from './store.js';
-import { sanitizeText } from './store.js';
+import { setTimeout as delay } from 'node:timers/promises';
+import { appendChange, detectInjectionWarnings, sanitizeText } from './store.js';
 import type {
   BrainEntity,
   BrainEntityKind,
@@ -16,6 +16,8 @@ import type {
 const staleThresholdMs = 604_800_000;
 const entityIdPattern = /^[a-z0-9][a-z0-9-]*$/;
 const brainVersion = '1.0';
+const lockStaleMs = 30_000;
+const lockWaitMs = 5_000;
 
 const brainDirs = [
   'entities/people',
@@ -47,6 +49,10 @@ export async function initBrainDir(brainDir: string): Promise<void> {
 }
 
 export async function readBrainIndex(brainDir: string): Promise<BrainIndex> {
+  return readBrainIndexUnlocked(brainDir);
+}
+
+async function readBrainIndexUnlocked(brainDir: string): Promise<BrainIndex> {
   try {
     const content = await readFile(indexPath(brainDir), 'utf8');
     return parseBrainIndex(JSON.parse(content));
@@ -63,6 +69,10 @@ export async function readBrainIndex(brainDir: string): Promise<BrainIndex> {
 }
 
 export async function writeBrainIndex(brainDir: string, index: BrainIndex): Promise<void> {
+  await withIndexLock(brainDir, () => writeBrainIndexUnlocked(brainDir, index));
+}
+
+async function writeBrainIndexUnlocked(brainDir: string, index: BrainIndex): Promise<void> {
   await mkdir(brainDir, { recursive: true });
   const normalizedIndex = parseBrainIndex(index);
   const target = indexPath(brainDir);
@@ -82,12 +92,14 @@ export async function readEntity(brainDir: string, entityId: string): Promise<Br
 
   const content = await readFile(resolveEntityPath(brainDir, entity.filePath), 'utf8');
   const ageMs = Math.max(0, Date.now() - new Date(entity.lastUpdated).getTime());
+  const warnings = detectInjectionWarnings(content);
 
   return {
     entity,
     content,
     ageMs,
-    stale: ageMs > staleThresholdMs
+    stale: ageMs > staleThresholdMs,
+    warnings: warnings.length > 0 ? warnings : undefined
   };
 }
 
@@ -100,22 +112,24 @@ export async function createEntity(
 ): Promise<BrainEntity> {
   await initBrainDir(brainDir);
   const normalizedEntity = normalizeNewEntity(entity, actor);
-  const index = await readBrainIndex(brainDir);
+  await withIndexLock(brainDir, async () => {
+    const index = await readBrainIndexUnlocked(brainDir);
 
-  if (index.entities.some((candidate) => candidate.id === normalizedEntity.id)) {
-    throw new Error(`Brain entity already exists: ${normalizedEntity.id}.`);
-  }
-  if (index.entities.some((candidate) => candidate.filePath === normalizedEntity.filePath)) {
-    throw new Error(`Brain entity filePath already exists: ${normalizedEntity.filePath}.`);
-  }
+    if (index.entities.some((candidate) => candidate.id === normalizedEntity.id)) {
+      throw new Error(`Brain entity already exists: ${normalizedEntity.id}.`);
+    }
+    if (index.entities.some((candidate) => candidate.filePath === normalizedEntity.filePath)) {
+      throw new Error(`Brain entity filePath already exists: ${normalizedEntity.filePath}.`);
+    }
 
-  const entityPath = resolveEntityPath(brainDir, normalizedEntity.filePath);
-  await mkdir(dirname(entityPath), { recursive: true });
-  await writeNewEntityFile(entityPath, normalizedEntity.filePath, sanitizeMarkdown(content));
+    const entityPath = resolveEntityPath(brainDir, normalizedEntity.filePath);
+    await mkdir(dirname(entityPath), { recursive: true });
+    await writeNewEntityFile(entityPath, normalizedEntity.filePath, sanitizeMarkdown(content));
 
-  index.entities.push(normalizedEntity);
-  index.updatedAt = normalizedEntity.lastUpdated;
-  await writeBrainIndex(brainDir, index);
+    index.entities.push(normalizedEntity);
+    index.updatedAt = normalizedEntity.lastUpdated;
+    await writeBrainIndexUnlocked(brainDir, index);
+  });
   await appendChange(storeDir, {
     target: `brain.${normalizedEntity.id}`,
     targetType: 'memory',
@@ -136,30 +150,38 @@ export async function writeEntity(
 ): Promise<BrainEntity> {
   await initBrainDir(brainDir);
   const normalizedInput = normalizeWriteInput(input);
-  const index = await readBrainIndex(brainDir);
-  const entityIndex = index.entities.findIndex((candidate) => candidate.id === normalizedInput.entityId);
+  let updatedEntity: BrainEntity | undefined;
+  await withIndexLock(brainDir, async () => {
+    const index = await readBrainIndexUnlocked(brainDir);
+    const entityIndex = index.entities.findIndex((candidate) => candidate.id === normalizedInput.entityId);
 
-  if (entityIndex === -1) {
+    if (entityIndex === -1) {
+      throw new Error(`Unknown brain entity: ${normalizedInput.entityId}.`);
+    }
+
+    const entity = index.entities[entityIndex];
+    const entityPath = resolveEntityPath(brainDir, entity.filePath);
+    const sanitizedContent = sanitizeMarkdown(normalizedInput.content);
+    const nextContent = normalizedInput.appendOnly
+      ? `${await readTextIfExists(entityPath)}\n---\n## Update - ${new Date().toISOString()}\n\n${sanitizedContent}`.trim()
+      : sanitizedContent;
+
+    await writeFile(entityPath, nextContent, 'utf8');
+
+    updatedEntity = {
+      ...entity,
+      lastUpdated: new Date().toISOString(),
+      lastUpdatedBy: normalizedInput.actor
+    };
+    index.entities[entityIndex] = updatedEntity;
+    index.updatedAt = updatedEntity.lastUpdated;
+    await writeBrainIndexUnlocked(brainDir, index);
+  });
+
+  if (!updatedEntity) {
     throw new Error(`Unknown brain entity: ${normalizedInput.entityId}.`);
   }
 
-  const entity = index.entities[entityIndex];
-  const entityPath = resolveEntityPath(brainDir, entity.filePath);
-  const sanitizedContent = sanitizeMarkdown(normalizedInput.content);
-  const nextContent = normalizedInput.appendOnly
-    ? `${await readTextIfExists(entityPath)}\n---\n## Update - ${new Date().toISOString()}\n\n${sanitizedContent}`.trim()
-    : sanitizedContent;
-
-  await writeFile(entityPath, nextContent, 'utf8');
-
-  const updatedEntity: BrainEntity = {
-    ...entity,
-    lastUpdated: new Date().toISOString(),
-    lastUpdatedBy: normalizedInput.actor
-  };
-  index.entities[entityIndex] = updatedEntity;
-  index.updatedAt = updatedEntity.lastUpdated;
-  await writeBrainIndex(brainDir, index);
   await appendChange(storeDir, {
     target: `brain.${updatedEntity.id}`,
     targetType: 'memory',
@@ -185,25 +207,36 @@ export async function deleteEntity(
 ): Promise<void> {
   await initBrainDir(brainDir);
   const normalizedId = normalizeEntityId(entityId);
-  const index = await readBrainIndex(brainDir);
-  const entity = index.entities.find((candidate) => candidate.id === normalizedId);
+  let deletedEntity: BrainEntity | undefined;
+  let changedAt = '';
+  await withIndexLock(brainDir, async () => {
+    const index = await readBrainIndexUnlocked(brainDir);
+    const entity = index.entities.find((candidate) => candidate.id === normalizedId);
 
-  if (!entity) {
+    if (!entity) {
+      throw new Error(`Unknown brain entity: ${normalizedId}.`);
+    }
+
+    await rm(resolveEntityPath(brainDir, entity.filePath), { force: true });
+    index.entities = index.entities.filter((candidate) => candidate.id !== normalizedId);
+    index.updatedAt = new Date().toISOString();
+    await writeBrainIndexUnlocked(brainDir, index);
+    deletedEntity = entity;
+    changedAt = index.updatedAt;
+  });
+
+  if (!deletedEntity) {
     throw new Error(`Unknown brain entity: ${normalizedId}.`);
   }
 
-  await rm(resolveEntityPath(brainDir, entity.filePath), { force: true });
-  index.entities = index.entities.filter((candidate) => candidate.id !== normalizedId);
-  index.updatedAt = new Date().toISOString();
-  await writeBrainIndex(brainDir, index);
   await appendChange(storeDir, {
     target: `brain.${normalizedId}`,
     targetType: 'memory',
     action: 'delete',
     actor: sanitizeText(actor),
     reason: sanitizeText(reason),
-    changedAt: index.updatedAt,
-    before: entity
+    changedAt,
+    before: deletedEntity
   });
 }
 
@@ -378,6 +411,58 @@ function normalizeTrustLevel(trust: string): TrustLevel {
 
 function indexPath(brainDir: string): string {
   return resolve(brainDir, 'index.json');
+}
+
+async function withIndexLock<T>(brainDir: string, operation: () => Promise<T>): Promise<T> {
+  await acquireIndexLock(brainDir);
+  try {
+    return await operation();
+  } finally {
+    await rm(lockPath(brainDir), { force: true });
+  }
+}
+
+async function acquireIndexLock(brainDir: string): Promise<void> {
+  await mkdir(brainDir, { recursive: true });
+  const lock = lockPath(brainDir);
+  const startedAt = Date.now();
+
+  for (;;) {
+    try {
+      await writeFile(lock, `${process.pid}:${new Date().toISOString()}\n`, { encoding: 'utf8', flag: 'wx' });
+      return;
+    } catch (error) {
+      if (!isNodeError(error, 'EEXIST')) {
+        throw error;
+      }
+
+      const stale = await isStaleLock(lock);
+      if (stale) {
+        await rm(lock, { force: true });
+        continue;
+      }
+
+      if (Date.now() - startedAt > lockWaitMs) {
+        throw new Error('Timed out waiting for brain index lock.');
+      }
+
+      await delay(100);
+    }
+  }
+}
+
+async function isStaleLock(lock: string): Promise<boolean> {
+  try {
+    const metadata = await stat(lock);
+    return Date.now() - metadata.mtimeMs > lockStaleMs;
+  } catch (error) {
+    if (isNodeError(error, 'ENOENT')) return true;
+    throw error;
+  }
+}
+
+function lockPath(brainDir: string): string {
+  return resolve(brainDir, '.index.lock');
 }
 
 async function readTextIfExists(filePath: string): Promise<string> {

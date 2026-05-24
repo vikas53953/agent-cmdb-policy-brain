@@ -20,6 +20,7 @@ export interface SourceRoute {
   intent: string;
   sources: string[];
   notes?: string;
+  blockOnStale?: boolean;
 }
 
 export interface AgentProfile {
@@ -92,7 +93,6 @@ export interface SourceRouteRequest {
   profile: string;
   intent: string;
   freshness?: SourceFreshnessInput[];
-  now?: string;
 }
 
 export interface SourceFreshnessInput {
@@ -115,6 +115,7 @@ export interface ResolvedSourceRoute {
   sources: SourceRef[];
   guardrails: string[];
   notes?: string;
+  blockOnStale: boolean;
   staleSourceIds: string[];
   freshness: SourceFreshnessStatus[];
 }
@@ -154,7 +155,6 @@ export interface PreflightRequest extends PolicyRequest {
   intent?: string;
   dryRun?: boolean;
   freshness?: SourceFreshnessInput[];
-  now?: string;
 }
 
 export interface PreflightResult {
@@ -192,6 +192,7 @@ export interface AgentCmdbReport {
 
 export interface EvidenceRecord {
   id: string;
+  prevHash: string;
   profile: string;
   source: string;
   intent: string;
@@ -200,9 +201,10 @@ export interface EvidenceRecord {
   capturedAt: string;
   links?: string[];
   tags?: string[];
+  warnings?: string[];
 }
 
-export type EvidenceInput = Omit<EvidenceRecord, 'id'>;
+export type EvidenceInput = Omit<EvidenceRecord, 'id' | 'prevHash' | 'warnings'>;
 
 export interface EvidenceQuery {
   profile?: string;
@@ -214,6 +216,7 @@ export interface EvidenceQuery {
 
 export interface ChangeRecord {
   id: string;
+  prevHash: string;
   target: string;
   targetType: ObjectKind;
   action: ChangeAction;
@@ -222,9 +225,10 @@ export interface ChangeRecord {
   changedAt: string;
   before?: unknown;
   after?: unknown;
+  warnings?: string[];
 }
 
-export type ChangeInput = Omit<ChangeRecord, 'id'>;
+export type ChangeInput = Omit<ChangeRecord, 'id' | 'prevHash' | 'warnings'>;
 
 export interface ChangeQuery {
   target?: string;
@@ -257,6 +261,7 @@ export interface BrainReadResult {
   content: string;
   ageMs: number;
   stale: boolean;
+  warnings?: string[];
 }
 
 export interface BrainWriteInput {

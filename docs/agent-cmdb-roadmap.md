@@ -1,9 +1,9 @@
 # Agent CMDB - Product roadmap
 
-*The full NMS for AI agents. Built by a network engineer.*
+*A practical release plan for agent policy, memory, reliability, and operations.*
 
 Generated: 2026-05-24
-Current version: V1.5.0 (153 tests, policy + memory + digest + dry-run + freshness + doctor)
+Current version: V1.5.1 (161 tests, policy + memory + digest + dry-run + freshness + doctor + audited preflight hardening)
 Repo: github.com/vikas53953/agent-cmdb-policy-brain
 Package: @pylabmit/agent-cmdb
 
@@ -17,7 +17,7 @@ Layer 1 - Policy enforcement: allow/deny/approval_required policy engine with de
 
 Layer 2 - Memory (the knowledge base): markdown brain entity files with create/read/write/delete/search, append-only evidence timeline (JSONL), changelog with before/after diffs, daily and weekly digest generation, staleness detection with 7-day TTL, content sanitization against prompt injection.
 
-What V1 solves: 12 of the 30 agent production problems (acts without permission, uses wrong source, repeats work, no audit trail, can't see knowledge state, config drift, and six others).
+What V1 covers: initial local controls for several agent production problems (acts without permission, uses wrong source, repeats work, no audit trail, knowledge state, config drift, and related cases). These are partial controls unless the host agent reliably calls `preflight()` before acting.
 
 What V1 does not solve: 18 problems related to reliability, security hardening, observability, and management at scale.
 
@@ -25,13 +25,14 @@ What V1 does not solve: 18 problems related to reliability, security hardening, 
 
 ## Version plan overview
 
-| Version | Status | Codename | Theme | New problems solved | Estimated Codex effort |
-| --- | --- | --- | --- | --- | --- |
-| V1.0 | Shipped | Foundation | Policy + memory | 12 of 30 | Done (122 tests, ~1.1M tokens) |
-| V1.5 | Shipped | Hardline | Publish prep + quick wins | 14 of 30 | Done (153 tests) |
-| V2.0 | Planned | Monitor | SRE + reliability | 20 of 30 | ~400K tokens, ~30 min |
-| V3.0 | Planned | Shield | Security + observability | 26 of 30 | ~500K tokens, ~40 min |
-| V4.0 | Planned | Central | Management plane + dashboard | 30 of 30 | ~600K tokens, ~45 min |
+| Version | Status | Codename | Theme | Problem coverage target |
+| --- | --- | --- | --- | --- |
+| V1.0 | Shipped | Foundation | Policy + memory | Initial local policy and memory coverage |
+| V1.5 | Shipped | Hardline | Publish prep + quick wins | Dry-run, freshness signals, doctor |
+| V1.5.1 | Shipped | Hardening | Critical patch | Default-deny, audited preflight, tamper-evident JSONL |
+| V2.0 | Planned | Monitor | SRE + reliability | Health, circuit breakers, SLOs, checkpoints |
+| V3.0 | Planned | Shield | Security + observability | Isolation, DLP, rate limits, schedules, webhooks |
+| V4.0 | Planned | Central | Management plane + dashboard | API, dashboard, versioning, templates, incidents |
 
 ---
 
@@ -49,9 +50,9 @@ Theme: Prepare the package for npm and add the features that are almost free bec
 
 4. npx agent-cmdb doctor - loads control plane, runs validation, checks brain health (entity count, stale entities, orphaned files), checks store health (evidence count, last write time). Prints a clean pass/fail report. Network analogy: show system status on firewall.
 
-### Problems solved
+### Problem coverage
 
-Problem 6 (does too little): freshness scoring tells the agent when it needs to go deeper because its knowledge is stale.
+Problem 6 (does too little): PARTIAL - freshness scoring tells the agent when it may need to go deeper because its knowledge is stale. It does not yet prove task completeness.
 Problem 23 (can't test policy): dry-run mode lets you simulate policy evaluation safely.
 
 ### Codex prompt for V1.5
@@ -64,7 +65,7 @@ Repo: agent-cmdb-policy-brain (local, on main)
 == PHASE 1: Policy dry-run ==
 
 Add dryRun?: boolean to PreflightRequest in types.ts.
-When dryRun is true, preflightAction returns the full PreflightResult but does NOT call logEvidence or logChange.
+When dryRun is true, `preflight()` returns the full PreflightResult but does NOT write audit records.
 Add --dry-run flag to CLI preflight command.
 Add tests: dry-run returns same decision as normal but evidence/changes stores remain empty.
 
@@ -92,7 +93,7 @@ Bump version to 1.5.0.
 Do NOT actually run npm publish - just confirm everything is ready.
 
 Commit: "feat: v1.5 - dry-run, source freshness, doctor command"
-Target: 153 tests.
+Target: 161+ tests.
 ```
 
 ---
@@ -115,7 +116,7 @@ Theme: Make agents reliable in production. When things fail, fail gracefully. Wh
 
 10. Checkpoint/resume - for long-running agent tasks, save a checkpoint file with the current task state (which step, what's been done, what's pending). If the agent crashes, it reads the checkpoint and resumes from where it left off. Network analogy: HA session sync - active sessions survive failover.
 
-### Problems solved
+### Problem coverage
 
 Problem 8 (tool fails silently): health monitors detect failures.
 Problem 9 (stuck in loop): circuit breaker stops retrying after N failures.
@@ -274,11 +275,11 @@ Theme: Harden agents against attacks and give operators full visibility. Named a
 
 15. Time-based policies (schedule objects) - policies can have an optional schedule field: { days: ['mon','tue','wed','thu','fri'], startHour: 9, endHour: 18, timezone: 'Asia/Kolkata' }. Policy only applies during the scheduled window. Network analogy: firewall schedule objects on firewall policies.
 
-16. Webhook notifications - configurable webhooks that fire on: policy violation, SLO breach, circuit breaker trip, trust score drop, daily digest completion. Supports HTTP POST to any URL. Network analogy: SNMP traps to NMS.
+16. Webhook notifications - configurable webhooks that fire on: policy violation, SLO breach, circuit breaker trip, trust score drop, daily digest completion. Supports HTTP POST to any URL. Network analogy: event notifications to an operations platform.
 
 17. Prompt injection detection on brain reads - when an agent reads a brain entity, scan the content for injection patterns before returning it. If detected, flag the entity as potentially compromised and return a warning. Network analogy: IPS inline inspection on inbound traffic.
 
-### Problems solved
+### Problem coverage
 
 Problem 5 (does too much): rate limiting caps API calls.
 Problem 7 (misinterprets intent): trust scoring detects degrading agent behavior.
@@ -301,7 +302,7 @@ Read AGENTS.md first.
 
 /spawn --reasoning high "Build DLP content inspection: create src/dlp.ts with scanForSensitiveContent(text: string): DlpResult. Detect: email, phone, SSN, credit card, API key patterns (sk-*, ghp_*, AKIA*), internal URLs. Return { clean: boolean, findings: DlpFinding[] }. Add optional dlpEnabled: boolean to AgentProfile. When enabled, scan evidence summaries and brain write content before persisting. Block or redact based on dlpAction: 'block' | 'redact'. Write to /tmp/dlp-report.txt"
 
-/spawn --reasoning high "Build trust scoring: create src/trust.ts with calculateTrustScore(storeDir: string, profile: string): TrustScore. Read evidence for policy violations (-10), SLO breaches (-5), health check failures (-2). Read evidence for successful completions (+1), clean digests (+2). Return { profile, score, tier, events }. Tier: trusted (80-100), normal (50-79), restricted (20-49), quarantined (0-19). When trust < threshold, preflightAction uses a restricted policy set. Write to /tmp/trust-report.txt"
+/spawn --reasoning high "Build trust scoring: create src/trust.ts with calculateTrustScore(storeDir: string, profile: string): TrustScore. Read evidence for policy violations (-10), SLO breaches (-5), health check failures (-2). Read evidence for successful completions (+1), clean digests (+2). Return { profile, score, tier, events }. Tier: trusted (80-100), normal (50-79), restricted (20-49), quarantined (0-19). When trust < threshold, preflight uses a restricted policy set. Write to /tmp/trust-report.txt"
 
 After all 4 subagents complete, read all reports, integrate the modules, fix issues.
 
@@ -349,7 +350,7 @@ Theme: Central management, visual operations, and the features that turn Agent C
 
 24. Knowledge transfer between agents - export a brain entity set as a portable archive (tar.gz of markdown files + index.json). Import into another agent's brain. Network analogy: config export/import between managed agents.
 
-### Problems solved
+### Problem coverage
 
 Problem 14 (inconsistent format): templates standardize agent setup.
 Problem 20 (no unified view): dashboard provides the single pane of glass.
@@ -434,12 +435,12 @@ Commit: "feat: v4.0 - REST/MCP API, dashboard, versioning, templates, incidents"
 
 | # | Agent problem | V1.0 | V1.5 | V2.0 | V3.0 | V4.0 |
 | --- | --- | --- | --- | --- | --- | --- |
-| 1 | Acts without permission | SOLVED | | | | |
-| 2 | Uses wrong source | SOLVED | | | | |
+| 1 | Acts without permission | PARTIAL | | | | |
+| 2 | Uses wrong source | PARTIAL | | | | |
 | 3 | Hallucinates and acts | partial | | | trust scoring | |
-| 4 | Repeats work | SOLVED | | | | |
+| 4 | Repeats work | PARTIAL | | | | |
 | 5 | Does too much | | | | rate limiting | |
-| 6 | Does too little | | freshness | | | |
+| 6 | Does too little | | PARTIAL (freshness signal) | | | |
 | 7 | Misinterprets intent | | | | trust + brain | |
 | 8 | Tool fails silently | | | health monitors | | |
 | 9 | Stuck in loop | | | circuit breakers | | |
@@ -450,8 +451,8 @@ Commit: "feat: v4.0 - REST/MCP API, dashboard, versioning, templates, incidents"
 | 14 | Inconsistent format | | | | | templates |
 | 15 | Leaks private data | sanitize | | | DLP | |
 | 16 | Contradicts itself | brain | | | | |
-| 17 | No audit trail | SOLVED | | | | |
-| 18 | Can't see knowledge | SOLVED | | | | |
+| 17 | No audit trail | PARTIAL | | | | |
+| 18 | Can't see knowledge | PARTIAL | | | | |
 | 19 | Can't replay failure | partial | | | | |
 | 20 | No unified view | | | | | dashboard |
 | 21 | Config drift | validate | | | | |
@@ -469,23 +470,17 @@ Coverage by version: V1.0 = 12, V1.5 = 14, V2.0 = 20, V3.0 = 26, V4.0 = 30.
 
 ---
 
-## Competitive positioning at each version
+## Positioning notes
 
-V1.0 (now): Only OSS tool that combines policy enforcement + source routing + CMDB inventory + local brain memory in one package. Nobody else has source routing.
+Agent CMDB is a local-first TypeScript library for agent policy checks, source routing, markdown memory, and audit records. Its clearest differentiator is the infrastructure-style control-plane model: policies, routes, inventory objects, evidence, and changes are explicit files instead of hidden framework behavior.
 
-V1.5: First agent tool with policy dry-run and source freshness scoring. Microsoft AGT doesn't have either.
-
-V2.0: First agent tool with source-level circuit breakers (Microsoft does agent-level) and checkpoint/resume. First to combine SRE practices with agent memory.
-
-V3.0: First local-first agent tool with full security stack: VDOM isolation + rate limiting + DLP + trust scoring + time-based policies + webhooks. Microsoft has this at enterprise scale but not local-first.
-
-V4.0: The full NMS. No other project combines policy + memory + SRE + security + management plane + dashboard in one package. This is firewall + log analytics + Central + Monitor for AI agents.
+The project should not claim market-first status without fresh independent research. A fair comparison page should focus on concrete shipped capabilities, integration boundaries, and where users still need their agent framework to call `preflight()` before acting.
 
 ---
 
 ## Build order recommendation
 
-V1.5 is shipped. The package now has dry-run, doctor, source freshness metadata, object-status policy enforcement, route-failure deny behavior, and a clean 1.5.0 package surface.
+V1.5.1 is shipped. The package now has dry-run, doctor, source freshness metadata, object-status policy enforcement, route-failure deny behavior, default-deny, audited preflight, tamper-evident JSONL, and a clean 1.5.1 package surface.
 
 V2.0 next - this is the highest-value increment. Health monitors and circuit breakers are the features that make the difference between "interesting project" and "I need this in production." SLOs are the feature that makes managers care.
 

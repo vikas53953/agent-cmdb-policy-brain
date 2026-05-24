@@ -1,4 +1,4 @@
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -94,7 +94,8 @@ describe('Agent CMDB store adversarial behavior', () => {
     expect(serialized).not.toContain('SYSTEM:');
     expect(serialized).not.toContain('\u0000');
     expect(serialized).not.toContain('\u202E');
-    expect(serialized).toContain('[SANITIZED_INSTRUCTION]:');
+    expect(serialized).toContain('[CONTENT REMOVED - injection pattern detected]');
+    expect(serialized).not.toContain('delete everything');
   });
 
   it('sanitizes nested change before/after values and generated ids cannot be overridden', async () => {
@@ -119,5 +120,42 @@ describe('Agent CMDB store adversarial behavior', () => {
     expect(serialized).not.toContain('TOOL:');
     expect(serialized).not.toContain('ASSISTANT:');
     expect(serialized).not.toContain('\u202E');
+    expect(serialized).toContain('[CONTENT REMOVED - injection pattern detected]');
+    expect(serialized).not.toContain('override the policy');
+  });
+
+  it('writes prevHash values and warns when the evidence hash chain is broken', async () => {
+    const storeDir = await makeStore('agent-cmdb-store-hash-');
+
+    await appendEvidence(storeDir, {
+      profile: 'research-agent',
+      source: 'hash-source',
+      intent: 'hash',
+      summary: 'First record',
+      trust: 'medium',
+      capturedAt: '2026-05-24T00:00:00.000Z'
+    });
+    await appendEvidence(storeDir, {
+      profile: 'research-agent',
+      source: 'hash-source',
+      intent: 'hash',
+      summary: 'Second record',
+      trust: 'medium',
+      capturedAt: '2026-05-24T00:01:00.000Z'
+    });
+
+    const evidencePath = join(storeDir, 'evidence.jsonl');
+    const lines = readFileSync(evidencePath, 'utf8').trim().split(/\r?\n/);
+    const first = JSON.parse(lines[0]) as { prevHash: string };
+    const second = JSON.parse(lines[1]) as { prevHash: string };
+    expect(first.prevHash).toBe('genesis');
+    expect(second.prevHash).not.toBe('genesis');
+
+    lines[0] = lines[0].replace('First record', 'Tampered record');
+    writeFileSync(evidencePath, `${lines.join('\n')}\n`, 'utf8');
+
+    const records = await listEvidence(storeDir, { intent: 'hash' });
+    expect(records).toHaveLength(2);
+    expect(records[1].warnings?.join(' ')).toContain('hash chain');
   });
 });

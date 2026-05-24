@@ -30,10 +30,10 @@ export function resolveSourceRoute(
     sources: route.sources.map((sourceId) => ensureSource(controlPlane, sourceId)),
     guardrails: profile.guardrails,
     notes: route.notes,
+    blockOnStale: Boolean(route.blockOnStale),
     ...resolveFreshness(
       route.sources.map((sourceId) => ensureSource(controlPlane, sourceId)),
-      normalizedRequest.freshness,
-      normalizedRequest.now
+      normalizedRequest.freshness
     )
   };
 }
@@ -49,7 +49,8 @@ export function inspectProfile(controlPlane: ControlPlane, profileId: string): P
     routes: profile.routes.map((route) => ({
       intent: route.intent,
       sources: [...route.sources],
-      notes: route.notes
+      notes: route.notes,
+      blockOnStale: route.blockOnStale
     }))
   };
 }
@@ -76,15 +77,13 @@ function normalizeSourceRouteRequest(request: SourceRouteRequest): SourceRouteRe
   return {
     profile: requireNonEmptyString(record.profile, 'Source route request profile'),
     intent: requireNonEmptyString(record.intent, 'Source route request intent'),
-    freshness: normalizeFreshness(record.freshness),
-    now: record.now === undefined ? undefined : requireNonEmptyString(record.now, 'Source route request now')
+    freshness: normalizeFreshness(record.freshness)
   };
 }
 
 function resolveFreshness(
   sources: SourceRef[],
-  freshness: SourceFreshnessInput[] | undefined,
-  nowInput: string | undefined
+  freshness: SourceFreshnessInput[] | undefined
 ): Pick<ResolvedSourceRoute, 'staleSourceIds' | 'freshness'> {
   if (!freshness || freshness.length === 0) {
     return {
@@ -94,7 +93,7 @@ function resolveFreshness(
   }
 
   const bySource = new Map(freshness.map((entry) => [entry.sourceId, entry]));
-  const now = nowInput ? parseTimestamp(nowInput, 'Source route request now') : Date.now();
+  const now = Date.now();
   const statuses: SourceFreshnessStatus[] = sources
     .filter((source) => source.freshnessTtl)
     .map((source) => {

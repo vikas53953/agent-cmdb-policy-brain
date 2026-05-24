@@ -15,6 +15,20 @@ function runCli(args: string[], cwd = process.cwd()): string {
 }
 
 describe('V1.5 CLI', () => {
+  it('prints root help with command descriptions', () => {
+    const output = runCli(['--help']);
+
+    expect(output).toContain('Usage: agent-cmdb <command>');
+    expect(output).toContain('preflight');
+    expect(output).toContain('Run a policy preflight check');
+  });
+
+  it('prints init and preflight specific help', () => {
+    expect(runCli(['init', '--help'])).toContain('Create an agent-cmdb workspace');
+    expect(runCli(['preflight', '--help'])).toContain('--profile');
+    expect(runCli(['preflight', '--help'])).toContain('--dry-run');
+  });
+
   it('accepts --dry-run as a boolean preflight flag', () => {
     const output = JSON.parse(
       runCli([

@@ -9,24 +9,24 @@ function makeCmdb() {
 }
 
 describe('IAgentCMDB adversarial contract', () => {
-  it('rejects missing preflight input with a descriptive error', () => {
+  it('rejects missing preflight input with a descriptive error', async () => {
     const cmdb = makeCmdb();
 
-    expect(() =>
+    await expect(
       // @ts-expect-error runtime adversarial input
       cmdb.preflight(undefined)
-    ).toThrow('Policy request must be an object.');
+    ).rejects.toThrow('Policy request must be an object.');
   });
 
-  it('rejects preflight input with missing action', () => {
+  it('rejects preflight input with missing action', async () => {
     const cmdb = makeCmdb();
 
-    expect(() =>
+    await expect(
       // @ts-expect-error runtime adversarial input
       cmdb.preflight({
         profile: 'research-agent'
       })
-    ).toThrow('Policy request action must be a non-empty string.');
+    ).rejects.toThrow('Policy request action must be a non-empty string.');
   });
 
   it('rejects missing route input with a descriptive error', () => {

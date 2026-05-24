@@ -10,7 +10,7 @@ describe('IAgentCMDB contract', () => {
     const storeDir = mkdtempSync(join(tmpdir(), 'agent-cmdb-interface-'));
     const cmdb = createAgentCmdb({ configPath: multiAgentExampleControlPlanePath, storeDir });
 
-    const preflight = cmdb.preflight({
+    const preflight = await cmdb.preflight({
       profile: 'research-agent',
       action: 'social_post',
       tool: 'social-media-tool',
@@ -46,8 +46,9 @@ describe('IAgentCMDB contract', () => {
       changedAt: '2026-05-24T00:21:00.000Z'
     });
 
-    expect(await cmdb.listEvidence({ profile: 'research-agent' })).toHaveLength(1);
+    expect(await cmdb.listEvidence({ profile: 'research-agent' })).toHaveLength(2);
     expect(await cmdb.listChanges({ actor: 'codex' })).toHaveLength(1);
+    expect(await cmdb.listChanges({ actor: 'agent-cmdb-preflight' })).toHaveLength(1);
     expect(cmdb.health().ok).toBe(true);
   });
 });

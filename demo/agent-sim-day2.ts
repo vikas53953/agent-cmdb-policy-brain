@@ -30,7 +30,7 @@ async function main(): Promise<void> {
   console.log(`[BRAIN]      Found prior knowledge. Last updated: ${knowledge.entity.lastUpdated}.`);
   console.log(`             Stale: ${knowledge.stale ? 'yes' : 'no'}. Content preview: ${preview(knowledge.content)}.`);
 
-  const search = cmdb.preflight({
+  const search = await cmdb.preflight({
     profile,
     action: 'web_search',
     tool: 'serpapi',

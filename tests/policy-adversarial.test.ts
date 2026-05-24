@@ -109,6 +109,25 @@ describe('Agent CMDB policy adversarial behavior', () => {
     expect(decision.ruleId).toBe('catch-all-approval');
   });
 
+  it('does not match wildcard tool rules when the request has no tool', () => {
+    const decision = evaluatePolicy(
+      withPolicies([
+        {
+          id: 'tool-explicit-catch-all',
+          effect: 'allow',
+          profiles: ['*'],
+          actions: ['*'],
+          tools: ['*'],
+          reason: 'Only requests carrying a tool should match.'
+        }
+      ]),
+      { profile: 'research-agent', action: 'brand_new_action' }
+    );
+
+    expect(decision.effect).toBe('deny');
+    expect(decision.ruleId).toBe('default-deny');
+  });
+
   it('throws descriptive runtime errors for empty request strings', () => {
     const controlPlane = loadControlPlane(multiAgentExampleControlPlanePath);
 

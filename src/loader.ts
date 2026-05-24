@@ -124,7 +124,8 @@ function parseSourceRoute(value: unknown): AgentProfile['routes'][number] {
   return {
     intent: readString(record, 'intent', 'Source route intent'),
     sources: readStringArray(record, 'sources', 'Source route sources'),
-    notes: optionalString(record, 'notes')
+    notes: optionalString(record, 'notes'),
+    blockOnStale: optionalBoolean(record, 'blockOnStale')
   };
 }
 

@@ -19,7 +19,7 @@ import {
   loadDefaultControlPlane,
   loadControlPlane
 } from './loader.js';
-import { preflightAction } from './preflight-action.js';
+import { preflight } from './preflight.js';
 import { resolveSourceRoute } from './route-resolver.js';
 import { appendChange, appendEvidence, listChanges, listEvidence } from './store.js';
 import type {
@@ -52,7 +52,7 @@ export interface AgentCmdbHealth {
 }
 
 export interface IAgentCMDB {
-  preflight(request: PreflightRequest): PreflightResult;
+  preflight(request: PreflightRequest): Promise<PreflightResult>;
   resolveRoute(request: SourceRouteRequest): ResolvedSourceRoute;
   logEvidence(input: EvidenceInput): Promise<EvidenceRecord>;
   listEvidence(query?: EvidenceQuery): Promise<EvidenceRecord[]>;
@@ -88,8 +88,8 @@ export function createAgentCmdb(options: AgentCmdbOptions = {}): IAgentCMDB {
   const brainDir = options.brainDir;
 
   return {
-    preflight(request: PreflightRequest): PreflightResult {
-      return preflightAction(controlPlane, request);
+    preflight(request: PreflightRequest): Promise<PreflightResult> {
+      return preflight(controlPlane, storeDir, request);
     },
     resolveRoute(request: SourceRouteRequest): ResolvedSourceRoute {
       return resolveSourceRoute(controlPlane, request);

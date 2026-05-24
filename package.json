@@ -1,6 +1,6 @@
 {
   "name": "@pylabmit/agent-cmdb",
-  "version": "1.5.0",
+  "version": "1.5.1",
   "description": "Policy enforcement and memory for AI agents: preflight checks, source routing, and audit trails before your agent acts.",
   "type": "module",
   "license": "MIT",
@@ -45,6 +45,26 @@
     "./freshness": {
       "import": "./dist/freshness.js",
       "types": "./dist/freshness.d.ts"
+    },
+    "./types": {
+      "import": "./dist/types.js",
+      "types": "./dist/types.d.ts"
+    },
+    "./preflight": {
+      "import": "./dist/preflight.js",
+      "types": "./dist/preflight.d.ts"
+    },
+    "./store": {
+      "import": "./dist/store.js",
+      "types": "./dist/store.d.ts"
+    },
+    "./policy-engine": {
+      "import": "./dist/policy-engine.js",
+      "types": "./dist/policy-engine.d.ts"
+    },
+    "./route-resolver": {
+      "import": "./dist/route-resolver.js",
+      "types": "./dist/route-resolver.d.ts"
     }
   },
   "files": [

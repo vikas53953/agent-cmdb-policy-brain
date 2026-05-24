@@ -20,4 +20,4 @@ V2 focuses on deterministic preflight safety before live Agent integration. It c
 - what evidence and changes were recorded?
 - is the control plane valid?
 
-Live Agent mutation remains out of scope for V2. The repo now includes `src/agent-preflight.ts` as a scaffolded one-call hook that Agent can import later; it does not change a live Agent profile by itself.
+Live Agent mutation remains out of scope for V2. The repo now exposes `preflight()` through `createAgentCmdb()` as the single integration point an agent can call before acting; it does not change a live agent profile by itself.

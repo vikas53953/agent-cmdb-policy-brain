@@ -23,13 +23,18 @@ describe('OSS package shape', () => {
 
     expect(packageJson.name).toBe('@pylabmit/agent-cmdb');
     expect(packageJson.private).toBeUndefined();
-    expect(packageJson.version).toBe('1.5.0');
+    expect(packageJson.version).toBe('1.5.1');
     expect(packageJson.main).toBe('dist/interface.js');
     expect(packageJson.types).toBe('dist/interface.d.ts');
     expect(packageJson.bin['agent-cmdb']).toBe('dist/cli.js');
     expect(packageJson.exports['./doctor']).toBeDefined();
     expect(packageJson.exports['./duration']).toBeDefined();
     expect(packageJson.exports['./freshness']).toBeDefined();
+    expect(packageJson.exports['./types']).toBeDefined();
+    expect(packageJson.exports['./preflight']).toBeDefined();
+    expect(packageJson.exports['./store']).toBeDefined();
+    expect(packageJson.exports['./policy-engine']).toBeDefined();
+    expect(packageJson.exports['./route-resolver']).toBeDefined();
     expect(packageJson.scripts.build).toContain("rmSync('dist'");
     expect(packageJson.scripts.build).toContain('tsc -p tsconfig.build.json');
   });
@@ -118,13 +123,13 @@ describe('OSS package shape', () => {
     }
   });
 
-  it('creates an Agent CMDB instance from configPath', () => {
+  it('creates an Agent CMDB instance from configPath', async () => {
     const cmdb = createAgentCmdb({
       configPath: join(process.cwd(), 'examples', 'basic', 'control-plane.yaml'),
       storeDir: mkdtempSync(join(tmpdir(), 'agent-cmdb-oss-configpath-'))
     });
 
-    const result = cmdb.preflight({
+    const result = await cmdb.preflight({
       profile: 'research-agent',
       action: 'web_search',
       tool: 'serpapi',

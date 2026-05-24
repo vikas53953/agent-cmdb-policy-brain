@@ -34,15 +34,15 @@ export function evaluatePolicy(controlPlane: ControlPlane, request: PolicyReques
 
   if (!selectedRule) {
     return {
-      effect: 'approval_required',
-      ruleId: 'default-approval-required',
-      code: 'no_explicit_policy_match',
-      reason: 'No explicit allow rule matched this action, so approval is required.',
+      effect: 'deny',
+      ruleId: 'default-deny',
+      code: 'default_deny',
+      reason: 'No explicit allow rule matched this action.',
       profile: normalizedRequest.profile,
       action: normalizedRequest.action,
       tool: normalizedRequest.tool,
-      canEscalate: true,
-      suggestedAlternative: 'Ask for explicit approval or add a policy rule.'
+      canEscalate: false,
+      suggestedAlternative: 'Add an explicit allow or approval_required policy rule.'
     };
   }
 
@@ -75,7 +75,7 @@ export function normalizePolicyRequest(request: PolicyRequest): PolicyRequest {
 export function policyMatches(rule: PolicyRule, request: PolicyRequest): boolean {
   if (!matchesList(rule.actions, request.action)) return false;
   if (rule.profiles && !matchesList(rule.profiles, request.profile)) return false;
-  if (rule.tools && !request.tool) return rule.tools.includes('*');
+  if (rule.tools && !request.tool) return false;
   if (rule.tools && request.tool && !matchesList(rule.tools, request.tool)) return false;
   return true;
 }

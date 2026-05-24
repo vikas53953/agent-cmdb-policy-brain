@@ -1,7 +1,7 @@
 # Agent CMDB
 
 [![CI](https://github.com/vikas53953/agent-cmdb-policy-brain/actions/workflows/ci.yml/badge.svg)](https://github.com/vikas53953/agent-cmdb-policy-brain/actions/workflows/ci.yml)
-![Tests](https://img.shields.io/badge/tests-153_passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-161_passing-brightgreen)
 
 Policy enforcement and memory for AI agents.
 
@@ -64,7 +64,7 @@ const cmdb = createAgentCmdb({
   storeDir: './agent-cmdb/state'
 });
 
-const result = cmdb.preflight({
+const result = await cmdb.preflight({
   profile: 'research-agent',
   action: 'web_search',
   tool: 'serpapi',
@@ -81,6 +81,13 @@ if (!result.allowed) {
   }
 }
 ```
+
+> [!WARNING]
+> Agent CMDB evaluates policy. It does not intercept tool calls. Your agent must call `preflight()` before every action you want governed.
+
+### Migration note for 1.5.1
+
+Agent CMDB now defaults to deny when no policy matches. If you want unknown actions to require human approval instead of being blocked, add an explicit catch-all `approval_required` rule to your control plane.
 
 ## Agent Memory (Brain)
 
@@ -170,6 +177,7 @@ The product roadmap lives in [docs/agent-cmdb-roadmap.md](docs/agent-cmdb-roadma
 | --- | --- | --- |
 | V1.0 | Shipped | Policy engine, source routing, CMDB inventory, evidence store, graph, brain, digest |
 | V1.5 | Shipped | npm packaging, dry-run, source freshness, doctor command |
+| V1.5.1 | Shipped | single audited preflight, default-deny, tamper-evident JSONL, hardened sanitization |
 | V2.0 | Planned | Health monitors, circuit breakers, SLOs, cost tracking, checkpoint/resume |
 | V3.0 | Planned | Isolation, rate limiting, DLP inspection, trust scoring, schedules, webhooks |
 | V4.0 | Planned | REST/MCP API, dashboard, policy versioning, templates, incident response |
@@ -244,6 +252,6 @@ npm run build
 
 Current verification target:
 
-- 153 tests passing
+- 161 tests passing
 - strict TypeScript clean
 - clean `dist/` build

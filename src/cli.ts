@@ -20,6 +20,7 @@ import {
   runDoctor
 } from './doctor.js';
 import { sourceFreshnessFromBrain } from './freshness.js';
+import { createAgentCmdb } from './interface.js';
 import {
   evaluatePolicy,
   generateReadinessReport,
@@ -27,7 +28,6 @@ import {
   listObjects,
   loadControlPlane,
   loadDefaultControlPlane,
-  preflightAction,
   resolveGraphNeighbors,
   resolveSourceRoute,
   validateControlPlane
@@ -61,6 +61,12 @@ interface ParsedArgs {
 }
 
 async function main(argv: string[]): Promise<void> {
+  const help = helpRequest(argv);
+  if (help) {
+    console.log(help);
+    return;
+  }
+
   const parsed = parseArgs(argv);
 
   if (parsed.command === 'init') {
@@ -161,8 +167,13 @@ async function main(argv: string[]): Promise<void> {
     const action = required(parsed.flags, 'action');
     const tool = parsed.flags.tool;
     const intent = parsed.flags.intent;
+    const cmdb = createAgentCmdb({
+      controlPlane,
+      storeDir: storeDir(parsed.flags),
+      brainDir: brainDir(parsed.flags)
+    });
     printJson(
-      preflightAction(controlPlane, {
+      await cmdb.preflight({
         profile,
         action,
         tool,
@@ -314,6 +325,72 @@ function parseArgs(argv: string[]): ParsedArgs {
     command: command as Command,
     flags
   };
+}
+
+function helpRequest(argv: string[]): string | undefined {
+  const [command, second] = argv;
+  if (!command || command === '--help' || command === '-h') return rootHelp();
+  if (second === '--help' || second === '-h') return commandHelp(command);
+  return undefined;
+}
+
+function rootHelp(): string {
+  return [
+    'Usage: agent-cmdb <command> [--key value]',
+    '',
+    'Commands:',
+    '  init            Create an agent-cmdb workspace',
+    '  preflight       Run a policy preflight check',
+    '  policy          Evaluate a policy decision',
+    '  route           Resolve a source route',
+    '  doctor          Check control plane, store, and brain health',
+    '  brain           Manage local brain entities',
+    '  digest          Generate a daily digest',
+    '  digest-weekly   Generate a weekly digest',
+    '  inventory       List CMDB objects',
+    '  graph           Inspect graph neighbors',
+    '  evidence-add    Add an evidence record',
+    '  evidence-list   List evidence records',
+    '  change-add      Add a change record',
+    '  change-list     List change records',
+    '  report          Print readiness report',
+    '  validate        Validate the control plane',
+    '',
+    'Run agent-cmdb <command> --help for command-specific options.'
+  ].join('\n');
+}
+
+function commandHelp(command: string): string {
+  if (command === 'init') {
+    return [
+      'Usage: agent-cmdb init [--dir <path>]',
+      '',
+      'Create an agent-cmdb workspace with config, state, brain, and agent-cmdb.config.ts.',
+      '',
+      'Options:',
+      '  --dir <path>   Directory to initialize. Defaults to the current working directory.'
+    ].join('\n');
+  }
+
+  if (command === 'preflight') {
+    return [
+      'Usage: agent-cmdb preflight --profile <id> --action <name> [options]',
+      '',
+      'Run a policy preflight check. Non-dry-run checks log a change; denies also log evidence.',
+      '',
+      'Options:',
+      '  --profile <id>       Agent profile id',
+      '  --action <name>      Action name',
+      '  --tool <id>          Optional source/tool id',
+      '  --intent <name>      Optional route intent',
+      '  --dry-run            Evaluate without writing audit records',
+      '  --config <path>      Control-plane YAML or JSON path',
+      '  --store <path>       State directory for evidence and changes',
+      '  --brain-dir <path>   Brain directory for freshness snapshots'
+    ].join('\n');
+  }
+
+  return rootHelp();
 }
 
 function required(flags: Record<string, string>, key: string): string {

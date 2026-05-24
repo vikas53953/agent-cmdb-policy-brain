@@ -1,4 +1,8 @@
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { createAgentCmdb } from '../src/interface.js';
 import { resolveSourceRoute } from '../src/route-resolver.js';
 import type { ControlPlane } from '../src/types.js';
 
@@ -31,7 +35,8 @@ const controlPlane: ControlPlane = {
       routes: [
         {
           intent: 'web_research',
-          sources: ['local-docs', 'web-search']
+          sources: ['local-docs', 'web-search'],
+          blockOnStale: true
         }
       ]
     }
@@ -46,15 +51,14 @@ describe('source freshness scoring', () => {
     const route = resolveSourceRoute(controlPlane, {
       profile: 'research-agent',
       intent: 'web_research',
-      now: '2026-05-24T12:00:00.000Z',
       freshness: [
         {
           sourceId: 'local-docs',
-          lastUpdated: '2026-05-10T12:00:00.000Z'
+          lastUpdated: '2020-01-01T00:00:00.000Z'
         },
         {
           sourceId: 'web-search',
-          lastUpdated: '2026-05-24T11:30:00.000Z'
+          lastUpdated: new Date().toISOString()
         }
       ]
     });
@@ -75,4 +79,48 @@ describe('source freshness scoring', () => {
     expect(route.staleSourceIds).toEqual([]);
     expect(route.freshness).toEqual([]);
   });
+
+  it('denies preflight when blockOnStale is true and a routed source is stale', async () => {
+    const cmdb = createAgentCmdb({
+      controlPlane: {
+        ...controlPlane,
+        policies: [
+          {
+            id: 'allow-web-research',
+            effect: 'allow',
+            profiles: ['research-agent'],
+            actions: ['web_research'],
+            tools: ['web-search'],
+            reason: 'Research is allowed.'
+          }
+        ]
+      },
+      storeDir: joinTempStore()
+    });
+
+    const result = await cmdb.preflight({
+      profile: 'research-agent',
+      action: 'web_research',
+      tool: 'web-search',
+      intent: 'web_research',
+      freshness: [
+        {
+          sourceId: 'local-docs',
+          lastUpdated: '2020-01-01T00:00:00.000Z'
+        },
+        {
+          sourceId: 'web-search',
+          lastUpdated: new Date().toISOString()
+        }
+      ]
+    });
+
+    expect(result.allowed).toBe(false);
+    expect(result.decision.ruleId).toBe('stale-source-blocked');
+    expect(result.decision.reason).toContain('local-docs');
+  });
 });
+
+function joinTempStore(): string {
+  return mkdtempSync(join(tmpdir(), 'agent-cmdb-freshness-preflight-'));
+}

@@ -146,14 +146,40 @@ describe('Agent CMDB policy engine', () => {
     expect(decision.canEscalate).toBe(true);
   });
 
-  it('requires approval for unknown actions', () => {
+  it('denies unknown actions by default', () => {
     const decision = evaluatePolicy(controlPlane, {
       profile: 'research-agent',
       action: 'new_unclassified_action',
       tool: 'unknown-tool'
     });
 
-    expect(decision.effect).toBe('approval_required');
-    expect(decision.ruleId).toBe('default-approval-required');
+    expect(decision.effect).toBe('deny');
+    expect(decision.ruleId).toBe('default-deny');
+    expect(decision.canEscalate).toBe(false);
+  });
+
+  it('does not let a wildcard tool rule match requests without a tool', () => {
+    const decision = evaluatePolicy(
+      {
+        ...controlPlane,
+        policies: [
+          {
+            id: 'wildcard-tool-allow',
+            effect: 'allow',
+            profiles: ['research-agent'],
+            actions: ['web_research'],
+            tools: ['*'],
+            reason: 'Allow only explicit tool-backed research.'
+          }
+        ]
+      },
+      {
+        profile: 'research-agent',
+        action: 'web_research'
+      }
+    );
+
+    expect(decision.effect).toBe('deny');
+    expect(decision.ruleId).toBe('default-deny');
   });
 });

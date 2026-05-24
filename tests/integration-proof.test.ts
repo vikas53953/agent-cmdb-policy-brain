@@ -31,7 +31,7 @@ describe('Integration proof - full agent lifecycle', () => {
       expect(initialEntities).toEqual([]);
 
       // 3. Allowed preflight returns correct route with sources
-      const allowedPreflight = cmdb.preflight({
+      const allowedPreflight = await cmdb.preflight({
         profile,
         action: 'web_search',
         tool: 'serpapi',
@@ -45,7 +45,7 @@ describe('Integration proof - full agent lifecycle', () => {
       ]);
 
       // 4. Denied preflight returns reason, canEscalate, suggestedAlternative
-      const deniedPreflight = cmdb.preflight({
+      const deniedPreflight = await cmdb.preflight({
         profile,
         action: 'social_post',
         tool: 'social-media-tool',
@@ -58,7 +58,7 @@ describe('Integration proof - full agent lifecycle', () => {
 
       // 5. Dry-run preflight does NOT increase evidence count
       const evidenceBeforeDryRun = await cmdb.listEvidence();
-      const dryRun = cmdb.preflight({
+      const dryRun = await cmdb.preflight({
         profile,
         action: 'web_search',
         tool: 'serpapi',
@@ -87,11 +87,13 @@ describe('Integration proof - full agent lifecycle', () => {
       expect(writtenEvidence).toHaveLength(3);
       expect(new Set(writtenEvidence.map((record) => record.id)).size).toBe(3);
 
-      // 7. listEvidence returns all 3, filterable by profile
+      // 7. listEvidence returns all 3 manual findings, filterable by profile
       const evidence = await cmdb.listEvidence();
       const profileEvidence = await cmdb.listEvidence({ profile });
-      expect(evidence).toHaveLength(3);
-      expect(profileEvidence.map((record) => record.profile)).toEqual([profile, profile, profile]);
+      const manualEvidence = await cmdb.listEvidence({ tag: 'integration-proof' });
+      expect(evidence).toHaveLength(4);
+      expect(manualEvidence).toHaveLength(3);
+      expect(profileEvidence.every((record) => record.profile === profile)).toBe(true);
 
       // 8. createEntity creates brain entity, readable via readEntity
       const createdEntity = await cmdb.createEntity(

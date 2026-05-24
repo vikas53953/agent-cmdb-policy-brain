@@ -1,5 +1,5 @@
 import { appendFile, mkdir, readFile } from 'node:fs/promises';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import type {
   ChangeInput,
@@ -17,6 +17,10 @@ const evidenceFile = 'evidence.jsonl';
 const changesFile = 'changes.jsonl';
 const maxScalarLength = 2048;
 const maxTextLength = 16000;
+const injectionReplacement = '[CONTENT REMOVED - injection pattern detected]';
+const injectionPattern = /\b(SYSTEM|DEVELOPER|USER|ASSISTANT|TOOL)\s*:/i;
+const lastHashByFile = new Map<string, string>();
+const appendQueues = new Map<string, Promise<unknown>>();
 
 export class CorruptStoreError extends Error {
   constructor(fileName: string, lineNumber: number, detail: string) {
@@ -35,7 +39,7 @@ export class StoreWriteError extends Error {
 export async function appendEvidence(storeDir: string, input: EvidenceInput): Promise<EvidenceRecord> {
   const recordInput = requireRecord(input, 'Evidence input');
 
-  const record: EvidenceRecord = {
+  const record: Omit<EvidenceRecord, 'prevHash'> = {
     profile: sanitizeScalar(requireString(recordInput.profile, 'Evidence profile')),
     source: sanitizeScalar(requireString(recordInput.source, 'Evidence source')),
     intent: sanitizeScalar(requireString(recordInput.intent, 'Evidence intent')),
@@ -47,8 +51,7 @@ export async function appendEvidence(storeDir: string, input: EvidenceInput): Pr
     id: `ev_${randomUUID()}`
   };
 
-  await appendJsonLine(storeDir, evidenceFile, record);
-  return record;
+  return appendJsonLine(storeDir, evidenceFile, record);
 }
 
 export async function listEvidence(storeDir: string, query: EvidenceQuery = {}): Promise<EvidenceRecord[]> {
@@ -68,7 +71,7 @@ export async function listEvidence(storeDir: string, query: EvidenceQuery = {}):
 export async function appendChange(storeDir: string, input: ChangeInput): Promise<ChangeRecord> {
   const recordInput = requireRecord(input, 'Change input');
 
-  const record: ChangeRecord = {
+  const record: Omit<ChangeRecord, 'prevHash'> = {
     target: sanitizeScalar(requireString(recordInput.target, 'Change target')),
     targetType: parseObjectKind(recordInput.targetType),
     action: parseChangeAction(recordInput.action),
@@ -80,8 +83,7 @@ export async function appendChange(storeDir: string, input: ChangeInput): Promis
     id: `chg_${randomUUID()}`
   };
 
-  await appendJsonLine(storeDir, changesFile, record);
-  return record;
+  return appendJsonLine(storeDir, changesFile, record);
 }
 
 export async function listChanges(storeDir: string, query: ChangeQuery = {}): Promise<ChangeRecord[]> {
@@ -97,22 +99,49 @@ export async function listChanges(storeDir: string, query: ChangeQuery = {}): Pr
   });
 }
 
-async function appendJsonLine<T>(storeDir: string, fileName: string, record: T): Promise<void> {
+async function appendJsonLine<T extends Record<string, unknown>>(
+  storeDir: string,
+  fileName: string,
+  record: T
+): Promise<T & { prevHash: string }> {
+  const filePath = join(storeDir, fileName);
+  const previous = appendQueues.get(filePath) ?? Promise.resolve();
+  const next = previous.then(() => appendJsonLineUnlocked(storeDir, fileName, record));
+  appendQueues.set(filePath, next.catch(() => undefined));
+  return next;
+}
+
+async function appendJsonLineUnlocked<T extends Record<string, unknown>>(
+  storeDir: string,
+  fileName: string,
+  record: T
+): Promise<T & { prevHash: string }> {
   try {
     await mkdir(storeDir, { recursive: true });
-    await appendFile(join(storeDir, fileName), `${JSON.stringify(record)}\n`, 'utf8');
+    const filePath = join(storeDir, fileName);
+    const prevHash = await latestRecordHash(filePath);
+    const recordWithHash = { ...record, prevHash };
+    const line = JSON.stringify(recordWithHash);
+    await appendFile(filePath, `${line}\n`, 'utf8');
+    lastHashByFile.set(filePath, sha256(line));
+    return recordWithHash;
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
     throw new StoreWriteError(storeDir, fileName, detail);
   }
 }
 
-async function readJsonLines<T>(storeDir: string, fileName: string): Promise<T[]> {
-  const content = await readFileIfExists(join(storeDir, fileName));
+async function readJsonLines<T extends { prevHash?: string; warnings?: string[] }>(
+  storeDir: string,
+  fileName: string
+): Promise<T[]> {
+  const filePath = join(storeDir, fileName);
+  const content = await readFileIfExists(filePath);
   if (!content.trim()) return [];
 
   const records: T[] = [];
   const lines = content.split(/\r?\n/);
+  let previousLine: string | undefined;
 
   for (const [index, rawLine] of lines.entries()) {
     const line = rawLine.trim();
@@ -121,7 +150,16 @@ async function readJsonLines<T>(storeDir: string, fileName: string): Promise<T[]
     try {
       const parsed = JSON.parse(line);
       assertObjectRecord(parsed, fileName, index + 1);
+      const expectedPrevHash = previousLine ? sha256(previousLine) : 'genesis';
+      if (parsed.prevHash !== expectedPrevHash) {
+        const warnings = Array.isArray(parsed.warnings) ? parsed.warnings : [];
+        warnings.push(
+          `JSONL hash chain warning in ${fileName}:${index + 1}: expected prevHash ${expectedPrevHash}.`
+        );
+        parsed.warnings = warnings;
+      }
       records.push(parsed as T);
+      previousLine = line;
     } catch (error) {
       if (error instanceof CorruptStoreError) throw error;
       const detail = error instanceof Error ? error.message : String(error);
@@ -129,6 +167,7 @@ async function readJsonLines<T>(storeDir: string, fileName: string): Promise<T[]
     }
   }
 
+  lastHashByFile.set(filePath, previousLine ? sha256(previousLine) : 'genesis');
   return records;
 }
 
@@ -151,14 +190,28 @@ export function sanitizeText(value: string, options: { preserveLineBreaks?: bool
   const controlCharacters = options.preserveLineBreaks
     ? /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F\u200B-\u200F\u202A-\u202E\u2060-\u206F]/g
     : /[\u0000-\u001F\u007F-\u009F\u200B-\u200F\u202A-\u202E\u2060-\u206F]/g;
-  const sanitized = value
+  const cleaned = value
     .normalize('NFKC')
     .replace(/\r\n?/g, '\n')
     .replace(controlCharacters, ' ')
-    .replace(/\b(SYSTEM|DEVELOPER|USER|ASSISTANT|TOOL)\s*:/gi, '[SANITIZED_INSTRUCTION]:')
+    .split('\n')
+    .map((line) => injectionPattern.test(line) ? injectionReplacement : line)
+    .join('\n')
     .trim();
 
-  return (options.preserveLineBreaks ? sanitized : sanitized.replace(/\s+/g, ' ')).slice(0, maxTextLength);
+  return (options.preserveLineBreaks ? cleaned : cleaned.replace(/\s+/g, ' ')).slice(0, maxTextLength);
+}
+
+export function detectInjectionWarnings(value: string): string[] {
+  return value
+    .normalize('NFKC')
+    .replace(/\r\n?/g, '\n')
+    .split('\n')
+    .flatMap((line, index) => (
+      injectionPattern.test(line)
+        ? [`Potential instruction injection pattern detected on line ${index + 1}.`]
+        : []
+    ));
 }
 
 function sanitizeJsonValue(value: unknown): unknown {
@@ -257,4 +310,20 @@ function assertObjectRecord(value: unknown, fileName: string, lineNumber: number
 
 function definedFilter(value: string | undefined): value is string {
   return value !== undefined && value.trim().length > 0;
+}
+
+async function latestRecordHash(filePath: string): Promise<string> {
+  const cached = lastHashByFile.get(filePath);
+  if (cached) return cached;
+
+  const content = await readFileIfExists(filePath);
+  const lines = content.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  if (lines.length === 0) return 'genesis';
+  const hash = sha256(lines[lines.length - 1]);
+  lastHashByFile.set(filePath, hash);
+  return hash;
+}
+
+function sha256(value: string): string {
+  return createHash('sha256').update(value).digest('hex');
 }

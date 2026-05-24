@@ -21,7 +21,10 @@ export {
   ensureGraphNode,
   resolveGraphNeighbors
 } from './graph-engine.js';
-export { preflightAction } from './preflight-action.js';
+export {
+  evaluatePreflight,
+  preflight
+} from './preflight.js';
 export {
   generateReadinessReport,
   getObject,

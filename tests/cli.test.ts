@@ -32,7 +32,8 @@ describe('Agent CMDB CLI', () => {
       '--tool',
       'social-media-tool',
       '--intent',
-      'web_research'
+      'web_research',
+      '--dry-run'
     ]) as { allowed: boolean; decision: { ruleId: string } };
 
     expect(output.allowed).toBe(false);

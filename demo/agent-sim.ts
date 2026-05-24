@@ -30,8 +30,7 @@ async function main(): Promise<void> {
   }
 
   const existing = await readPriorKnowledge();
-  const evidenceBeforeDryRun = (await cmdb.listEvidence()).length;
-  const search = cmdb.preflight({
+  const search = await cmdb.preflight({
     profile,
     action: 'web_search',
     tool: 'serpapi',
@@ -42,17 +41,8 @@ async function main(): Promise<void> {
   console.log('[PREFLIGHT]  web_search via serpapi -> ALLOWED');
   console.log(`             Route: ${search.route?.sources.map((source) => source.id).join(' -> ') ?? 'none'}`);
   console.log(`             Guardrails: ${search.guardrails.join(', ')}`);
-  await cmdb.logChange({
-    target: search.decision.ruleId,
-    targetType: 'policy',
-    action: 'verify',
-    actor: profile,
-    reason: 'Verified allowed research action before execution.',
-    changedAt: new Date().toISOString(),
-    after: { allowed: search.allowed, route: search.route?.sources.map((source) => source.id) }
-  });
 
-  const blockedMarketing = cmdb.preflight({
+  const blockedMarketing = await cmdb.preflight({
     profile,
     action: 'social_post',
     tool: 'social-media-tool',
@@ -66,7 +56,8 @@ async function main(): Promise<void> {
   console.log(`             Can escalate: ${blockedMarketing.decision.canEscalate}`);
   console.log(`             Try instead: ${blockedMarketing.decision.suggestedAlternative ?? 'none'}`);
 
-  const dryRun = cmdb.preflight({
+  const evidenceBeforeDryRun = (await cmdb.listEvidence()).length;
+  const dryRun = await cmdb.preflight({
     profile,
     action: 'web_search',
     tool: 'serpapi',
@@ -137,7 +128,7 @@ async function main(): Promise<void> {
   });
   console.log(`[CHANGE]     Logged: brain.${entityId} updated`);
 
-  const blockedShare = cmdb.preflight({
+  const blockedShare = await cmdb.preflight({
     profile,
     action: 'social_post',
     tool: 'social-media-tool',
@@ -145,15 +136,6 @@ async function main(): Promise<void> {
   });
   attempted += 1;
   if (!blockedShare.allowed) denied += 1;
-  await cmdb.logEvidence({
-    profile,
-    source: 'agent-cmdb-preflight',
-    intent: 'share_findings',
-    summary: `Blocked social_post: ${blockedShare.decision.reason}`,
-    trust: 'high',
-    capturedAt: new Date().toISOString(),
-    tags: ['demo', 'blocked']
-  });
   console.log('[BLOCKED]    social_post -> DENIED (logged as evidence)');
 
   const matches = await cmdb.searchEntities({ keyword: 'security' });
