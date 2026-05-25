@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { dirname, relative, resolve, sep } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
-import { appendChange, detectInjectionWarnings, sanitizeText } from './store.js';
+import { appendChange, detectInjectionWarnings, sanitizeText, stripInjectionLines } from './store.js';
 import type {
   BrainEntity,
   BrainEntityKind,
@@ -81,7 +81,11 @@ async function writeBrainIndexUnlocked(brainDir: string, index: BrainIndex): Pro
   await rename(temp, target);
 }
 
-export async function readEntity(brainDir: string, entityId: string): Promise<BrainReadResult> {
+export async function readEntity(
+  brainDir: string,
+  entityId: string,
+  options: { stripInjection?: boolean } = {}
+): Promise<BrainReadResult> {
   const normalizedId = normalizeEntityId(entityId);
   const index = await readBrainIndex(brainDir);
   const entity = index.entities.find((candidate) => candidate.id === normalizedId);
@@ -90,9 +94,10 @@ export async function readEntity(brainDir: string, entityId: string): Promise<Br
     throw new Error(`Unknown brain entity: ${normalizedId}.`);
   }
 
-  const content = await readFile(resolveEntityPath(brainDir, entity.filePath), 'utf8');
+  const rawContent = await readFile(resolveEntityPath(brainDir, entity.filePath), 'utf8');
+  const content = options.stripInjection ? stripInjectionLines(rawContent) : rawContent;
   const ageMs = Math.max(0, Date.now() - new Date(entity.lastUpdated).getTime());
-  const warnings = detectInjectionWarnings(content);
+  const warnings = detectInjectionWarnings(rawContent);
 
   return {
     entity,

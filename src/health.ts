@@ -1,8 +1,9 @@
-import { appendChange, readJsonState, writeJsonState } from './store.js';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import type { ControlPlane, HealthGateState, SourceHealth, SourceHealthConfig } from './types.js';
+import { sourceRefs } from './config-access.js';
+import { appendChange, readJsonState, writeJsonState } from './store.js';
+import type { ControlPlane, HealthGateState, SourceHealth, SourceHealthConfig, TamperMode } from './types.js';
 
 interface HealthState {
   sources: SourceHealth[];
@@ -10,156 +11,175 @@ interface HealthState {
 }
 
 const healthFile = 'health.json';
+const maxRecoveryTimeoutMs = 300_000;
+const maxRecoveryJitterMs = 5_000;
+const healthQueues = new Map<string, Promise<unknown>>();
 const defaultHealthConfig: Required<SourceHealthConfig> = {
   failureThreshold: 5,
+  failureWindowMs: 60_000,
   recoveryTimeoutMs: 30_000
 };
-const maxRecoveryTimeoutMs = 300_000;
 
 export async function recordSourceSuccess(
   controlPlane: ControlPlane,
   storeDir: string,
-  sourceId: string
+  sourceId: string,
+  tamperMode: TamperMode = 'warn'
 ): Promise<SourceHealth> {
-  ensureKnownSource(controlPlane, sourceId);
-  const state = await readHealthState(storeDir);
-  const current = getHealthFromState(state, sourceId);
-  const now = new Date().toISOString();
+  return withHealthLock(storeDir, async () => {
+    ensureKnownSource(controlPlane, sourceId);
+    const state = await readHealthState(storeDir, tamperMode);
+    const current = transitionForRecovery(getHealthFromState(state, sourceId));
+    const now = new Date().toISOString();
 
-  if (current.warnings && current.warnings.length > 0) {
-    return current;
-  }
+    if (state.warnings?.length) {
+      return getHealthFromState(state, sourceId);
+    }
 
-  if (current.status === 'down' && !recoveryElapsed(controlPlane, current)) {
-    return current;
-  }
+    if (current.status === 'down') {
+      return current;
+    }
 
-  const next: SourceHealth = {
-    sourceId,
-    status: 'up',
-    consecutiveFailures: 0,
-    probeCount: 0,
-    recoveryAttempts: 0,
-    lastChecked: now,
-    lastFailure: current.lastFailure,
-    lastSuccess: now
-  };
-  await writeHealthEntry(storeDir, state, next);
-  await appendChange(storeDir, {
-    target: `source.${sourceId}`,
-    targetType: 'source',
-    action: 'verify',
-    actor: 'agent-cmdb-health',
-    reason: `Source ${sourceId} reported success.`,
-    changedAt: now,
-    after: next
+    const next: SourceHealth = {
+      ...healthySource(controlPlane, sourceId, now),
+      lastFailure: current.lastFailure,
+      lastSuccess: now
+    };
+    await writeHealthEntry(storeDir, state, next);
+    await appendChange(storeDir, {
+      target: `source.${sourceId}`,
+      targetType: 'source',
+      action: 'verify',
+      actor: 'agent-cmdb-health',
+      reason: `Source ${sourceId} reported success.`,
+      changedAt: now,
+      after: next
+    });
+    return next;
   });
-  return next;
 }
 
 export async function recordSourceFailure(
   controlPlane: ControlPlane,
   storeDir: string,
-  sourceId: string
+  sourceId: string,
+  reason = 'source failure',
+  tamperMode: TamperMode = 'warn'
 ): Promise<SourceHealth> {
-  ensureKnownSource(controlPlane, sourceId);
-  const state = await readHealthState(storeDir);
-  const current = getHealthFromState(state, sourceId);
-  const config = healthConfig(controlPlane, sourceId);
-  const now = new Date().toISOString();
-  const recoveredForProbe = current.status === 'down' && recoveryElapsed(controlPlane, current);
-  const effectiveCurrent: SourceHealth = recoveredForProbe
-    ? { ...current, status: 'half-open', probeCount: 1, lastChecked: now }
-    : current;
-  const consecutiveFailures = effectiveCurrent.status === 'half-open'
-    ? config.failureThreshold
-    : effectiveCurrent.consecutiveFailures + 1;
-  const status: SourceHealth['status'] = consecutiveFailures >= config.failureThreshold ? 'down' : 'up';
-  const next: SourceHealth = {
-    sourceId,
-    status,
-    consecutiveFailures,
-    probeCount: 0,
-    recoveryAttempts: status === 'down' && effectiveCurrent.status === 'half-open'
-      ? Math.min((effectiveCurrent.recoveryAttempts ?? 0) + 1, 32)
-      : effectiveCurrent.recoveryAttempts ?? 0,
-    lastChecked: now,
-    lastFailure: now,
-    lastSuccess: effectiveCurrent.lastSuccess
-  };
+  return withHealthLock(storeDir, async () => {
+    ensureKnownSource(controlPlane, sourceId);
+    const state = await readHealthState(storeDir, tamperMode);
+    const current = transitionForRecovery(getHealthFromState(state, sourceId));
+    const config = healthConfig(controlPlane, sourceId);
+    const now = new Date().toISOString();
 
-  await writeHealthEntry(storeDir, state, next);
-  await appendChange(storeDir, {
-    target: `source.${sourceId}`,
-    targetType: 'source',
-    action: 'verify',
-    actor: 'agent-cmdb-health',
-    reason: `Source ${sourceId} reported failure.`,
-    changedAt: now,
-    after: next
+    if (state.warnings?.length) {
+      return getHealthFromState(state, sourceId);
+    }
+
+    const nextFailures = pruneFailures([
+      ...current.failures,
+      { timestamp: now, reason }
+    ], config.failureWindowMs);
+    const halfOpenFailure = current.status === 'half-open';
+    const status: SourceHealth['status'] = halfOpenFailure || nextFailures.length >= config.failureThreshold
+      ? 'down'
+      : 'up';
+    const next: SourceHealth = {
+      sourceId,
+      status,
+      failures: nextFailures,
+      failureWindowMs: config.failureWindowMs,
+      failureThreshold: config.failureThreshold,
+      recoveryTimeoutMs: config.recoveryTimeoutMs,
+      recoveryAttempts: halfOpenFailure
+        ? Math.min(current.recoveryAttempts + 1, 32)
+        : current.recoveryAttempts,
+      probeInFlight: false,
+      lastChecked: now,
+      lastFailure: now,
+      lastSuccess: current.lastSuccess
+    };
+
+    await writeHealthEntry(storeDir, state, next);
+    await appendChange(storeDir, {
+      target: `source.${sourceId}`,
+      targetType: 'source',
+      action: 'verify',
+      actor: 'agent-cmdb-health',
+      reason: `Source ${sourceId} reported failure.`,
+      changedAt: now,
+      after: next
+    });
+    return next;
   });
-  return next;
 }
 
 export async function getSourceHealth(
   controlPlane: ControlPlane,
   storeDir: string,
-  sourceId: string
+  sourceId: string,
+  tamperMode: TamperMode = 'warn'
 ): Promise<SourceHealth> {
   ensureKnownSource(controlPlane, sourceId);
-  return getHealthFromState(await readHealthState(storeDir), sourceId);
+  return getHealthFromState(await readHealthState(storeDir, tamperMode), sourceId);
 }
 
-export async function listSourceHealth(controlPlane: ControlPlane, storeDir: string): Promise<SourceHealth[]> {
-  const state = await readHealthState(storeDir);
-  return controlPlane.sources.map((source) => getHealthFromState(state, source.id));
+export async function listSourceHealth(
+  controlPlane: ControlPlane,
+  storeDir: string,
+  tamperMode: TamperMode = 'warn'
+): Promise<SourceHealth[]> {
+  const state = await readHealthState(storeDir, tamperMode);
+  return sourceRefs(controlPlane).map((source) => getHealthFromState(state, source.id));
 }
 
 export async function isSourceAvailable(
   controlPlane: ControlPlane,
   storeDir: string,
-  sourceId: string
+  sourceId: string,
+  tamperMode: TamperMode = 'warn'
 ): Promise<boolean> {
-  ensureKnownSource(controlPlane, sourceId);
-  const state = await readHealthState(storeDir);
-  const current = getHealthFromState(state, sourceId);
+  return withHealthLock(storeDir, async () => {
+    ensureKnownSource(controlPlane, sourceId);
+    const state = await readHealthState(storeDir, tamperMode);
+    const current = transitionForRecovery(getHealthFromState(state, sourceId));
 
-  if (current.status === 'up') {
-    return true;
-  }
+    if (state.warnings?.length) {
+      return true;
+    }
 
-  if (current.status === 'half-open') {
-    if ((current.probeCount ?? 0) > 0) {
+    if (current.status === 'up') {
+      if (current.lastChecked !== getHealthFromState(state, sourceId).lastChecked) {
+        await writeHealthEntry(storeDir, state, current);
+      }
+      return true;
+    }
+
+    if (current.status === 'down') {
       return false;
     }
+
+    if (current.probeInFlight) {
+      return false;
+    }
+
     await writeHealthEntry(storeDir, state, {
       ...current,
-      probeCount: 1,
+      probeInFlight: true,
       lastChecked: new Date().toISOString()
     });
     return true;
-  }
-
-  if (!recoveryElapsed(controlPlane, current)) {
-    return false;
-  }
-
-  const next: SourceHealth = {
-    ...current,
-    status: 'half-open',
-    probeCount: 1,
-    lastChecked: new Date().toISOString()
-  };
-  await writeHealthEntry(storeDir, state, next);
-  return true;
+  });
 }
 
 export async function getHealthState(
   controlPlane: ControlPlane,
   storeDir: string,
-  sourceId: string
+  sourceId: string,
+  tamperMode: TamperMode = 'warn'
 ): Promise<HealthGateState> {
-  const health = await getSourceHealth(controlPlane, storeDir, sourceId);
+  const health = await getSourceHealth(controlPlane, storeDir, sourceId, tamperMode);
   if (health.status === 'down') return 'open';
   if (health.status === 'half-open') return 'half-open';
   return 'closed';
@@ -168,37 +188,54 @@ export async function getHealthState(
 export async function resetSourceHealth(
   controlPlane: ControlPlane,
   storeDir: string,
-  sourceId: string
+  sourceId: string,
+  tamperMode: TamperMode = 'warn'
 ): Promise<SourceHealth> {
-  ensureKnownSource(controlPlane, sourceId);
-  const state = await readHealthState(storeDir);
-  const now = new Date().toISOString();
-  const next: SourceHealth = {
-    sourceId,
-    status: 'up',
-    consecutiveFailures: 0,
-    probeCount: 0,
-    recoveryAttempts: 0,
-    lastChecked: now,
-    lastSuccess: now
-  };
-  await writeHealthEntry(storeDir, state, next);
-  await appendChange(storeDir, {
-    target: `source.${sourceId}`,
-    targetType: 'source',
-    action: 'resume',
-    actor: 'agent-cmdb-health',
-    reason: `Source ${sourceId} health manually reset.`,
-    changedAt: now,
-    after: next
+  return withHealthLock(storeDir, async () => {
+    ensureKnownSource(controlPlane, sourceId);
+    const state = await readHealthState(storeDir, tamperMode);
+    const now = new Date().toISOString();
+    const next = healthySource(controlPlane, sourceId, now);
+    await writeHealthEntry(storeDir, state, next);
+    await appendChange(storeDir, {
+      target: `source.${sourceId}`,
+      targetType: 'source',
+      action: 'resume',
+      actor: 'agent-cmdb-health',
+      reason: `Source ${sourceId} health manually reset.`,
+      changedAt: now,
+      after: next
+    });
+    return next;
   });
+}
+
+function withHealthLock<T>(storeDir: string, operation: () => Promise<T>): Promise<T> {
+  const key = join(storeDir, healthFile);
+  const previous = healthQueues.get(key) ?? Promise.resolve();
+  const next = previous.catch(() => undefined).then(operation);
+  healthQueues.set(key, next.catch(() => undefined));
   return next;
 }
 
-async function readHealthState(storeDir: string): Promise<HealthState> {
+async function readHealthState(storeDir: string, tamperMode: TamperMode): Promise<HealthState> {
   try {
-    return await readJsonState<HealthState>(storeDir, healthFile, { sources: [] }, parseHealthState);
-  } catch {
+    const state = await readJsonState<HealthState>(
+      storeDir,
+      healthFile,
+      { sources: [] },
+      parseHealthState,
+      { tamperMode }
+    );
+    if (state.warnings?.length) {
+      if (tamperMode === 'fail') {
+        throw new Error(state.warnings.join('; '));
+      }
+      return { sources: [], warnings: [healthTamperWarning()] };
+    }
+    return state;
+  } catch (error) {
+    if (tamperMode === 'fail') throw error;
     return {
       sources: [],
       warnings: [healthTamperWarning()]
@@ -235,46 +272,80 @@ async function writeHealthEntry(storeDir: string, state: HealthState, entry: Sou
 }
 
 function getHealthFromState(state: HealthState, sourceId: string): SourceHealth {
-  const health = state.sources.find((source) => source.sourceId === sourceId) ?? {
-    sourceId,
-    status: 'up',
-    consecutiveFailures: 0,
-    lastChecked: new Date(0).toISOString()
-  };
-  if (!state.warnings || state.warnings.length === 0) return health;
+  if (state.warnings?.length) {
+    return {
+      ...healthySourceFromConfig(sourceId, new Date(0).toISOString(), defaultHealthConfig),
+      warnings: [healthTamperWarning()]
+    };
+  }
+  return state.sources.find((source) => source.sourceId === sourceId)
+    ?? healthySourceFromConfig(sourceId, new Date(0).toISOString(), defaultHealthConfig);
+}
 
+function transitionForRecovery(health: SourceHealth): SourceHealth {
+  if (health.status !== 'down' || !recoveryElapsed(health)) {
+    return health;
+  }
+  return {
+    ...health,
+    status: 'half-open',
+    probeInFlight: false,
+    lastChecked: new Date().toISOString()
+  };
+}
+
+function recoveryElapsed(health: SourceHealth): boolean {
+  if (!health.lastFailure) return true;
+  const elapsedMs = Date.now() - Date.parse(health.lastFailure);
+  return elapsedMs >= effectiveRecoveryTimeoutMs(health);
+}
+
+function effectiveRecoveryTimeoutMs(health: SourceHealth): number {
+  if (health.recoveryTimeoutMs === 0) return 0;
+  const exponential = health.recoveryTimeoutMs * 2 ** health.recoveryAttempts;
+  const jitter = Math.floor(Math.random() * maxRecoveryJitterMs);
+  return Math.min(exponential + jitter, maxRecoveryTimeoutMs);
+}
+
+function pruneFailures(failures: SourceHealth['failures'], windowMs: number): SourceHealth['failures'] {
+  const cutoff = Date.now() - windowMs;
+  return failures.filter((failure) => Date.parse(failure.timestamp) >= cutoff);
+}
+
+function healthySource(controlPlane: ControlPlane, sourceId: string, timestamp: string): SourceHealth {
+  return healthySourceFromConfig(sourceId, timestamp, healthConfig(controlPlane, sourceId));
+}
+
+function healthySourceFromConfig(
+  sourceId: string,
+  timestamp: string,
+  config: Required<SourceHealthConfig>
+): SourceHealth {
   return {
     sourceId,
     status: 'up',
-    consecutiveFailures: 0,
-    probeCount: 0,
+    failures: [],
+    failureWindowMs: config.failureWindowMs,
+    failureThreshold: config.failureThreshold,
+    recoveryTimeoutMs: config.recoveryTimeoutMs,
     recoveryAttempts: 0,
-    lastChecked: new Date(0).toISOString(),
-    warnings: ['Health state was tampered. All sources reset to up. Re-record failures to rebuild health state.']
+    probeInFlight: false,
+    lastChecked: timestamp,
+    lastSuccess: timestamp === new Date(0).toISOString() ? undefined : timestamp
   };
-}
-
-function recoveryElapsed(controlPlane: ControlPlane, health: SourceHealth): boolean {
-  if (!health.lastFailure) return true;
-  const elapsedMs = Date.now() - Date.parse(health.lastFailure);
-  return elapsedMs >= effectiveRecoveryTimeoutMs(controlPlane, health);
-}
-
-function effectiveRecoveryTimeoutMs(controlPlane: ControlPlane, health: SourceHealth): number {
-  const base = healthConfig(controlPlane, health.sourceId).recoveryTimeoutMs;
-  return Math.min(base * 2 ** (health.recoveryAttempts ?? 0), maxRecoveryTimeoutMs);
 }
 
 function healthConfig(controlPlane: ControlPlane, sourceId: string): Required<SourceHealthConfig> {
-  const source = controlPlane.sources.find((candidate) => candidate.id === sourceId);
+  const source = sourceRefs(controlPlane).find((candidate) => candidate.id === sourceId);
   return {
     failureThreshold: source?.health?.failureThreshold ?? defaultHealthConfig.failureThreshold,
+    failureWindowMs: source?.health?.failureWindowMs ?? defaultHealthConfig.failureWindowMs,
     recoveryTimeoutMs: source?.health?.recoveryTimeoutMs ?? defaultHealthConfig.recoveryTimeoutMs
   };
 }
 
 function ensureKnownSource(controlPlane: ControlPlane, sourceId: string): void {
-  if (!controlPlane.sources.some((source) => source.id === sourceId)) {
+  if (!sourceRefs(controlPlane).some((source) => source.id === sourceId)) {
     throw new Error(`Unknown source: ${sourceId}.`);
   }
 }
@@ -301,12 +372,23 @@ function parseSourceHealth(value: unknown): SourceHealth {
   return {
     sourceId: readString(record, 'sourceId', 'Source health sourceId'),
     status: status as SourceHealth['status'],
-    consecutiveFailures: readNumber(record, 'consecutiveFailures', 'Source health consecutiveFailures'),
-    probeCount: optionalNumber(record, 'probeCount') ?? 0,
+    failures: Array.isArray(record.failures) ? record.failures.map(parseFailureRecord) : [],
+    failureWindowMs: optionalNumber(record, 'failureWindowMs') ?? defaultHealthConfig.failureWindowMs,
+    failureThreshold: optionalNumber(record, 'failureThreshold') ?? defaultHealthConfig.failureThreshold,
+    recoveryTimeoutMs: optionalNumber(record, 'recoveryTimeoutMs') ?? defaultHealthConfig.recoveryTimeoutMs,
     recoveryAttempts: optionalNumber(record, 'recoveryAttempts') ?? 0,
+    probeInFlight: record.probeInFlight === true,
     lastChecked: readString(record, 'lastChecked', 'Source health lastChecked'),
     lastFailure: optionalString(record, 'lastFailure'),
     lastSuccess: optionalString(record, 'lastSuccess')
+  };
+}
+
+function parseFailureRecord(value: unknown): { timestamp: string; reason?: string } {
+  const record = requireRecord(value, 'Source failure record');
+  return {
+    timestamp: readString(record, 'timestamp', 'Source failure timestamp'),
+    reason: optionalString(record, 'reason')
   };
 }
 
@@ -330,17 +412,13 @@ function optionalString(record: Record<string, unknown>, key: string): string | 
   return readString(record, key, key);
 }
 
-function readNumber(record: Record<string, unknown>, key: string, label: string): number {
-  const value = record[key];
-  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
-    throw new Error(`${label} must be a non-negative number.`);
-  }
-  return value;
-}
-
 function optionalNumber(record: Record<string, unknown>, key: string): number | undefined {
   if (record[key] === undefined) return undefined;
-  return readNumber(record, key, key);
+  const value = record[key];
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
+    throw new Error(`${key} must be a non-negative number.`);
+  }
+  return value;
 }
 
 function hashHealthPayload(value: Record<string, unknown>): string {

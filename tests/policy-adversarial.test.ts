@@ -8,7 +8,10 @@ import type { ControlPlane, PolicyRule } from '../src/types.js';
 function withPolicies(policies: PolicyRule[]): ControlPlane {
   return {
     ...loadControlPlane(multiAgentExampleControlPlanePath),
-    policies
+    policy: {
+      ...loadControlPlane(multiAgentExampleControlPlanePath).policy,
+      policies
+    }
   };
 }
 
@@ -33,7 +36,7 @@ describe('Agent CMDB policy adversarial behavior', () => {
     const decision = evaluatePolicy(withPolicies(policies), {
       profile: 'research-agent',
       action: 'social_post',
-      tool: 'synthetic-social-tool'
+      tool: 'web-search-api'
     });
     const elapsedMs = performance.now() - startedAt;
 
@@ -60,7 +63,7 @@ describe('Agent CMDB policy adversarial behavior', () => {
           reason: 'Profile-specific allow.'
         }
       ]),
-      { profile: 'research-agent', action: 'social_post', tool: 'synthetic-social-tool' }
+      { profile: 'research-agent', action: 'social_post', tool: 'web-search-api' }
     );
 
     expect(decision.effect).toBe('deny');
@@ -85,7 +88,7 @@ describe('Agent CMDB policy adversarial behavior', () => {
           reason: 'Global deny.'
         }
       ]),
-      { profile: 'research-agent', action: 'social_post', tool: 'synthetic-social-tool' }
+      { profile: 'research-agent', action: 'social_post', tool: 'web-search-api' }
     );
 
     expect(decision.effect).toBe('deny');
@@ -104,7 +107,7 @@ describe('Agent CMDB policy adversarial behavior', () => {
           reason: 'Everything must be approved.'
         }
       ]),
-      { profile: 'research-agent', action: 'brand_new_action', tool: 'unknown-tool' }
+      { profile: 'research-agent', action: 'brand_new_action', tool: 'web-search-api' }
     );
 
     expect(decision.effect).toBe('approval_required');
@@ -130,38 +133,32 @@ describe('Agent CMDB policy adversarial behavior', () => {
     expect(decision.ruleId).toBe('default-deny');
   });
 
-  it('throws descriptive runtime errors for empty request strings', () => {
+  it('returns deny decisions for empty request strings', () => {
     const controlPlane = loadControlPlane(multiAgentExampleControlPlanePath);
 
-    expect(() => evaluatePolicy(controlPlane, { profile: '', action: 'web_research' })).toThrow(
-      'Policy request profile must be a non-empty string.'
-    );
-    expect(() => evaluatePolicy(controlPlane, { profile: 'research-agent', action: '' })).toThrow(
-      'Policy request action must be a non-empty string.'
-    );
-    expect(() =>
-      evaluatePolicy(controlPlane, { profile: 'research-agent', action: 'web_research', tool: '' })
-    ).toThrow('Policy request tool must be a non-empty string when provided.');
+    expect(evaluatePolicy(controlPlane, { profile: '', action: 'web_research' }).effect).toBe('deny');
+    expect(evaluatePolicy(controlPlane, { profile: 'research-agent', action: '' }).effect).toBe('deny');
+    expect(evaluatePolicy(controlPlane, { profile: 'research-agent', action: 'web_research', tool: '' }).effect).toBe('deny');
   });
 
   it('is statically and dynamically guarded against nullish string inputs', () => {
     const controlPlane = loadControlPlane(multiAgentExampleControlPlanePath);
 
-    expect(() =>
+    expect(
       evaluatePolicy(controlPlane, {
         // @ts-expect-error runtime adversarial input still needs a clean error
         profile: null,
         action: 'web_research'
       })
-    ).toThrow('Policy request profile must be a non-empty string.');
+    ).toMatchObject({ effect: 'deny', ruleId: 'invalid-request' });
 
-    expect(() =>
+    expect(
       evaluatePolicy(controlPlane, {
         profile: 'research-agent',
         // @ts-expect-error runtime adversarial input still needs a clean error
         action: undefined
       })
-    ).toThrow('Policy request action must be a non-empty string.');
+    ).toMatchObject({ effect: 'deny', ruleId: 'invalid-request' });
   });
 
   it('warns when deny and allow policies conflict on the same request shape', () => {

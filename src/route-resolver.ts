@@ -1,4 +1,5 @@
 import { parseDuration } from './duration.js';
+import { agentProfiles, sourceRefs } from './config-access.js';
 import type {
   AgentProfile,
   ControlPlane,
@@ -50,7 +51,7 @@ export function resolveSourceRoute(
 function routeSourceAvailable(health: SourceHealth | undefined): boolean {
   if (!health) return true;
   if (health.status === 'down') return false;
-  if (health.status === 'half-open' && (health.probeCount ?? 0) > 0) return false;
+  if (health.status === 'half-open' && health.probeInFlight) return false;
   return true;
 }
 
@@ -72,7 +73,7 @@ export function inspectProfile(controlPlane: ControlPlane, profileId: string): P
 }
 
 export function ensureProfile(controlPlane: ControlPlane, profileId: string): AgentProfile {
-  const profile = controlPlane.profiles.find((candidate) => candidate.id === profileId);
+  const profile = agentProfiles(controlPlane).find((candidate) => candidate.id === profileId);
   if (!profile) {
     throw new Error(`Unknown profile: ${profileId}.`);
   }
@@ -80,7 +81,7 @@ export function ensureProfile(controlPlane: ControlPlane, profileId: string): Ag
 }
 
 export function ensureSource(controlPlane: ControlPlane, sourceId: string): SourceRef {
-  const source = controlPlane.sources.find((candidate) => candidate.id === sourceId);
+  const source = sourceRefs(controlPlane).find((candidate) => candidate.id === sourceId);
   if (!source) {
     throw new Error(`Unknown source referenced by route: ${sourceId}.`);
   }
@@ -112,10 +113,27 @@ function normalizeHealth(value: unknown): SourceRouteRequest['health'] {
     return {
       sourceId: requireNonEmptyString(record.sourceId, 'Source health sourceId'),
       status: status as 'up' | 'down' | 'half-open',
-      consecutiveFailures: readNonNegativeNumber(record.consecutiveFailures, 'Source health consecutiveFailures'),
-      probeCount: record.probeCount === undefined
-        ? 0
-        : readNonNegativeNumber(record.probeCount, 'Source health probeCount'),
+      failures: Array.isArray(record.failures)
+        ? record.failures.map((failure) => {
+          const failureRecord = requireRecord(failure, 'Source health failure');
+          return {
+            timestamp: requireNonEmptyString(failureRecord.timestamp, 'Source health failure timestamp'),
+            reason: failureRecord.reason === undefined
+              ? undefined
+              : requireNonEmptyString(failureRecord.reason, 'Source health failure reason')
+          };
+        })
+        : [],
+      failureWindowMs: record.failureWindowMs === undefined
+        ? 60_000
+        : readNonNegativeNumber(record.failureWindowMs, 'Source health failureWindowMs'),
+      failureThreshold: record.failureThreshold === undefined
+        ? 5
+        : readNonNegativeNumber(record.failureThreshold, 'Source health failureThreshold'),
+      recoveryTimeoutMs: record.recoveryTimeoutMs === undefined
+        ? 30_000
+        : readNonNegativeNumber(record.recoveryTimeoutMs, 'Source health recoveryTimeoutMs'),
+      probeInFlight: record.probeInFlight === true,
       recoveryAttempts: record.recoveryAttempts === undefined
         ? 0
         : readNonNegativeNumber(record.recoveryAttempts, 'Source health recoveryAttempts'),

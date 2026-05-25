@@ -16,11 +16,11 @@ describe('live demo integration', () => {
     const day1Output = runDemo('agent-sim.ts');
 
     expect(day1Output).toContain('Agent CMDB - Live Demo (research-agent, day 1)');
-    expect(day1Output).toContain('[BOOT]       Control plane: HEALTHY');
+    expect(day1Output).toContain('[BOOT]       Policy library: HEALTHY');
     expect(day1Output).toContain('[BRAIN]      No prior knowledge');
     expect(day1Output).toContain('[DIGEST]     Generated daily digest');
     expect(evidenceJsonlCount()).toBeGreaterThanOrEqual(4);
-    expect(jsonlCount(join(stateDir, 'changes.jsonl'))).toBeGreaterThanOrEqual(3);
+    expect(changeJsonlCount()).toBeGreaterThanOrEqual(3);
     expect(existsSync(join(brainDir, 'entities', 'topics', 'ai-agent-security.md'))).toBe(true);
     expect(readBrainIndexEntityCount()).toBeGreaterThanOrEqual(1);
     expect(readdirSync(join(brainDir, 'digest', 'daily')).some((file) => file.endsWith('-research-agent.md'))).toBe(true);
@@ -53,6 +53,12 @@ function jsonlCount(filePath: string): number {
 function evidenceJsonlCount(): number {
   return readdirSync(stateDir)
     .filter((file) => /^evidence-\d{4}-\d{2}-\d{2}\.jsonl$/.test(file) || file === 'evidence.jsonl')
+    .reduce((sum, file) => sum + jsonlCount(join(stateDir, file)), 0);
+}
+
+function changeJsonlCount(): number {
+  return readdirSync(stateDir)
+    .filter((file) => /^changes-\d{4}-\d{2}-\d{2}\.jsonl$/.test(file) || file === 'changes.jsonl')
     .reduce((sum, file) => sum + jsonlCount(join(stateDir, file)), 0);
 }
 

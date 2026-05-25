@@ -1,15 +1,17 @@
 import { evaluatePolicy, normalizePolicyRequest } from './policy-engine.js';
 import { inspectProfile, resolveSourceRoute } from './route-resolver.js';
 import { isSourceAvailable, listSourceHealth } from './health.js';
-import { updateReliabilityCache } from './reliability.js';
+import { updatePreflightAnalyticsCache } from './analytics.js';
 import { appendChange, appendEvidence } from './store.js';
+import { agentProfiles, policyWriteActions, sourceRefs } from './config-access.js';
 import type {
   ControlPlane,
   PolicyDecision,
   PreflightRequest,
   PreflightResult,
   ResolvedSourceRoute,
-  SourceHealth
+  SourceHealth,
+  TamperMode
 } from './types.js';
 
 export function evaluatePreflight(
@@ -17,7 +19,38 @@ export function evaluatePreflight(
   request: PreflightRequest,
   options: { health?: SourceHealth[] } = {}
 ): PreflightResult {
-  const normalizedRequest = normalizePreflightRequest(request);
+  let normalizedRequest: PreflightRequest;
+  try {
+    normalizedRequest = normalizePreflightRequest(request);
+  } catch (error) {
+    const fallback = fallbackPreflightRequest(request);
+    const message = error instanceof Error ? error.message : String(error);
+    const decision = denyDecision(
+      fallback,
+      'invalid-request',
+      'invalid_request',
+      `Invalid preflight request: ${message}`,
+      'Pass non-empty profile and action strings before evaluating policy.'
+    );
+    if (fallback.dryRun) {
+      return {
+        allowed: false,
+        decision,
+        guardrails: [],
+        warnings: [decision.reason],
+        dryRun: true,
+        wouldAllow: false
+      };
+    }
+    return {
+      allowed: false,
+      decision,
+      route: undefined,
+      guardrails: [],
+      warnings: [decision.reason],
+      dryRun: false
+    };
+  }
   const decision = evaluatePolicy(controlPlane, normalizedRequest);
   let finalDecision: PolicyDecision = decision;
   let route: ResolvedSourceRoute | undefined;
@@ -122,22 +155,45 @@ export function evaluatePreflight(
     }
   }
 
-  const profile = inspectProfile(controlPlane, normalizedRequest.profile);
+  if (
+    finalDecision.effect === 'allow'
+    && !route
+    && normalizedRequest.tool
+    && isPolicyWriteAction(controlPlane, normalizedRequest.action)
+  ) {
+    const readOnlySource = sourceRefs(controlPlane).find((source) => source.id === normalizedRequest.tool && source.readOnly);
+    if (readOnlySource) {
+      const reason = `Source ${readOnlySource.id} is read-only and the action ${normalizedRequest.action} is a write operation.`;
+      warnings.push(reason);
+      finalDecision = denyDecision(
+        normalizedRequest,
+        'read-only-source-write-blocked',
+        'read_only_source_write_blocked',
+        reason,
+        'Use a read-write source for write operations.'
+      );
+    }
+  }
+
+  let profileGuardrails: string[] = [];
+  try {
+    profileGuardrails = inspectProfile(controlPlane, normalizedRequest.profile).guardrails;
+  } catch {
+    profileGuardrails = [];
+  }
 
   const allowed = finalDecision.effect === 'allow';
   const base = {
     allowed,
-    approvalRequired: finalDecision.effect === 'approval_required',
     decision: finalDecision,
-    routeExecutable: allowed && Boolean(route),
-    guardrails: route?.guardrails ?? profile.guardrails,
+    guardrails: route?.guardrails ?? profileGuardrails,
     warnings
   };
 
   if (normalizedRequest.dryRun) {
     return {
       ...base,
-      ...(allowed ? { route } : {}),
+      ...(allowed && route ? { route } : {}),
       dryRun: true,
       wouldAllow: allowed
     };
@@ -146,9 +202,8 @@ export function evaluatePreflight(
   if (allowed) {
     return {
       ...base,
-      route,
+      route: route ?? emptyRoute(normalizedRequest, profileGuardrails),
       allowed: true,
-      approvalRequired: false,
       dryRun: false
     };
   }
@@ -156,7 +211,7 @@ export function evaluatePreflight(
   return {
     ...base,
     allowed: false,
-    routeExecutable: false,
+    route: undefined,
     dryRun: false
   };
 }
@@ -164,51 +219,64 @@ export function evaluatePreflight(
 export async function preflight(
   controlPlane: ControlPlane,
   storeDir: string,
-  request: PreflightRequest
+  request: PreflightRequest,
+  options: { tamperMode?: TamperMode } = {}
 ): Promise<PreflightResult> {
-  const availabilityEntries = await Promise.all(controlPlane.sources.map(async (source) => [
-    source.id,
-    await isSourceAvailable(controlPlane, storeDir, source.id)
-  ] as const));
-  const availability = new Map(availabilityEntries);
-  const health = (await listSourceHealth(controlPlane, storeDir)).map((entry) => {
-    const available = availability.get(entry.sourceId);
-    if (available === false) return { ...entry, status: 'down' as const };
-    if (available === true && entry.status === 'half-open') return { ...entry, status: 'up' as const };
-    return entry;
-  });
-  const result = evaluatePreflight(controlPlane, request, { health });
-
-  if (result.dryRun) {
-    return result;
-  }
-
-  if (!result.allowed) {
-    await appendEvidence(storeDir, {
-      profile: result.decision.profile,
-      source: 'agent-cmdb-preflight',
-      intent: request.intent ?? result.decision.action,
-      summary: `Denied by ${result.decision.ruleId}: ${result.decision.reason}`,
-      trust: 'high',
-      capturedAt: new Date().toISOString(),
-      estimatedCost: estimateCost(controlPlane, result),
-      tags: ['preflight', 'deny', result.decision.ruleId]
+  const tamperMode = options.tamperMode ?? 'warn';
+  try {
+    const availabilityEntries = await Promise.all(safeSourceRefs(controlPlane).map(async (source) => [
+      source.id,
+      await isSourceAvailable(controlPlane, storeDir, source.id, tamperMode)
+    ] as const));
+    const availability = new Map(availabilityEntries);
+    const health = (await safeListSourceHealth(controlPlane, storeDir, tamperMode)).map((entry) => {
+      const available = availability.get(entry.sourceId);
+      if (available === false) return { ...entry, status: 'down' as const };
+      if (available === true && entry.status === 'half-open') return { ...entry, probeInFlight: false };
+      return entry;
     });
+    const result = evaluatePreflight(controlPlane, request, { health });
+
+    if (result.dryRun) {
+      return result;
+    }
+
+    if (!result.allowed) {
+      const intent = request && typeof request === 'object' && !Array.isArray(request)
+        ? request.intent
+        : undefined;
+      await appendEvidence(storeDir, {
+        profile: result.decision.profile,
+        source: 'agent-cmdb-preflight',
+        intent: intent ?? result.decision.action,
+        summary: `Denied by ${result.decision.ruleId}: ${result.decision.reason}`,
+        trust: 'high',
+        capturedAt: new Date().toISOString(),
+        estimatedCost: estimateCost(controlPlane, result),
+        tags: ['preflight', 'deny', result.decision.ruleId]
+      });
+    }
+
+    await appendChange(storeDir, {
+      target: `policy.${result.decision.ruleId}`,
+      targetType: 'policy',
+      action: 'verify',
+      actor: 'agent-cmdb-preflight',
+      reason: `Preflight ${result.decision.effect} for ${result.decision.profile}:${result.decision.action}.`,
+      changedAt: new Date().toISOString(),
+      after: result
+    });
+
+    try {
+      await updatePreflightAnalyticsCache(controlPlane, storeDir, result, tamperMode);
+    } catch {
+      // Analytics are advisory; policy decisions must not throw after evaluation.
+    }
+
+    return result;
+  } catch (error) {
+    return preflightErrorResult(request, error);
   }
-
-  await appendChange(storeDir, {
-    target: `policy.${result.decision.ruleId}`,
-    targetType: 'policy',
-    action: 'verify',
-    actor: 'agent-cmdb-preflight',
-    reason: `Preflight ${result.decision.effect} for ${result.decision.profile}:${result.decision.action}.`,
-    changedAt: new Date().toISOString(),
-    after: result
-  });
-
-  await updateReliabilityCache(controlPlane, storeDir, result);
-
-  return result;
 }
 
 function normalizePreflightRequest(request: PreflightRequest): PreflightRequest {
@@ -225,6 +293,19 @@ function normalizePreflightRequest(request: PreflightRequest): PreflightRequest 
     intent,
     dryRun,
     freshness
+  };
+}
+
+function fallbackPreflightRequest(request: unknown): PreflightRequest {
+  const record = request && typeof request === 'object' && !Array.isArray(request)
+    ? request as Record<string, unknown>
+    : {};
+  return {
+    profile: typeof record.profile === 'string' && record.profile.trim() ? record.profile : 'unknown-profile',
+    action: typeof record.action === 'string' && record.action.trim() ? record.action : 'unknown-action',
+    tool: typeof record.tool === 'string' && record.tool.trim() ? record.tool : undefined,
+    intent: typeof record.intent === 'string' && record.intent.trim() ? record.intent : undefined,
+    dryRun: record.dryRun === true
   };
 }
 
@@ -287,7 +368,44 @@ function requireNonEmptyString(value: unknown, label: string, suffix?: string): 
 function estimateCost(controlPlane: ControlPlane, result: PreflightResult): number {
   const sourceId = result.decision.tool ?? result.route?.sources[0]?.id;
   if (!sourceId) return 0;
-  return controlPlane.sources.find((source) => source.id === sourceId)?.costPerCall ?? 0;
+  return safeSourceRefs(controlPlane).find((source) => source.id === sourceId)?.costPerCall ?? 0;
+}
+
+function safeSourceRefs(controlPlane: ControlPlane) {
+  try {
+    const sources = sourceRefs(controlPlane);
+    return Array.isArray(sources) ? sources : [];
+  } catch {
+    return [];
+  }
+}
+
+async function safeListSourceHealth(controlPlane: ControlPlane, storeDir: string, tamperMode: TamperMode): Promise<SourceHealth[]> {
+  try {
+    return await listSourceHealth(controlPlane, storeDir, tamperMode);
+  } catch {
+    return [];
+  }
+}
+
+function preflightErrorResult(request: unknown, error: unknown): PreflightResult {
+  const fallback = fallbackPreflightRequest(request);
+  const message = error instanceof Error ? error.message : String(error);
+  const decision = denyDecision(
+    fallback,
+    'preflight-error',
+    'preflight_error',
+    `Preflight failed safely: ${message}`,
+    'Fix the policy library or request before retrying.'
+  );
+  return {
+    allowed: false,
+    decision,
+    route: undefined,
+    guardrails: [],
+    warnings: [decision.reason],
+    dryRun: false
+  };
 }
 
 function skippedSourcesIncludeTool(skippedSources: string[], tool: string): boolean {
@@ -299,10 +417,18 @@ function isWriteAction(controlPlane: ControlPlane, route: ResolvedSourceRoute, a
   return writeActions.some((writeAction) => action === writeAction || action.includes(writeAction));
 }
 
+function isPolicyWriteAction(controlPlane: ControlPlane, action: string): boolean {
+  return configuredWriteActions(controlPlane).some((writeAction) => action === writeAction || action.includes(writeAction));
+}
+
 function routeWriteActions(controlPlane: ControlPlane, route: ResolvedSourceRoute): string[] {
-  const profile = controlPlane.profiles.find((candidate) => candidate.id === route.profile);
+  const profile = agentProfiles(controlPlane).find((candidate) => candidate.id === route.profile);
   const sourceRoute = profile?.routes.find((candidate) => candidate.intent === route.intent);
-  return sourceRoute?.writeActions ?? controlPlane.writeActions ?? [
+  return sourceRoute?.writeActions ?? configuredWriteActions(controlPlane);
+}
+
+function configuredWriteActions(controlPlane: ControlPlane): string[] {
+  return policyWriteActions(controlPlane) ?? [
     'create',
     'update',
     'delete',
@@ -310,6 +436,21 @@ function routeWriteActions(controlPlane: ControlPlane, route: ResolvedSourceRout
     'post',
     'publish',
     'send',
-    'modify'
+    'modify',
+    'remove',
+    'edit'
   ];
+}
+
+function emptyRoute(request: PreflightRequest, guardrails: string[]): ResolvedSourceRoute {
+  return {
+    profile: request.profile,
+    intent: request.intent ?? request.action,
+    sources: [],
+    skippedSources: [],
+    guardrails,
+    blockOnStale: false,
+    staleSourceIds: [],
+    freshness: []
+  };
 }

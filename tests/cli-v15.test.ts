@@ -38,7 +38,7 @@ describe('V1.5 CLI', () => {
         '--action',
         'web_search',
         '--tool',
-        'serpapi',
+        'web-search-api',
         '--intent',
         'web_research',
         '--dry-run'
@@ -56,7 +56,7 @@ describe('V1.5 CLI', () => {
     const output = runCli(['doctor'], cwd);
 
     expect(output).toContain('Agent CMDB Doctor');
-    expect(output).toContain('Control plane');
+    expect(output).toContain('Policy config');
     expect(output).toContain('Store');
     expect(output).toContain('Brain');
     expect(existsSync(join(cwd, 'agent-cmdb', 'brain', 'index.json'))).toBe(true);

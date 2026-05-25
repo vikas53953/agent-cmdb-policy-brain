@@ -10,10 +10,10 @@ describe('agent preflight dry-run', () => {
     const storeDir = mkdtempSync(join(tmpdir(), 'agent-cmdb-dry-run-'));
     const cmdb = createAgentCmdb({ storeDir });
 
-    const result = await cmdb.preflight({
+    const result = await cmdb.policy.preflight({
       profile: 'research-agent',
       action: 'social_post',
-      tool: 'serpapi',
+      tool: 'web-search-api',
       intent: 'web_research',
       dryRun: true
     });
@@ -28,10 +28,10 @@ describe('agent preflight dry-run', () => {
     const storeDir = mkdtempSync(join(tmpdir(), 'agent-cmdb-normal-preflight-'));
     const cmdb = createAgentCmdb({ storeDir });
 
-    const result = await cmdb.preflight({
+    const result = await cmdb.policy.preflight({
       profile: 'research-agent',
       action: 'social_post',
-      tool: 'serpapi',
+      tool: 'web-search-api',
       intent: 'web_research'
     });
 
@@ -45,10 +45,10 @@ describe('agent preflight dry-run', () => {
     const storeDir = mkdtempSync(join(tmpdir(), 'agent-cmdb-allowed-preflight-'));
     const cmdb = createAgentCmdb({ storeDir });
 
-    const result = await cmdb.preflight({
+    const result = await cmdb.policy.preflight({
       profile: 'research-agent',
       action: 'web_search',
-      tool: 'serpapi',
+      tool: 'web-search-api',
       intent: 'web_research'
     });
 

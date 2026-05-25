@@ -9,14 +9,14 @@ import {
   validateControlPlane
 } from '../src/engine.js';
 
-describe('Control plane loader', () => {
-  it('loads the default JSON control plane and validates it without errors', () => {
+describe('Policy config loader', () => {
+  it('loads the default JSON policy config and validates it without errors', () => {
     const controlPlane = loadDefaultControlPlane();
     const issues = validateControlPlane(controlPlane);
 
     expect(defaultControlPlanePath).toContain('examples');
     expect(controlPlane.version).toBe('1.0');
-    expect(controlPlane.profiles.map((profile) => profile.id)).toEqual(['research-agent']);
+    expect(controlPlane.sources.profiles.map((profile) => profile.id)).toEqual(['research-agent']);
     expect(issues.filter((issue) => issue.severity === 'error')).toEqual([]);
   });
 
@@ -25,7 +25,7 @@ describe('Control plane loader', () => {
     const file = join(dir, 'bad.json');
     writeFileSync(file, '{bad json', 'utf8');
 
-    expect(() => loadControlPlane(file)).toThrow(`Failed to parse control plane JSON at ${file}:`);
+    expect(() => loadControlPlane(file)).toThrow(`Failed to parse policy config JSON at ${file}:`);
   });
 
   it('parses source freshness metadata', () => {
@@ -52,15 +52,15 @@ relationships: []
 
     const controlPlane = loadControlPlane(file);
 
-    expect(controlPlane.sources[0].freshnessTtl).toBe('7d');
-    expect(controlPlane.sources[0].brainEntityId).toBe('agent-security');
+    expect(controlPlane.sources.sources[0].freshnessTtl).toBe('7d');
+    expect(controlPlane.sources.sources[0].brainEntityId).toBe('agent-security');
   });
 
   it('refuses invalid source freshness TTLs', () => {
     const dir = mkdtempSync(join(tmpdir(), 'agent-cmdb-loader-bad-freshness-'));
     const file = join(dir, 'fresh.json');
     const controlPlane = loadDefaultControlPlane();
-    controlPlane.sources[0].freshnessTtl = '1w';
+    controlPlane.sources.sources[0].freshnessTtl = '1w';
     writeFileSync(file, JSON.stringify(controlPlane), 'utf8');
 
     expect(() => loadControlPlane(file)).toThrow('source_invalid_freshness_ttl');
@@ -71,18 +71,18 @@ relationships: []
     const file = join(dir, 'bad.json');
     writeFileSync(file, JSON.stringify({ version: 'bad', updatedAt: '2026-05-24' }), 'utf8');
 
-    expect(() => loadControlPlane(file)).toThrow('Control plane sources must be an array.');
+    expect(() => loadControlPlane(file)).toThrow('Policy config policies must be an array.');
   });
 
-  it('refuses to load a control plane with validation errors', () => {
+  it('refuses to load a policy config with validation errors', () => {
     const dir = mkdtempSync(join(tmpdir(), 'agent-cmdb-loader-validation-'));
     const file = join(dir, 'bad.json');
     const controlPlane = loadDefaultControlPlane();
-    controlPlane.profiles[0].routes[0].sources = ['missing-source'];
+    controlPlane.sources.profiles[0].routes[0].sources = ['missing-source'];
     writeFileSync(file, JSON.stringify(controlPlane), 'utf8');
 
     expect(() => loadControlPlane(file)).toThrow(
-      'Control plane validation failed: route_unknown_source: Route research-agent/web_research references unknown source missing-source.'
+      'Policy config validation failed: route_unknown_source: Route research-agent/web_research references unknown source missing-source.'
     );
   });
 });

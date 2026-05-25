@@ -18,30 +18,36 @@ function makeDirs() {
 const controlPlane: ControlPlane = {
   version: '1.5-test',
   updatedAt: '2026-05-24T00:00:00.000Z',
-  sources: [
-    {
-      id: 'local-docs',
-      label: 'Local Docs',
-      kind: 'wiki',
-      readOnly: true
-    }
-  ],
-  profiles: [
-    {
-      id: 'research-agent',
-      name: 'Research Agent',
-      purpose: 'Research',
-      guardrails: ['Read only.'],
-      routes: [{ intent: 'research', sources: ['local-docs'] }]
-    }
-  ],
-  policies: [],
-  objects: [],
-  relationships: []
+  policy: {
+    policies: []
+  },
+  sources: {
+    sources: [
+      {
+        id: 'local-docs',
+        label: 'Local Docs',
+        kind: 'wiki',
+        readOnly: true
+      }
+    ],
+    profiles: [
+      {
+        id: 'research-agent',
+        name: 'Research Agent',
+        purpose: 'Research',
+        guardrails: ['Read only.'],
+        routes: [{ intent: 'research', sources: ['local-docs'] }]
+      }
+    ]
+  },
+  registry: {
+    objects: [],
+    relationships: []
+  }
 };
 
 describe('agent-cmdb doctor', () => {
-  it('returns a passing report with control-plane, store, and brain counts', async () => {
+  it('returns a passing report with policy config, store, and brain counts', async () => {
     const { brainDir, storeDir } = makeDirs();
     await appendEvidence(storeDir, {
       profile: 'research-agent',

@@ -23,18 +23,21 @@ describe('OSS package shape', () => {
 
     expect(packageJson.name).toBe('@pylabmit/agent-cmdb');
     expect(packageJson.private).toBeUndefined();
-    expect(packageJson.version).toBe('2.1.0');
+    expect(packageJson.version).toBe('3.0.0');
     expect(packageJson.main).toBe('dist/interface.js');
     expect(packageJson.types).toBe('dist/interface.d.ts');
     expect(packageJson.bin['agent-cmdb']).toBe('dist/cli.js');
-    expect(packageJson.exports['./doctor']).toBeDefined();
-    expect(packageJson.exports['./duration']).toBeDefined();
-    expect(packageJson.exports['./freshness']).toBeDefined();
+    expect(packageJson.exports['./doctor']).toBe(null);
+    expect(packageJson.exports['./duration']).toBe(null);
+    expect(packageJson.exports['./freshness']).toBe(null);
     expect(packageJson.exports['./types']).toBeDefined();
-    expect(packageJson.exports['./route-resolver']).toBeDefined();
+    expect(packageJson.exports['./analytics']).toBe(null);
+    expect(packageJson.exports['./brain']).toBe(null);
+    expect(packageJson.exports['./digest']).toBe(null);
+    expect(packageJson.exports['./route-resolver']).toBe(null);
     expect(packageJson.exports['./preflight']).toBeUndefined();
-    expect(packageJson.exports['./policy-engine']).toBeUndefined();
-    expect(packageJson.exports['./store']).toBeDefined();
+    expect(packageJson.exports['./policy-engine']).toBe(null);
+    expect(packageJson.exports['./store']).toBe(null);
     expect(packageJson.scripts.build).toContain("rmSync('dist'");
     expect(packageJson.scripts.build).toContain('tsc -p tsconfig.build.json');
   });
@@ -107,32 +110,32 @@ describe('OSS package shape', () => {
     }
   });
 
-  it('loads a generic YAML control plane example', () => {
-    const controlPlane = loadControlPlane(join(process.cwd(), 'examples', 'basic', 'control-plane.yaml'));
+  it('loads a generic YAML policy config example', () => {
+    const controlPlane = loadControlPlane(join(process.cwd(), 'examples', 'basic', 'policy-library.yaml'));
 
-    expect(controlPlane.profiles.map((profile) => profile.id)).toContain('research-agent');
-    expect(controlPlane.sources.map((source) => source.id)).toContain('serpapi');
+    expect(controlPlane.sources.profiles.map((profile) => profile.id)).toContain('research-agent');
+    expect(controlPlane.sources.sources.map((source) => source.id)).toContain('web-search-api');
   });
 
-  it('loads every shipped example control plane', () => {
+  it('loads every shipped example policy config', () => {
     for (const examplePath of [
-      join(process.cwd(), 'examples', 'basic', 'control-plane.yaml'),
-      join(process.cwd(), 'examples', 'multi-agent', 'control-plane.yaml')
+      join(process.cwd(), 'examples', 'basic', 'policy-library.yaml'),
+      join(process.cwd(), 'examples', 'multi-agent', 'policy-library.yaml')
     ]) {
-      expect(loadControlPlane(examplePath).profiles.length).toBeGreaterThan(0);
+      expect(loadControlPlane(examplePath).sources.profiles.length).toBeGreaterThan(0);
     }
   });
 
   it('creates an Agent CMDB instance from configPath', async () => {
     const cmdb = createAgentCmdb({
-      configPath: join(process.cwd(), 'examples', 'basic', 'control-plane.yaml'),
+      configPath: join(process.cwd(), 'examples', 'basic', 'policy-library.yaml'),
       storeDir: mkdtempSync(join(tmpdir(), 'agent-cmdb-oss-configpath-'))
     });
 
-    const result = await cmdb.preflight({
+    const result = await cmdb.policy.preflight({
       profile: 'research-agent',
       action: 'web_search',
-      tool: 'serpapi',
+      tool: 'web-search-api',
       intent: 'web_research'
     });
 
@@ -148,14 +151,13 @@ describe('OSS package shape', () => {
       encoding: 'utf8'
     });
 
-    expect(existsSync(join(cwd, 'agent-cmdb', 'config', 'control-plane.yaml'))).toBe(true);
+    expect(existsSync(join(cwd, 'agent-cmdb', 'config', 'policy-library.yaml'))).toBe(true);
     expect(existsSync(join(cwd, 'agent-cmdb', 'state'))).toBe(true);
-    expect(existsSync(join(cwd, 'agent-cmdb', 'state'))).toBe(true);
-    expect(existsSync(join(cwd, 'agent-cmdb', 'state', 'changes.jsonl'))).toBe(true);
+    expect(existsSync(join(cwd, 'agent-cmdb', 'brain', 'index.json'))).toBe(true);
     expect(existsSync(join(cwd, 'agent-cmdb.config.ts'))).toBe(true);
 
-    const controlPlane = loadControlPlane(join(cwd, 'agent-cmdb', 'config', 'control-plane.yaml'));
-    expect(controlPlane.profiles[0].id).toBe('research-agent');
+    const controlPlane = loadControlPlane(join(cwd, 'agent-cmdb', 'config', 'policy-library.yaml'));
+    expect(controlPlane.sources.profiles[0].id).toBe('research-agent');
   });
 
   it('does not overwrite existing config or state when init is rerun', () => {
@@ -165,7 +167,7 @@ describe('OSS package shape', () => {
       cwd,
       encoding: 'utf8'
     });
-    const configPath = join(cwd, 'agent-cmdb', 'config', 'control-plane.yaml');
+    const configPath = join(cwd, 'agent-cmdb', 'config', 'policy-library.yaml');
     const evidencePath = join(cwd, 'agent-cmdb', 'state', 'evidence.jsonl');
     writeFileSync(configPath, 'version: "custom"\nprofiles: []\nsources: []\npolicies: []\n', 'utf8');
     writeFileSync(evidencePath, '{"id":"ev_keep"}\n', 'utf8');

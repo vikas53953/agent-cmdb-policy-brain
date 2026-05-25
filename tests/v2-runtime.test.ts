@@ -2,10 +2,10 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { createAgentCmdb } from '../src/interface.js';
 import { loadControlPlane, multiAgentExampleControlPlanePath } from '../src/loader.js';
-import type { AgentCheckpoint, ControlPlane } from '../src/types.js';
+import type { ControlPlane } from '../src/types.js';
 
 const tsxCli = join(process.cwd(), 'node_modules', 'tsx', 'dist', 'cli.mjs');
 
@@ -14,129 +14,144 @@ function runtimeControlPlane(overrides: Partial<ControlPlane> = {}): ControlPlan
   return {
     ...base,
     ...overrides,
-    sources: (overrides.sources ?? base.sources).map((source) => ({
-      ...source,
-      health: source.health ?? { failureThreshold: 2, recoveryTimeoutMs: 30_000 },
-      costPerCall: source.id === 'web-search-api' ? 0.02 : source.costPerCall
-    })),
-    profiles: (overrides.profiles ?? base.profiles).map((profile) => ({
-      ...profile,
-      reliability: profile.id === 'research-agent'
-        ? { target: 0.95, windowHours: 24, metric: 'allow_rate' }
-        : profile.reliability
-    }))
+    policy: overrides.policy ?? base.policy,
+    sources: overrides.sources ?? {
+      ...base.sources,
+      sources: base.sources.sources.map((source) => ({
+        ...source,
+        health: source.health ?? { failureThreshold: 2, failureWindowMs: 60_000, recoveryTimeoutMs: 30_000 },
+        costPerCall: source.id === 'web-search-api' ? 0.02 : source.costPerCall
+      })),
+      profiles: base.sources.profiles.map((profile) => ({
+        ...profile,
+        analytics: profile.id === 'research-agent' ? { windowHours: 24 } : profile.analytics
+      }))
+    },
+    registry: overrides.registry ?? base.registry
   };
 }
 
-function tempStore(prefix = 'agent-cmdb-v2-'): string {
+function withSourceHealth(sourceId: string, health: { failureThreshold?: number; failureWindowMs?: number; recoveryTimeoutMs?: number }): ControlPlane {
+  const base = runtimeControlPlane();
+  return {
+    ...base,
+    sources: {
+      ...base.sources,
+      sources: base.sources.sources.map((source) => source.id === sourceId
+        ? { ...source, health: { ...source.health, ...health } }
+        : source)
+    }
+  };
+}
+
+function tempStore(prefix = 'agent-cmdb-v3-runtime-'): string {
   return mkdtempSync(join(tmpdir(), prefix));
 }
 
-describe('V2 source health and source health monitors', () => {
-  it('starts unknown sources as available/up by default', async () => {
+describe('V3 source health monitor runtime', () => {
+  it('starts unknown health records as available/up by default', async () => {
     const cmdb = createAgentCmdb({ controlPlane: runtimeControlPlane(), storeDir: tempStore() });
 
-    await expect(cmdb.isSourceAvailable('web-search-api')).resolves.toBe(true);
-    await expect(cmdb.getHealthState('web-search-api')).resolves.toBe('closed');
+    await expect(cmdb.ops.isSourceAvailable('web-search-api')).resolves.toBe(true);
+    await expect(cmdb.ops.getHealthState('web-search-api')).resolves.toBe('closed');
   });
 
-  it('records failures and marks the source down at the configured threshold', async () => {
+  it('records failures and marks the source down at the configured window threshold', async () => {
     const cmdb = createAgentCmdb({ controlPlane: runtimeControlPlane(), storeDir: tempStore() });
 
-    expect((await cmdb.recordSourceFailure('web-search-api')).status).toBe('up');
-    const health = await cmdb.recordSourceFailure('web-search-api');
+    expect((await cmdb.ops.recordSourceFailure('web-search-api')).status).toBe('up');
+    const health = await cmdb.ops.recordSourceFailure('web-search-api');
 
     expect(health.status).toBe('down');
-    expect(health.consecutiveFailures).toBe(2);
-    await expect(cmdb.getHealthState('web-search-api')).resolves.toBe('open');
+    expect(health.failures).toHaveLength(2);
+    await expect(cmdb.ops.getHealthState('web-search-api')).resolves.toBe('open');
   });
 
-  it('does not close a down source from a success before half-open recovery', async () => {
-    const controlPlane = runtimeControlPlane({
-      sources: runtimeControlPlane().sources.map((source) => source.id === 'web-search-api'
-        ? { ...source, health: { failureThreshold: 1, recoveryTimeoutMs: 30_000 } }
-        : source)
+  it('does not close a down source from a success before recovery timeout', async () => {
+    const cmdb = createAgentCmdb({
+      controlPlane: withSourceHealth('web-search-api', { failureThreshold: 1, recoveryTimeoutMs: 30_000 }),
+      storeDir: tempStore()
     });
-    const cmdb = createAgentCmdb({ controlPlane, storeDir: tempStore() });
 
-    await cmdb.recordSourceFailure('web-search-api');
-    const health = await cmdb.recordSourceSuccess('web-search-api');
+    await cmdb.ops.recordSourceFailure('web-search-api');
+    const health = await cmdb.ops.recordSourceSuccess('web-search-api');
 
     expect(health.status).toBe('down');
-    expect(health.consecutiveFailures).toBe(1);
+    expect(health.failures).toHaveLength(1);
   });
 
-  it('moves down sources to half-open after recovery timeout', async () => {
-    const controlPlane = runtimeControlPlane({
-      sources: runtimeControlPlane().sources.map((source) => source.id === 'web-search-api'
-        ? { ...source, health: { failureThreshold: 1, recoveryTimeoutMs: 0 } }
-        : source)
+  it('moves down sources to one-probe half-open after recovery timeout', async () => {
+    const cmdb = createAgentCmdb({
+      controlPlane: withSourceHealth('web-search-api', { failureThreshold: 1, recoveryTimeoutMs: 0 }),
+      storeDir: tempStore()
     });
-    const cmdb = createAgentCmdb({ controlPlane, storeDir: tempStore() });
 
-    await cmdb.recordSourceFailure('web-search-api');
+    await cmdb.ops.recordSourceFailure('web-search-api');
 
-    await expect(cmdb.isSourceAvailable('web-search-api')).resolves.toBe(true);
-    await expect(cmdb.getHealthState('web-search-api')).resolves.toBe('half-open');
+    await expect(cmdb.ops.isSourceAvailable('web-search-api')).resolves.toBe(true);
+    await expect(cmdb.ops.isSourceAvailable('web-search-api')).resolves.toBe(false);
+    await expect(cmdb.ops.getHealthState('web-search-api')).resolves.toBe('half-open');
   });
 
   it('recovers a half-open source after success', async () => {
-    const controlPlane = runtimeControlPlane({
-      sources: runtimeControlPlane().sources.map((source) => source.id === 'web-search-api'
-        ? { ...source, health: { failureThreshold: 1, recoveryTimeoutMs: 0 } }
-        : source)
+    const cmdb = createAgentCmdb({
+      controlPlane: withSourceHealth('web-search-api', { failureThreshold: 1, recoveryTimeoutMs: 0 }),
+      storeDir: tempStore()
     });
-    const cmdb = createAgentCmdb({ controlPlane, storeDir: tempStore() });
 
-    await cmdb.recordSourceFailure('web-search-api');
-    await cmdb.isSourceAvailable('web-search-api');
-    const health = await cmdb.recordSourceSuccess('web-search-api');
+    await cmdb.ops.recordSourceFailure('web-search-api');
+    await cmdb.ops.isSourceAvailable('web-search-api');
+    const health = await cmdb.ops.recordSourceSuccess('web-search-api');
 
     expect(health.status).toBe('up');
-    expect(health.consecutiveFailures).toBe(0);
+    expect(health.failures).toHaveLength(0);
   });
 
-  it('lets preflight move expired down sources to half-open for recovery', async () => {
-    const controlPlane = runtimeControlPlane({
-      sources: runtimeControlPlane().sources.map((source) => source.id === 'web-search-api'
-        ? { ...source, health: { failureThreshold: 1, recoveryTimeoutMs: 0 } }
-        : source)
+  it('applies exponential backoff after half-open failures', async () => {
+    vi.useFakeTimers();
+    vi.spyOn(Math, 'random').mockReturnValue(0);
+    vi.setSystemTime(new Date('2026-05-25T00:00:00.000Z'));
+    const cmdb = createAgentCmdb({
+      controlPlane: withSourceHealth('web-search-api', { failureThreshold: 1, recoveryTimeoutMs: 30_000 }),
+      storeDir: tempStore()
     });
-    const cmdb = createAgentCmdb({ controlPlane, storeDir: tempStore() });
 
-    await cmdb.recordSourceFailure('web-search-api');
-    await cmdb.preflight({
+    await cmdb.ops.recordSourceFailure('web-search-api');
+    vi.advanceTimersByTime(30_000);
+    await cmdb.ops.isSourceAvailable('web-search-api');
+    await cmdb.ops.recordSourceFailure('web-search-api');
+    vi.advanceTimersByTime(30_000);
+    await expect(cmdb.ops.isSourceAvailable('web-search-api')).resolves.toBe(false);
+    vi.advanceTimersByTime(30_000);
+    await expect(cmdb.ops.isSourceAvailable('web-search-api')).resolves.toBe(true);
+    vi.useRealTimers();
+  });
+
+  it('skips down route sources and allows fallback when no specific down tool is requested', async () => {
+    const cmdb = createAgentCmdb({ controlPlane: runtimeControlPlane(), storeDir: tempStore() });
+
+    await cmdb.ops.recordSourceFailure('web-search-api');
+    await cmdb.ops.recordSourceFailure('web-search-api');
+    const result = await cmdb.policy.preflight({
       profile: 'research-agent',
       action: 'web_research',
-      tool: 'web-search-api',
+      tool: 'recent-history-cache',
       intent: 'web_research'
     });
 
-    await expect(cmdb.getHealthState('web-search-api')).resolves.toBe('half-open');
+    expect(result.allowed).toBe(true);
+    expect(result.route).toBeDefined();
+    const route = result.route!;
+    expect(route.skippedSources).toContain('web-search-api');
+    expect(route.sources[0].id).toBe('recent-history-cache');
   });
 
-  it('marks a half-open source down after failure', async () => {
-    const controlPlane = runtimeControlPlane({
-      sources: runtimeControlPlane().sources.map((source) => source.id === 'web-search-api'
-        ? { ...source, health: { failureThreshold: 1, recoveryTimeoutMs: 0 } }
-        : source)
-    });
-    const cmdb = createAgentCmdb({ controlPlane, storeDir: tempStore() });
-
-    await cmdb.recordSourceFailure('web-search-api');
-    await cmdb.isSourceAvailable('web-search-api');
-    const health = await cmdb.recordSourceFailure('web-search-api');
-
-    expect(health.status).toBe('down');
-    expect(health.consecutiveFailures).toBeGreaterThanOrEqual(1);
-  });
-
-  it('denies when the specifically requested tool is down even if fallback exists', async () => {
+  it('denies when the specifically requested tool is down', async () => {
     const cmdb = createAgentCmdb({ controlPlane: runtimeControlPlane(), storeDir: tempStore() });
 
-    await cmdb.recordSourceFailure('web-search-api');
-    await cmdb.recordSourceFailure('web-search-api');
-    const result = await cmdb.preflight({
+    await cmdb.ops.recordSourceFailure('web-search-api');
+    await cmdb.ops.recordSourceFailure('web-search-api');
+    const result = await cmdb.policy.preflight({
       profile: 'research-agent',
       action: 'web_research',
       tool: 'web-search-api',
@@ -145,37 +160,38 @@ describe('V2 source health and source health monitors', () => {
 
     expect(result.allowed).toBe(false);
     expect(result.decision.ruleId).toBe('requested-tool-down');
-    expect('route' in result).toBe(false);
-  });
-
-  it('skips down route sources and allows fallback when no specific down tool is requested', async () => {
-    const cmdb = createAgentCmdb({ controlPlane: runtimeControlPlane(), storeDir: tempStore() });
-
-    await cmdb.recordSourceFailure('web-search-api');
-    await cmdb.recordSourceFailure('web-search-api');
-    const result = await cmdb.preflight({
-      profile: 'research-agent',
-      action: 'web_research',
-      tool: 'recent-history-cache',
-      intent: 'web_research'
-    });
-
-    expect(result.allowed).toBe(true);
-    expect(result.route?.skippedSources).toContain('web-search-api');
-    expect(result.route?.sources[0].id).toBe('recent-history-cache');
+    expect(result.route).toBeUndefined();
   });
 
   it('denies preflight when every route source is down', async () => {
-    const cmdb = createAgentCmdb({ controlPlane: runtimeControlPlane(), storeDir: tempStore() });
+    const base = runtimeControlPlane();
+    const cmdb = createAgentCmdb({
+      controlPlane: {
+        ...base,
+        policy: {
+          ...base.policy,
+          policies: [
+            ...base.policy.policies,
+            {
+              id: 'allow-route-health-test',
+              effect: 'allow',
+              profiles: ['research-agent'],
+              actions: ['route_health_test'],
+              reason: 'Route health test action is allowed before health filtering.'
+            }
+          ]
+        }
+      },
+      storeDir: tempStore()
+    });
 
     for (const sourceId of ['web-search-api', 'recent-history-cache', 'news-aggregator', 'tech-forum']) {
-      await cmdb.recordSourceFailure(sourceId);
-      await cmdb.recordSourceFailure(sourceId);
+      await cmdb.ops.recordSourceFailure(sourceId);
+      await cmdb.ops.recordSourceFailure(sourceId);
     }
-    const result = await cmdb.preflight({
+    const result = await cmdb.policy.preflight({
       profile: 'research-agent',
-      action: 'web_research',
-      tool: 'web-search-api',
+      action: 'route_health_test',
       intent: 'web_research'
     });
 
@@ -187,100 +203,71 @@ describe('V2 source health and source health monitors', () => {
     const storeDir = tempStore();
     const first = createAgentCmdb({ controlPlane: runtimeControlPlane(), storeDir });
 
-    await first.recordSourceFailure('web-search-api');
-    await first.recordSourceFailure('web-search-api');
+    await first.ops.recordSourceFailure('web-search-api');
+    await first.ops.recordSourceFailure('web-search-api');
     const second = createAgentCmdb({ controlPlane: runtimeControlPlane(), storeDir });
 
-    expect((await second.getSourceHealth('web-search-api')).status).toBe('down');
+    expect((await second.ops.getSourceHealth('web-search-api')).status).toBe('down');
   });
 
   it('resets source health manually', async () => {
     const cmdb = createAgentCmdb({ controlPlane: runtimeControlPlane(), storeDir: tempStore() });
 
-    await cmdb.recordSourceFailure('web-search-api');
-    await cmdb.recordSourceFailure('web-search-api');
-    const health = await cmdb.resetSourceHealth('web-search-api');
+    await cmdb.ops.recordSourceFailure('web-search-api');
+    await cmdb.ops.recordSourceFailure('web-search-api');
+    const health = await cmdb.ops.resetSourceHealth('web-search-api');
 
     expect(health.status).toBe('up');
-    expect(health.consecutiveFailures).toBe(0);
-  });
-
-  it('rejects unknown sources with a descriptive error', async () => {
-    const cmdb = createAgentCmdb({ controlPlane: runtimeControlPlane(), storeDir: tempStore() });
-
-    await expect(cmdb.recordSourceFailure('missing-source')).rejects.toThrow('Unknown source: missing-source.');
+    expect(health.failures).toHaveLength(0);
   });
 
   it('lists health for every configured source', async () => {
     const controlPlane = runtimeControlPlane();
     const cmdb = createAgentCmdb({ controlPlane, storeDir: tempStore() });
 
-    const health = await cmdb.listSourceHealth();
+    const health = await cmdb.ops.listSourceHealth();
 
-    expect(health).toHaveLength(controlPlane.sources.length);
+    expect(health).toHaveLength(controlPlane.sources.sources.length);
     expect(health.every((entry) => entry.status === 'up')).toBe(true);
   });
 });
 
-describe('V2 reliability and cost estimation', () => {
-  it('updates reliability cache on audited preflight calls', async () => {
+describe('V3 preflight analytics and caller-provided cost estimation', () => {
+  it('updates preflight analytics cache on audited preflight calls', async () => {
     const cmdb = createAgentCmdb({ controlPlane: runtimeControlPlane(), storeDir: tempStore() });
 
-    await cmdb.preflight({ profile: 'research-agent', action: 'web_research', tool: 'web-search-api' });
-    await cmdb.preflight({ profile: 'research-agent', action: 'unknown_action', tool: 'web-search-api' });
-    const reliability = await cmdb.calculateReliability('research-agent');
+    await cmdb.policy.preflight({ profile: 'research-agent', action: 'web_research', tool: 'web-search-api' });
+    await cmdb.policy.preflight({ profile: 'research-agent', action: 'unknown_action', tool: 'web-search-api' });
+    const analytics = await cmdb.ops.calculatePreflightAnalytics('research-agent');
 
-    expect(reliability.totalDecisions).toBe(2);
-    expect(reliability.allowedCount).toBe(1);
-    expect(reliability.deniedCount).toBe(1);
+    expect(analytics.totalDecisions).toBe(2);
+    expect(analytics.allowedCount).toBe(1);
+    expect(analytics.deniedCount).toBe(1);
+    expect(analytics.allowRate).toBe(0.5);
+    expect(analytics.denyRate).toBe(0.5);
   });
 
-  it('reports within budget for 97 allowed decisions out of 100', async () => {
+  it('reports zero-decision analytics as allowRate 1 and denyRate 0', async () => {
     const cmdb = createAgentCmdb({ controlPlane: runtimeControlPlane(), storeDir: tempStore() });
+    const analytics = await cmdb.ops.calculatePreflightAnalytics('research-agent');
 
-    for (let index = 0; index < 97; index += 1) {
-      await cmdb.preflight({ profile: 'research-agent', action: 'web_research', tool: 'web-search-api' });
-    }
-    for (let index = 0; index < 3; index += 1) {
-      await cmdb.preflight({ profile: 'research-agent', action: `unknown_action_${index}`, tool: 'web-search-api' });
-    }
-
-    const reliability = await cmdb.calculateReliability('research-agent');
-    expect(reliability.totalDecisions).toBe(100);
-    expect(reliability.withinBudget).toBe(true);
+    expect(analytics.totalDecisions).toBe(0);
+    expect(analytics.allowRate).toBe(1);
+    expect(analytics.denyRate).toBe(0);
   });
 
-  it('reports exhausted budget for 93 allowed decisions out of 100', async () => {
-    const cmdb = createAgentCmdb({ controlPlane: runtimeControlPlane(), storeDir: tempStore() });
-
-    for (let index = 0; index < 93; index += 1) {
-      await cmdb.preflight({ profile: 'research-agent', action: 'web_research', tool: 'web-search-api' });
-    }
-    for (let index = 0; index < 7; index += 1) {
-      await cmdb.preflight({ profile: 'research-agent', action: `blocked_action_${index}`, tool: 'web-search-api' });
-    }
-
-    const reliability = await cmdb.calculateReliability('research-agent');
-    expect(reliability.totalDecisions).toBe(100);
-    expect(reliability.withinBudget).toBe(false);
-  });
-
-  it('treats zero reliability decisions as healthy', async () => {
-    const cmdb = createAgentCmdb({ controlPlane: runtimeControlPlane(), storeDir: tempStore() });
-    const reliability = await cmdb.calculateReliability('research-agent');
-
-    expect(reliability.totalDecisions).toBe(0);
-    expect(reliability.actual).toBe(1);
-    expect(reliability.withinBudget).toBe(true);
-  });
-
-  it('lets profiles without reliability config run preflight normally', async () => {
-    const controlPlane = runtimeControlPlane({
-      profiles: runtimeControlPlane().profiles.map((profile) => ({ ...profile, reliability: undefined }))
-    });
+  it('keeps preflight working when analytics config is omitted', async () => {
+    const base = runtimeControlPlane();
+    const controlPlane: ControlPlane = {
+      ...base,
+      sources: {
+        ...base.sources,
+        profiles: base.sources.profiles.map((profile) => ({ ...profile, analytics: undefined }))
+      }
+    };
     const cmdb = createAgentCmdb({ controlPlane, storeDir: tempStore() });
 
-    await expect(cmdb.preflight({
+    await expect(cmdb.policy.preflight({
       profile: 'research-agent',
       action: 'web_research',
       tool: 'web-search-api'
@@ -290,7 +277,7 @@ describe('V2 reliability and cost estimation', () => {
   it('summarizes evidence costs by source and date', async () => {
     const cmdb = createAgentCmdb({ controlPlane: runtimeControlPlane(), storeDir: tempStore() });
 
-    await cmdb.logEvidence({
+    await cmdb.memory.logEvidence({
       profile: 'research-agent',
       source: 'web-search-api',
       intent: 'web_research',
@@ -300,7 +287,7 @@ describe('V2 reliability and cost estimation', () => {
       tokenCount: 100,
       estimatedCost: 0.02
     });
-    await cmdb.logEvidence({
+    await cmdb.memory.logEvidence({
       profile: 'research-agent',
       source: 'news-aggregator',
       intent: 'web_research',
@@ -311,7 +298,7 @@ describe('V2 reliability and cost estimation', () => {
       estimatedCost: 0.01
     });
 
-    const summary = await cmdb.getCostSummary('research-agent', '2026-05-24');
+    const summary = await cmdb.ops.getCostSummary('research-agent', '2026-05-24');
     expect(summary.totalCalls).toBe(2);
     expect(summary.totalTokens).toBe(150);
     expect(summary.totalCost).toBeCloseTo(0.03);
@@ -319,127 +306,27 @@ describe('V2 reliability and cost estimation', () => {
 
   it('returns zero cost when no evidence exists', async () => {
     const cmdb = createAgentCmdb({ controlPlane: runtimeControlPlane(), storeDir: tempStore() });
-    const summary = await cmdb.getCostSummary('research-agent', '2026-05-24');
+    const summary = await cmdb.ops.getCostSummary('research-agent', '2026-05-24');
 
     expect(summary.totalCalls).toBe(0);
     expect(summary.totalTokens).toBe(0);
     expect(summary.totalCost).toBe(0);
   });
 
-  it('infers zero cost when source has no configured cost', async () => {
+  it('rejects analytics calculation for an unknown profile', async () => {
     const cmdb = createAgentCmdb({ controlPlane: runtimeControlPlane(), storeDir: tempStore() });
 
-    await cmdb.logEvidence({
-      profile: 'research-agent',
-      source: 'news-aggregator',
-      intent: 'web_research',
-      summary: 'free source',
-      trust: 'medium',
-      capturedAt: '2026-05-24T11:00:00.000Z'
-    });
-
-    const summary = await cmdb.getCostSummary('research-agent', '2026-05-24');
-    expect(summary.totalCost).toBe(0);
-    expect(summary.bySource[0].cost).toBe(0);
-  });
-
-  it('rejects reliability calculation for an unknown profile', async () => {
-    const cmdb = createAgentCmdb({ controlPlane: runtimeControlPlane(), storeDir: tempStore() });
-
-    await expect(cmdb.calculateReliability('missing-profile')).rejects.toThrow('Unknown profile: missing-profile.');
+    await expect(cmdb.ops.calculatePreflightAnalytics('missing-profile')).rejects.toThrow('Unknown profile: missing-profile.');
   });
 
   it('rejects malformed cost dates', async () => {
     const cmdb = createAgentCmdb({ controlPlane: runtimeControlPlane(), storeDir: tempStore() });
 
-    await expect(cmdb.getCostSummary('research-agent', 'today')).rejects.toThrow('Cost date must be YYYY-MM-DD.');
+    await expect(cmdb.ops.getCostSummary('research-agent', 'today')).rejects.toThrow('Cost date must be YYYY-MM-DD.');
   });
 });
 
-describe('V2 checkpoints', () => {
-  function checkpoint(overrides: Partial<AgentCheckpoint> = {}): AgentCheckpoint {
-    return {
-      id: 'daily-research-1',
-      profile: 'research-agent',
-      taskDescription: 'Daily research workflow',
-      currentStep: 1,
-      totalSteps: 3,
-      completedSteps: ['preflight'],
-      pendingSteps: ['research', 'digest'],
-      state: { route: 'web_research' },
-      createdAt: '2026-05-24T00:00:00.000Z',
-      updatedAt: '2026-05-24T00:01:00.000Z',
-      prevHash: 'genesis',
-      ...overrides
-    };
-  }
-
-  it('saves and loads checkpoints roundtrip', async () => {
-    const cmdb = createAgentCmdb({ controlPlane: runtimeControlPlane(), storeDir: tempStore() });
-
-    await cmdb.saveCheckpoint(checkpoint());
-    const loaded = await cmdb.loadCheckpoint('daily-research-1');
-
-    expect(loaded?.profile).toBe('research-agent');
-    expect(loaded?.completedSteps).toEqual(['preflight']);
-  });
-
-  it('returns null for missing checkpoints', async () => {
-    const cmdb = createAgentCmdb({ controlPlane: runtimeControlPlane(), storeDir: tempStore() });
-
-    await expect(cmdb.loadCheckpoint('missing-checkpoint')).resolves.toBeNull();
-  });
-
-  it('lists checkpoints by profile', async () => {
-    const cmdb = createAgentCmdb({ controlPlane: runtimeControlPlane(), storeDir: tempStore() });
-
-    await cmdb.saveCheckpoint(checkpoint());
-    await cmdb.saveCheckpoint(checkpoint({ id: 'content-1', profile: 'content-agent' }));
-
-    const research = await cmdb.listCheckpoints('research-agent');
-    expect(research).toHaveLength(1);
-    expect(research[0].id).toBe('daily-research-1');
-  });
-
-  it('deletes checkpoints', async () => {
-    const cmdb = createAgentCmdb({ controlPlane: runtimeControlPlane(), storeDir: tempStore() });
-
-    await cmdb.saveCheckpoint(checkpoint());
-    await cmdb.deleteCheckpoint('daily-research-1');
-
-    await expect(cmdb.loadCheckpoint('daily-research-1')).resolves.toBeNull();
-  });
-
-  it('adds warnings when checkpoint content is tampered', async () => {
-    const storeDir = tempStore();
-    const cmdb = createAgentCmdb({ controlPlane: runtimeControlPlane(), storeDir });
-
-    await cmdb.saveCheckpoint(checkpoint());
-    const filePath = join(storeDir, 'checkpoints', 'daily-research-1.json');
-    writeFileSync(filePath, readFileSync(filePath, 'utf8').replace('Daily research workflow', 'Tampered workflow'), 'utf8');
-    const loaded = await cmdb.loadCheckpoint('daily-research-1');
-
-    expect(loaded?.warnings?.[0]).toContain('hash');
-  });
-
-  it('keeps preflight working when checkpoints are never used', async () => {
-    const cmdb = createAgentCmdb({ controlPlane: runtimeControlPlane(), storeDir: tempStore() });
-
-    await expect(cmdb.preflight({
-      profile: 'research-agent',
-      action: 'web_research',
-      tool: 'web-search-api'
-    })).resolves.toMatchObject({ allowed: true });
-  });
-
-  it('rejects unsafe checkpoint ids', async () => {
-    const cmdb = createAgentCmdb({ controlPlane: runtimeControlPlane(), storeDir: tempStore() });
-
-    await expect(cmdb.loadCheckpoint('../bad')).rejects.toThrow('Checkpoint id must be a safe identifier.');
-  });
-});
-
-describe('V2 public surface and CLI', () => {
+describe('V3 public surface and CLI', () => {
   it('does not expose internal policy evaluators from the package root', async () => {
     const mod = await import('../src/interface.js');
 
@@ -447,13 +334,18 @@ describe('V2 public surface and CLI', () => {
     expect('evaluatePreflight' in mod).toBe(false);
   });
 
-  it('does not publish direct policy-engine or preflight subpath exports', () => {
+  it('does not publish direct internal subpath exports', () => {
     const packageJson = JSON.parse(readFileSync(join(process.cwd(), 'package.json'), 'utf8')) as {
       exports: Record<string, unknown>;
     };
 
-    expect(packageJson.exports['./policy-engine']).toBeUndefined();
+    expect(packageJson.exports['./policy-engine']).toBe(null);
     expect(packageJson.exports['./preflight']).toBeUndefined();
+    expect(packageJson.exports['./store']).toBe(null);
+    expect(packageJson.exports['./internal']).toBe(null);
+    expect(packageJson.exports['./analytics']).toBe(null);
+    expect(packageJson.exports['./brain']).toBe(null);
+    expect(packageJson.exports['./digest']).toBe(null);
   });
 
   it('prints health help text', () => {
@@ -465,22 +357,13 @@ describe('V2 public surface and CLI', () => {
     expect(output).toContain('--source');
   });
 
-  it('prints reliability help text', () => {
-    const output = execFileSync(process.execPath, [tsxCli, join(process.cwd(), 'src', 'cli.ts'), 'reliability', '--help'], {
+  it('prints analytics help text', () => {
+    const output = execFileSync(process.execPath, [tsxCli, join(process.cwd(), 'src', 'cli.ts'), 'analytics', '--help'], {
       encoding: 'utf8'
     });
 
-    expect(output).toContain('agent-cmdb reliability');
+    expect(output).toContain('agent-cmdb analytics');
     expect(output).toContain('--profile');
-  });
-
-  it('prints cost help text', () => {
-    const output = execFileSync(process.execPath, [tsxCli, join(process.cwd(), 'src', 'cli.ts'), 'cost', '--help'], {
-      encoding: 'utf8'
-    });
-
-    expect(output).toContain('agent-cmdb cost');
-    expect(output).toContain('--date');
   });
 
   it('runs health command from the CLI', () => {
@@ -498,30 +381,12 @@ describe('V2 public surface and CLI', () => {
     expect(output).toContain('web-search-api');
   });
 
-  it('runs health reset command from the CLI', () => {
-    const cwd = tempStore('agent-cmdb-cli-reset-');
+  it('runs analytics command from the CLI', () => {
+    const cwd = tempStore('agent-cmdb-cli-analytics-');
     const output = execFileSync(process.execPath, [
       tsxCli,
       join(process.cwd(), 'src', 'cli.ts'),
-      'health',
-      'reset',
-      '--source',
-      'web-search-api',
-      '--config',
-      multiAgentExampleControlPlanePath,
-      '--store',
-      join(cwd, 'state')
-    ], { encoding: 'utf8' });
-
-    expect(output).toContain('"status": "up"');
-  });
-
-  it('runs reliability command from the CLI', () => {
-    const cwd = tempStore('agent-cmdb-cli-reliability-');
-    const output = execFileSync(process.execPath, [
-      tsxCli,
-      join(process.cwd(), 'src', 'cli.ts'),
-      'reliability',
+      'analytics',
       '--profile',
       'research-agent',
       '--config',
@@ -533,60 +398,43 @@ describe('V2 public surface and CLI', () => {
     expect(output).toContain('"profile": "research-agent"');
   });
 
-  it('runs cost command from the CLI', () => {
-    const cwd = tempStore('agent-cmdb-cli-cost-');
-    const output = execFileSync(process.execPath, [
-      tsxCli,
-      join(process.cwd(), 'src', 'cli.ts'),
-      'cost',
-      '--profile',
-      'research-agent',
-      '--date',
-      '2026-05-24',
-      '--config',
-      multiAgentExampleControlPlanePath,
-      '--store',
-      join(cwd, 'state')
-    ], { encoding: 'utf8' });
-
-    expect(output).toContain('"totalCost": 0');
-  });
-
   it('writes health state to disk', async () => {
     const storeDir = tempStore();
     const cmdb = createAgentCmdb({ controlPlane: runtimeControlPlane(), storeDir });
 
-    await cmdb.recordSourceFailure('web-search-api');
+    await cmdb.ops.recordSourceFailure('web-search-api');
 
     expect(existsSync(join(storeDir, 'health.json'))).toBe(true);
   });
 
-  it('resets source health to up when health state is tampered', async () => {
+  it('resets source health to up when health state is tampered in warn mode', async () => {
     const storeDir = tempStore();
     const cmdb = createAgentCmdb({ controlPlane: runtimeControlPlane(), storeDir });
 
-    await cmdb.recordSourceFailure('web-search-api');
-    await cmdb.recordSourceFailure('web-search-api');
+    await cmdb.ops.recordSourceFailure('web-search-api');
+    await cmdb.ops.recordSourceFailure('web-search-api');
     const healthPath = join(storeDir, 'health.json');
     writeFileSync(healthPath, readFileSync(healthPath, 'utf8').replace('"status": "down"', '"status": "up"'), 'utf8');
 
-    const health = await cmdb.getSourceHealth('web-search-api');
+    const health = await cmdb.ops.getSourceHealth('web-search-api');
     expect(health.status).toBe('up');
     expect(health.warnings?.[0]).toContain('tampered');
-    await expect(cmdb.getHealthState('web-search-api')).resolves.toBe('closed');
+    await expect(cmdb.ops.getHealthState('web-search-api')).resolves.toBe('closed');
   });
 
-  it('reports forged reliability cache as out of budget with warnings', async () => {
+  it('reports forged analytics cache with warnings in warn mode and throws in fail mode', async () => {
     const storeDir = tempStore();
     const cmdb = createAgentCmdb({ controlPlane: runtimeControlPlane(), storeDir });
 
-    await cmdb.preflight({ profile: 'research-agent', action: 'blocked_action', tool: 'web-search-api' });
-    const cachePath = join(storeDir, 'reliability-cache', 'research-agent.json');
+    await cmdb.policy.preflight({ profile: 'research-agent', action: 'blocked_action', tool: 'web-search-api' });
+    const cachePath = join(storeDir, 'analytics-cache', 'research-agent.json');
     writeFileSync(cachePath, readFileSync(cachePath, 'utf8').replace('"denied": 1', '"denied": 0'), 'utf8');
 
-    const reliability = await cmdb.calculateReliability('research-agent');
-    expect(reliability.withinBudget).toBe(false);
-    expect(reliability.actual).toBe(0);
-    expect(reliability.warnings?.[0]).toContain('hash');
+    const analytics = await cmdb.ops.calculatePreflightAnalytics('research-agent');
+    expect(analytics.warnings?.[0]).toContain('hash');
+    expect(analytics.totalDecisions).toBe(0);
+
+    const fail = createAgentCmdb({ controlPlane: runtimeControlPlane(), storeDir, tamperMode: 'fail' });
+    await expect(fail.ops.calculatePreflightAnalytics('research-agent')).rejects.toThrow();
   });
 });

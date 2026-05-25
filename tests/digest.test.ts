@@ -23,7 +23,7 @@ describe('Agent CMDB digest', () => {
     const { brainDir, storeDir } = makeDirs();
     await appendEvidence(storeDir, {
       profile: 'research-agent',
-      source: 'serpapi',
+      source: 'web-search-api',
       intent: 'web_research',
       summary: 'Agent firewall pattern is trending.',
       trust: 'high',
@@ -66,7 +66,7 @@ describe('Agent CMDB digest', () => {
     expect(existsSync(result.digestPath)).toBe(true);
     const markdown = readFileSync(result.digestPath, 'utf8');
     expect(markdown).toContain(`# Daily digest: research-agent - ${today}`);
-    expect(markdown).toContain('[high] Agent firewall pattern is trending. (source: serpapi)');
+    expect(markdown).toContain('[high] Agent firewall pattern is trending. (source: web-search-api)');
     expect(markdown).toContain('verify policy.allow-research: Verified research policy. (by codex)');
     expect(markdown).toContain('Agent Security - updated by research-agent');
   });

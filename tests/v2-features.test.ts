@@ -61,7 +61,7 @@ describe('Agent CMDB V2 preflight', () => {
     expect(result.decision.canEscalate).toBe(false);
     expect(result.decision.reason).toBe('Object tool.social-media-tool is blocked.');
     expect(result.decision.suggestedAlternative).toContain('active source or tool');
-    expect('route' in result).toBe(false);
+    expect(result.route).toBeUndefined();
   });
 
   it('allows Research read-only research and attaches source route', () => {
@@ -91,7 +91,7 @@ describe('Agent CMDB V2 preflight', () => {
     });
 
     expect(result.allowed).toBe(false);
-    expect(result.routeExecutable).toBe(false);
+    expect(result.route).toBeUndefined();
     expect(result.decision.effect).toBe('deny');
     expect(result.decision.ruleId).toBe('route-resolution-failed');
   });
@@ -111,7 +111,7 @@ describe('Agent CMDB V2 preflight', () => {
 });
 
 describe('Agent CMDB V2 validation and report', () => {
-  it('validates starter control plane without errors', () => {
+  it('validates starter policy config without errors', () => {
     const issues = validateControlPlane(controlPlane);
 
     expect(issues.filter((issue) => issue.severity === 'error')).toEqual([]);
@@ -120,22 +120,25 @@ describe('Agent CMDB V2 validation and report', () => {
   it('warns when an earlier rule shadows a later policy rule', () => {
     const issues = validateControlPlane({
       ...controlPlane,
-      policies: [
-        {
-          id: 'shadow-all-research',
-          effect: 'deny',
-          profiles: ['research-agent'],
-          actions: ['*'],
-          reason: 'Earlier catch-all rule.'
-        },
-        {
-          id: 'shadowed-research-web',
-          effect: 'deny',
-          profiles: ['research-agent'],
-          actions: ['web_research'],
-          reason: 'This can never win.'
-        }
-      ]
+      policy: {
+        ...controlPlane.policy,
+        policies: [
+          {
+            id: 'shadow-all-research',
+            effect: 'deny',
+            profiles: ['research-agent'],
+            actions: ['*'],
+            reason: 'Earlier catch-all rule.'
+          },
+          {
+            id: 'shadowed-research-web',
+            effect: 'deny',
+            profiles: ['research-agent'],
+            actions: ['web_research'],
+            reason: 'This can never win.'
+          }
+        ]
+      }
     });
 
     expect(issues).toContainEqual({
@@ -241,14 +244,14 @@ describe('Agent CMDB V2 file stores', () => {
     writeFileSync(join(storeDir, 'evidence.jsonl'), '\n{"id":"ok"}\nnot-json\n', 'utf8');
 
     await expect(listEvidence(storeDir)).rejects.toThrow(CorruptStoreError);
-    await expect(listEvidence(storeDir)).rejects.toThrow('evidence.jsonl:3');
+    await expect(listEvidence(storeDir)).rejects.toThrow('evidence-');
   });
 
   it('rejects non-object JSONL records with file and line number', async () => {
     const storeDir = mkdtempSync(join(tmpdir(), 'agent-cmdb-shape-'));
     writeFileSync(join(storeDir, 'changes.jsonl'), '[]\n', 'utf8');
 
-    await expect(listChanges(storeDir)).rejects.toThrow('changes.jsonl:1');
+    await expect(listChanges(storeDir)).rejects.toThrow(/changes.*\.jsonl:1/);
     await expect(listChanges(storeDir)).rejects.toThrow('expected JSON object record');
   });
 

@@ -21,7 +21,7 @@ describe('single Agent CMDB preflight entry point', () => {
   }
 
   it('allows read-only research and logs a change record', async () => {
-    const result = await cmdb().preflight({
+    const result = await cmdb().policy.preflight({
       profile: 'research-agent',
       action: 'web_research',
       tool: 'web-search-api',
@@ -34,7 +34,7 @@ describe('single Agent CMDB preflight entry point', () => {
   });
 
   it('denies social account posting and logs both evidence and change records', async () => {
-    const result = await cmdb().preflight({
+    const result = await cmdb().policy.preflight({
       profile: 'research-agent',
       action: 'social_post',
       tool: 'social-media-tool',
@@ -48,7 +48,7 @@ describe('single Agent CMDB preflight entry point', () => {
   });
 
   it('dry-runs social account posting without writing audit records', async () => {
-    const result = await cmdb().preflight({
+    const result = await cmdb().policy.preflight({
       profile: 'research-agent',
       action: 'social_post',
       tool: 'social-media-tool',
@@ -64,7 +64,7 @@ describe('single Agent CMDB preflight entry point', () => {
   });
 
   it('denies unknown actions by default and logs the decision', async () => {
-    const result = await cmdb().preflight({
+    const result = await cmdb().policy.preflight({
       profile: 'research-agent',
       action: 'unknown_action',
       tool: 'web-search-api',
@@ -72,26 +72,35 @@ describe('single Agent CMDB preflight entry point', () => {
     });
 
     expect(result.allowed).toBe(false);
-    expect(result.approvalRequired).toBe(false);
     expect(result.decision.ruleId).toBe('default-deny');
     expect(result.decision.canEscalate).toBe(false);
     expect(await listEvidence(storeDir)).toHaveLength(1);
     expect(await listChanges(storeDir, { actor: 'agent-cmdb-preflight' })).toHaveLength(1);
   });
 
-  it('throws a clean error for an invalid profile', async () => {
-    await expect(cmdb().preflight({
+  it('denies a cleanly for an invalid profile', async () => {
+    await expect(cmdb().policy.preflight({
       profile: 'missing-profile',
       action: 'web_research',
       tool: 'web-search-api'
-    })).rejects.toThrow('Unknown profile: missing-profile.');
+    })).resolves.toMatchObject({
+      allowed: false,
+      decision: {
+        ruleId: 'unknown-profile'
+      }
+    });
   });
 
-  it('throws a clean error for empty action input', async () => {
-    await expect(cmdb().preflight({
+  it('denies cleanly for empty action input', async () => {
+    await expect(cmdb().policy.preflight({
       profile: 'research-agent',
       action: '',
       tool: 'web-search-api'
-    })).rejects.toThrow('Policy request action must be a non-empty string.');
+    })).resolves.toMatchObject({
+      allowed: false,
+      decision: {
+        ruleId: 'invalid-request'
+      }
+    });
   });
 });

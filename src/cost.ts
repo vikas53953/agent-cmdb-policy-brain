@@ -1,4 +1,5 @@
 import { listEvidence } from './store.js';
+import { sourceRefs } from './config-access.js';
 import type { ControlPlane, CostSummary } from './types.js';
 
 export async function getCostSummary(
@@ -38,7 +39,7 @@ export async function getCostSummary(
 }
 
 function sourceCost(controlPlane: ControlPlane, sourceId: string): number {
-  return controlPlane.sources.find((source) => source.id === sourceId)?.costPerCall ?? 0;
+  return sourceRefs(controlPlane).find((source) => source.id === sourceId)?.costPerCall ?? 0;
 }
 
 function safeSegment(value: string, label: string): string {

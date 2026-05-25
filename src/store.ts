@@ -17,6 +17,7 @@ import type {
 const evidenceFile = 'evidence.jsonl';
 const changesFile = 'changes.jsonl';
 const evidenceFilePattern = /^evidence-\d{4}-\d{2}-\d{2}\.jsonl$/;
+const changeFilePattern = /^changes-\d{4}-\d{2}-\d{2}\.jsonl$/;
 const maxScalarLength = 2048;
 const maxTextLength = 16000;
 const injectionReplacement = '[CONTENT REMOVED - injection pattern detected]';
@@ -24,6 +25,7 @@ const injectionPattern = /\b(SYSTEM|DEVELOPER|USER|ASSISTANT|TOOL)\s*:/i;
 const lastHashByFile = new Map<string, string>();
 const appendQueues = new Map<string, Promise<unknown>>();
 const stateQueues = new Map<string, Promise<unknown>>();
+const migratedLegacyStores = new Set<string>();
 
 export class CorruptStoreError extends Error {
   constructor(fileName: string, lineNumber: number, detail: string) {
@@ -56,7 +58,11 @@ export async function appendEvidence(storeDir: string, input: EvidenceInput): Pr
     id: `ev_${randomUUID()}`
   };
 
-  return appendEvidenceJsonLine(storeDir, evidenceFileForTimestamp(record.capturedAt), record);
+  await migrateLegacyStore(storeDir, evidenceFile, 'evidence', evidenceFilePattern);
+  return appendRotatedJsonLine(storeDir, evidenceFileForTimestamp(record.capturedAt), record, {
+    pattern: evidenceFilePattern,
+    legacyFile: evidenceFile
+  });
 }
 
 export async function listEvidence(
@@ -64,6 +70,7 @@ export async function listEvidence(
   query: EvidenceQuery = {},
   options: { tamperMode?: TamperMode } = {}
 ): Promise<EvidenceRecord[]> {
+  await migrateLegacyStore(storeDir, evidenceFile, 'evidence', evidenceFilePattern);
   const normalizedQuery = normalizeEvidenceQuery(query);
   const effectiveDateRange = normalizedQuery.dateRange ?? defaultEvidenceDateRange();
   const records = await readEvidenceJsonLines(storeDir, { ...normalizedQuery, dateRange: effectiveDateRange }, options.tamperMode ?? 'warn');
@@ -94,7 +101,11 @@ export async function appendChange(storeDir: string, input: ChangeInput): Promis
     id: `chg_${randomUUID()}`
   };
 
-  return appendJsonLine(storeDir, changesFile, record);
+  await migrateLegacyStore(storeDir, changesFile, 'changes', changeFilePattern);
+  return appendRotatedJsonLine(storeDir, changeFileForTimestamp(record.changedAt), record, {
+    pattern: changeFilePattern,
+    legacyFile: changesFile
+  });
 }
 
 export async function listChanges(
@@ -102,15 +113,21 @@ export async function listChanges(
   query: ChangeQuery = {},
   options: { tamperMode?: TamperMode } = {}
 ): Promise<ChangeRecord[]> {
+  await migrateLegacyStore(storeDir, changesFile, 'changes', changeFilePattern);
   const normalizedQuery = normalizeChangeQuery(query);
-  const records = await readJsonLines<ChangeRecord>(storeDir, changesFile, options.tamperMode ?? 'warn');
+  const effectiveDateRange = normalizedQuery.dateRange ?? defaultEvidenceDateRange();
+  const records = await readRotatedJsonLines<ChangeRecord>(
+    storeDir,
+    { pattern: changeFilePattern, legacyFile: changesFile, dateRange: effectiveDateRange },
+    options.tamperMode ?? 'warn'
+  );
 
   return records.filter((record) => {
     if (definedFilter(normalizedQuery.target) && record.target !== sanitizeScalar(normalizedQuery.target)) return false;
     if (normalizedQuery.targetType && record.targetType !== normalizedQuery.targetType) return false;
     if (definedFilter(normalizedQuery.actor) && record.actor !== sanitizeScalar(normalizedQuery.actor)) return false;
     if (normalizedQuery.action && record.action !== normalizedQuery.action) return false;
-    if (normalizedQuery.dateRange && !dateInRange(record.changedAt, normalizedQuery.dateRange)) return false;
+    if (!dateInRange(record.changedAt, effectiveDateRange)) return false;
     return true;
   });
 }
@@ -119,7 +136,8 @@ export async function readJsonState<T extends object>(
   storeDir: string,
   relativePath: string,
   fallback: T,
-  parse: (value: unknown) => T
+  parse: (value: unknown) => T,
+  options: { tamperMode?: TamperMode } = {}
 ): Promise<T & { prevHash: string; warnings?: string[] }> {
   const filePath = join(storeDir, relativePath);
   const content = await readFileIfExists(filePath);
@@ -151,6 +169,9 @@ export async function readJsonState<T extends object>(
     : [];
 
   if (storedHash !== expectedHash) {
+    if ((options.tamperMode ?? 'warn') === 'fail') {
+      throw new CorruptStoreError(relativePath, 1, `expected prevHash ${expectedHash}`);
+    }
     warnings.push(`JSON state hash warning in ${relativePath}: expected prevHash ${expectedHash}.`);
   }
 
@@ -218,27 +239,29 @@ async function appendJsonLine<T extends Record<string, unknown>>(
   return next;
 }
 
-async function appendEvidenceJsonLine<T extends Record<string, unknown>>(
+async function appendRotatedJsonLine<T extends Record<string, unknown>>(
   storeDir: string,
   fileName: string,
-  record: T
+  record: T,
+  options: { pattern: RegExp; legacyFile: string }
 ): Promise<T & { prevHash: string }> {
-  const queueKey = join(storeDir, 'evidence-rotation');
+  const queueKey = join(storeDir, `${options.legacyFile}-rotation`);
   const previous = appendQueues.get(queueKey) ?? Promise.resolve();
-  const next = previous.then(() => appendEvidenceJsonLineUnlocked(storeDir, fileName, record));
+  const next = previous.then(() => appendRotatedJsonLineUnlocked(storeDir, fileName, record, options));
   appendQueues.set(queueKey, next.catch(() => undefined));
   return next;
 }
 
-async function appendEvidenceJsonLineUnlocked<T extends Record<string, unknown>>(
+async function appendRotatedJsonLineUnlocked<T extends Record<string, unknown>>(
   storeDir: string,
   fileName: string,
-  record: T
+  record: T,
+  options: { pattern: RegExp; legacyFile: string }
 ): Promise<T & { prevHash: string }> {
   try {
     await mkdir(storeDir, { recursive: true });
     const filePath = join(storeDir, fileName);
-    const prevHash = await latestEvidenceHash(storeDir, fileName);
+    const prevHash = await latestRotatedRecordHash(storeDir, fileName, options);
     const recordWithHash = { ...record, prevHash };
     const line = JSON.stringify(recordWithHash);
     await appendFile(filePath, `${line}\n`, 'utf8');
@@ -320,7 +343,29 @@ async function readEvidenceJsonLines(
   tamperMode: TamperMode
 ): Promise<EvidenceRecord[]> {
   const files = await evidenceFilesForQuery(storeDir, query);
-  const records: EvidenceRecord[] = [];
+  return readJsonLineFiles<EvidenceRecord>(storeDir, files, tamperMode);
+}
+
+async function readRotatedJsonLines<T extends { prevHash?: string; warnings?: string[] }>(
+  storeDir: string,
+  options: { pattern: RegExp; legacyFile: string; dateRange: NonNullable<EvidenceQuery['dateRange']> },
+  tamperMode: TamperMode
+): Promise<T[]> {
+  const files = await listStoreFiles(storeDir);
+  const rotated = files
+    .filter((file) => options.pattern.test(file))
+    .filter((file) => rotatedFileNeededForRangeValidation(file, options.dateRange))
+    .sort();
+  const legacy = files.includes(options.legacyFile) ? [options.legacyFile] : [];
+  return readJsonLineFiles<T>(storeDir, [...legacy, ...rotated], tamperMode);
+}
+
+async function readJsonLineFiles<T extends { prevHash?: string; warnings?: string[] }>(
+  storeDir: string,
+  files: string[],
+  tamperMode: TamperMode
+): Promise<T[]> {
+  const records: T[] = [];
   let previousLine: string | undefined;
 
   for (const fileName of files) {
@@ -344,7 +389,7 @@ async function readEvidenceJsonLines(
           );
           parsed.warnings = warnings;
         }
-        records.push(parsed as unknown as EvidenceRecord);
+        records.push(parsed as unknown as T);
         previousLine = line;
       } catch (error) {
         if (error instanceof CorruptStoreError) throw error;
@@ -366,6 +411,75 @@ async function evidenceFilesForQuery(storeDir: string, query: EvidenceQuery): Pr
     : rotated.filter((file) => evidenceFileInRange(file, defaultEvidenceDateRange()));
   const legacy = files.includes(evidenceFile) ? [evidenceFile] : [];
   return [...legacy, ...selected];
+}
+
+async function migrateLegacyStore(storeDir: string, legacyFile: string, prefix: 'evidence' | 'changes', pattern: RegExp): Promise<void> {
+  const migrationKey = join(storeDir, legacyFile);
+  if (migratedLegacyStores.has(migrationKey)) return;
+
+  const legacyPath = join(storeDir, legacyFile);
+  const content = await readFileIfExists(legacyPath);
+  if (!content.trim()) {
+    migratedLegacyStores.add(migrationKey);
+    return;
+  }
+
+  const firstDate = firstRecordDate(content) ?? new Date().toISOString().slice(0, 10);
+  const targetFile = `${prefix}-${firstDate}.jsonl`;
+  const targetPath = join(storeDir, targetFile);
+  const existingTarget = await readFileIfExists(targetPath);
+
+  if (!existingTarget.trim()) {
+    await rename(legacyPath, targetPath);
+    lastHashByFile.delete(legacyPath);
+    migratedLegacyStores.add(migrationKey);
+    return;
+  }
+
+  for (const record of parseLegacyRecords(content)) {
+    await appendRotatedJsonLine(storeDir, targetFile, record, { pattern, legacyFile });
+  }
+  await rm(legacyPath, { force: true });
+  lastHashByFile.delete(legacyPath);
+  lastHashByFile.delete(targetPath);
+  migratedLegacyStores.add(migrationKey);
+}
+
+function parseLegacyRecords(content: string): Record<string, unknown>[] {
+  return content
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const parsed = JSON.parse(line);
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        throw new Error('Legacy JSONL record must be an object.');
+      }
+      const record = parsed as Record<string, unknown>;
+      delete record.prevHash;
+      delete record.warnings;
+      return record;
+    });
+}
+
+function firstRecordDate(content: string): string | undefined {
+  for (const rawLine of content.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line) continue;
+    try {
+      const parsed = JSON.parse(line) as { capturedAt?: unknown; changedAt?: unknown };
+      const timestamp = typeof parsed.capturedAt === 'string'
+        ? parsed.capturedAt
+        : typeof parsed.changedAt === 'string'
+          ? parsed.changedAt
+          : undefined;
+      const date = timestamp?.slice(0, 10);
+      if (date && /^\d{4}-\d{2}-\d{2}$/.test(date)) return date;
+    } catch {
+      return undefined;
+    }
+  }
+  return undefined;
 }
 
 async function listStoreFiles(storeDir: string): Promise<string[]> {
@@ -427,6 +541,15 @@ export function detectInjectionWarnings(value: string): string[] {
         ? [`Potential instruction injection pattern detected on line ${index + 1}.`]
         : []
     ));
+}
+
+export function stripInjectionLines(value: string): string {
+  return value
+    .normalize('NFKC')
+    .replace(/\r\n?/g, '\n')
+    .split('\n')
+    .filter((line) => !injectionPattern.test(line))
+    .join('\n');
 }
 
 function sanitizeJsonValue(value: unknown): unknown {
@@ -549,7 +672,11 @@ async function latestRecordHash(filePath: string): Promise<string> {
   return hash;
 }
 
-async function latestEvidenceHash(storeDir: string, fileName: string): Promise<string> {
+async function latestRotatedRecordHash(
+  storeDir: string,
+  fileName: string,
+  options: { pattern: RegExp; legacyFile: string }
+): Promise<string> {
   const filePath = join(storeDir, fileName);
   const cached = lastHashByFile.get(filePath);
   if (cached) return cached;
@@ -558,7 +685,7 @@ async function latestEvidenceHash(storeDir: string, fileName: string): Promise<s
   if (currentHash !== 'genesis') return currentHash;
 
   const files = (await listStoreFiles(storeDir))
-    .filter((file) => file === evidenceFile || evidenceFilePattern.test(file))
+    .filter((file) => file === options.legacyFile || options.pattern.test(file))
     .filter((file) => file < fileName)
     .sort();
   for (const previousFile of files.reverse()) {
@@ -574,6 +701,14 @@ function evidenceFileForTimestamp(value: string): string {
     throw new Error('Evidence capturedAt must start with an ISO date.');
   }
   return `evidence-${date}.jsonl`;
+}
+
+function changeFileForTimestamp(value: string): string {
+  const date = value.slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || Number.isNaN(Date.parse(`${date}T00:00:00.000Z`))) {
+    throw new Error('Change changedAt must start with an ISO date.');
+  }
+  return `changes-${date}.jsonl`;
 }
 
 function normalizeDateRange(value: unknown, label: string): EvidenceQuery['dateRange'] {
@@ -610,9 +745,20 @@ function evidenceFileInRange(fileName: string, range: Required<NonNullable<Evide
 }
 
 function evidenceFileNeededForRangeValidation(fileName: string, range: NonNullable<EvidenceQuery['dateRange']>): boolean {
-  const date = fileName.slice('evidence-'.length, 'evidence-YYYY-MM-DD'.length);
+  const date = rotatedDate(fileName);
   if (range.to && date > range.to) return false;
   return true;
+}
+
+function rotatedFileNeededForRangeValidation(fileName: string, range: NonNullable<EvidenceQuery['dateRange']>): boolean {
+  const date = rotatedDate(fileName);
+  if (range.to && date > range.to) return false;
+  return true;
+}
+
+function rotatedDate(fileName: string): string {
+  const match = fileName.match(/\d{4}-\d{2}-\d{2}/);
+  return match?.[0] ?? '0000-00-00';
 }
 
 function defaultEvidenceDateRange(): Required<NonNullable<EvidenceQuery['dateRange']>> {

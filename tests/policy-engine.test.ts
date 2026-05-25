@@ -21,7 +21,7 @@ describe('Agent CMDB policy engine', () => {
     const decision = evaluatePolicy(controlPlane, {
       profile: 'research-agent',
       action: 'send_bot_ops_status',
-      tool: 'telegram'
+      tool: 'web-search-api'
     });
 
     expect(decision.effect).toBe('deny');
@@ -44,9 +44,13 @@ describe('Agent CMDB policy engine', () => {
     const decision = evaluatePolicy(
       {
         ...controlPlane,
-        objects: controlPlane.objects.map((object) => object.id === 'source.web-search-api'
-          ? { ...object, status: 'blocked' }
-          : object)
+        registry: {
+          ...controlPlane.registry,
+          objects: (controlPlane.registry?.objects ?? []).map((object) => object.id === 'source.web-search-api'
+            ? { ...object, status: 'blocked' }
+            : object),
+          relationships: controlPlane.registry?.relationships ?? []
+        }
       },
       {
         profile: 'research-agent',
@@ -64,9 +68,13 @@ describe('Agent CMDB policy engine', () => {
     const decision = evaluatePolicy(
       {
         ...controlPlane,
-        objects: controlPlane.objects.map((object) => object.id === 'source.web-search-api'
-          ? { ...object, status: 'paused' }
-          : object)
+        registry: {
+          ...controlPlane.registry,
+          objects: (controlPlane.registry?.objects ?? []).map((object) => object.id === 'source.web-search-api'
+            ? { ...object, status: 'paused' }
+            : object),
+          relationships: controlPlane.registry?.relationships ?? []
+        }
       },
       {
         profile: 'research-agent',
@@ -95,7 +103,11 @@ describe('Agent CMDB policy engine', () => {
     const decision = evaluatePolicy(
       {
         ...controlPlane,
-        objects: controlPlane.objects.filter((object) => object.id !== 'source.web-search-api')
+        registry: {
+          ...controlPlane.registry,
+          objects: (controlPlane.registry?.objects ?? []).filter((object) => object.id !== 'source.web-search-api'),
+          relationships: controlPlane.registry?.relationships ?? []
+        }
       },
       {
         profile: 'research-agent',
@@ -123,17 +135,20 @@ describe('Agent CMDB policy engine', () => {
     const decision = evaluatePolicy(
       {
         ...controlPlane,
-        policies: [
-          {
-            id: 'research-maintenance-freeze',
-            effect: 'deny',
-            profiles: ['research-agent'],
-            actions: ['*'],
-            reason: 'Profile is in a maintenance freeze.',
-            canEscalate: true,
-            suggestedAlternative: 'Wait until the freeze is lifted.'
-          }
-        ]
+        policy: {
+          ...controlPlane.policy,
+          policies: [
+            {
+              id: 'research-maintenance-freeze',
+              effect: 'deny',
+              profiles: ['research-agent'],
+              actions: ['*'],
+              reason: 'Profile is in a maintenance freeze.',
+              canEscalate: true,
+              suggestedAlternative: 'Wait until the freeze is lifted.'
+            }
+          ]
+        }
       },
       {
         profile: 'research-agent',
@@ -151,7 +166,7 @@ describe('Agent CMDB policy engine', () => {
     const decision = evaluatePolicy(controlPlane, {
       profile: 'research-agent',
       action: 'new_unclassified_action',
-      tool: 'unknown-tool'
+      tool: 'web-search-api'
     });
 
     expect(decision.effect).toBe('deny');
@@ -163,16 +178,19 @@ describe('Agent CMDB policy engine', () => {
     const decision = evaluatePolicy(
       {
         ...controlPlane,
-        policies: [
-          {
-            id: 'wildcard-tool-allow',
-            effect: 'allow',
-            profiles: ['research-agent'],
-            actions: ['web_research'],
-            tools: ['*'],
-            reason: 'Allow only explicit tool-backed research.'
-          }
-        ]
+        policy: {
+          ...controlPlane.policy,
+          policies: [
+            {
+              id: 'wildcard-tool-allow',
+              effect: 'allow',
+              profiles: ['research-agent'],
+              actions: ['web_research'],
+              tools: ['*'],
+              reason: 'Allow only explicit tool-backed research.'
+            }
+          ]
+        }
       },
       {
         profile: 'research-agent',

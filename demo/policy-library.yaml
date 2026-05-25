@@ -2,7 +2,7 @@ version: "demo-v1"
 updatedAt: "2026-05-25"
 
 sources:
-  - id: serpapi
+  - id: web-search-api
     label: Web Search API
     kind: tool
     readOnly: true
@@ -35,7 +35,7 @@ profiles:
       - intent: web_research
         sources:
           - local-docs
-          - serpapi
+          - web-search-api
           - news-aggregator
         notes: Prefer local docs, then live search, then curated news.
 
@@ -82,7 +82,7 @@ policies:
     actions:
       - web_search
     tools:
-      - serpapi
+      - web-search-api
       - local-docs
       - news-aggregator
     reason: Research agent can perform read-only web search.
@@ -96,7 +96,7 @@ policies:
     actions:
       - summarize
     tools:
-      - serpapi
+      - web-search-api
       - local-docs
       - news-aggregator
     reason: Research agent can summarize approved read-only sources.
@@ -135,7 +135,7 @@ objects:
       - demo
       - content
 
-  - id: source.serpapi
+  - id: source.web-search-api
     kind: source
     label: Web Search API
     status: active
@@ -174,7 +174,7 @@ relationships:
     type: uses
 
   - from: profile.research-agent
-    to: source.serpapi
+    to: source.web-search-api
     type: uses
 
   - from: profile.research-agent

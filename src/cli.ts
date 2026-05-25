@@ -22,6 +22,7 @@ import {
 import { sourceFreshnessFromBrain } from './freshness.js';
 import { createAgentCmdb } from './interface.js';
 import { evaluatePolicy } from './internal.js';
+import { sourceRefs } from './config-access.js';
 import {
   generateReadinessReport,
   inspectProfile,
@@ -42,7 +43,7 @@ type Command =
   | 'digest-weekly'
   | 'doctor'
   | 'health'
-  | 'reliability'
+  | 'analytics'
   | 'cost'
   | 'policy'
   | 'route'
@@ -128,24 +129,24 @@ async function main(argv: string[]): Promise<void> {
       brainDir: brainDir(parsed.flags)
     });
     if (parsed.flags.subcommand === 'reset') {
-      printJson(await cmdb.resetSourceHealth(required(parsed.flags, 'source')));
+      printJson(await cmdb.ops.resetSourceHealth(required(parsed.flags, 'source')));
       return;
     }
     if (parsed.flags.source) {
-      printJson(await cmdb.getSourceHealth(parsed.flags.source));
+      printJson(await cmdb.ops.getSourceHealth(parsed.flags.source));
       return;
     }
-    printJson(await cmdb.listSourceHealth());
+    printJson(await cmdb.ops.listSourceHealth());
     return;
   }
 
-  if (parsed.command === 'reliability') {
+  if (parsed.command === 'analytics') {
     const cmdb = createAgentCmdb({
       controlPlane,
       storeDir: storeDir(parsed.flags),
       brainDir: brainDir(parsed.flags)
     });
-    printJson(await cmdb.ops.calculateReliability(required(parsed.flags, 'profile')));
+    printJson(await cmdb.ops.calculatePreflightAnalytics(required(parsed.flags, 'profile')));
     return;
   }
 
@@ -155,7 +156,7 @@ async function main(argv: string[]): Promise<void> {
       storeDir: storeDir(parsed.flags),
       brainDir: brainDir(parsed.flags)
     });
-    printJson(await cmdb.getCostSummary(required(parsed.flags, 'profile'), parsed.flags.date));
+    printJson(await cmdb.ops.getCostSummary(required(parsed.flags, 'profile'), parsed.flags.date));
     return;
   }
 
@@ -163,6 +164,7 @@ async function main(argv: string[]): Promise<void> {
     const profile = required(parsed.flags, 'profile');
     const action = required(parsed.flags, 'action');
     const tool = parsed.flags.tool;
+    console.log('Warning: policy command does not write audit records. Use preflight for audited checks.');
     printJson(evaluatePolicy(controlPlane, { profile, action, tool }));
     return;
   }
@@ -204,7 +206,7 @@ async function main(argv: string[]): Promise<void> {
   }
 
   if (parsed.command === 'sources') {
-    printJson(controlPlane.sources);
+    printJson(sourceRefs(controlPlane));
     return;
   }
 
@@ -219,7 +221,7 @@ async function main(argv: string[]): Promise<void> {
       brainDir: brainDir(parsed.flags)
     });
     printJson(
-      await cmdb.preflight({
+      await cmdb.policy.preflight({
         profile,
         action,
         tool,
@@ -313,7 +315,7 @@ function parseArgs(argv: string[]): ParsedArgs {
     'digest-weekly',
     'doctor',
     'health',
-    'reliability',
+    'analytics',
     'cost',
     'route',
     'inspect',
@@ -331,7 +333,7 @@ function parseArgs(argv: string[]): ParsedArgs {
 
   if (!command || !commands.includes(command as Command)) {
     throw new Error(
-      'Usage: agent-cmdb <init|policy|route|inspect|inventory|sources|preflight|validate|graph|evidence-add|evidence-list|change-add|change-list|brain|digest|digest-weekly|doctor|health|reliability|cost|report> [--key value]'
+      'Usage: agent-cmdb <init|policy|route|inspect|inventory|sources|preflight|validate|graph|evidence-add|evidence-list|change-add|change-list|brain|digest|digest-weekly|doctor|health|analytics|cost|report> [--key value]'
     );
   }
 
@@ -396,7 +398,7 @@ function rootHelp(): string {
     '  route           Resolve a source route',
     '  doctor          Check policy library config, store, and brain health',
     '  health          Show or reset source health state',
-    '  reliability     Calculate a preflight reliability metric',
+    '  analytics       Calculate logged preflight decision analytics',
     '  cost            Summarize evidence cost estimates for a profile',
     '  brain           Manage local brain entities',
     '  digest          Generate a daily digest',
@@ -457,11 +459,11 @@ function commandHelp(command: string): string {
     ].join('\n');
   }
 
-  if (command === 'reliability') {
+  if (command === 'analytics') {
     return [
-      'Usage: agent-cmdb reliability --profile <id> [options]',
+      'Usage: agent-cmdb analytics --profile <id> [options]',
       '',
-      'Calculate the configured preflight allow-rate reliability metric for a profile.',
+      'Calculate logged preflight allow/deny decision analytics for a profile.',
       '',
       'Options:',
       '  --profile <id>  Agent profile id',
@@ -674,7 +676,7 @@ function booleanFlag(flags: Record<string, string>, key: string): boolean {
 }
 
 async function cliFreshness(controlPlane: ReturnType<typeof loadCliControlPlane>, flags: Record<string, string>) {
-  if (!controlPlane.sources.some((source) => source.freshnessTtl)) {
+  if (!sourceRefs(controlPlane).some((source) => source.freshnessTtl)) {
     return undefined;
   }
   return sourceFreshnessFromBrain(controlPlane, brainDir(flags));
@@ -685,9 +687,14 @@ function loadCliControlPlane(flags: Record<string, string>) {
     return loadControlPlane(resolve(flags.config));
   }
 
-  const localConfig = join(process.cwd(), 'agent-cmdb', 'config', 'control-plane.yaml');
+  const localConfig = join(process.cwd(), 'agent-cmdb', 'config', 'policy-library.yaml');
   if (existsSync(localConfig)) {
     return loadControlPlane(localConfig);
+  }
+
+  const legacyConfig = join(process.cwd(), 'agent-cmdb', 'config', `${['control', 'plane'].join('-')}.yaml`);
+  if (existsSync(legacyConfig)) {
+    return loadControlPlane(legacyConfig);
   }
 
   return loadDefaultControlPlane();
@@ -700,8 +707,7 @@ async function initProject(flags: Record<string, string>): Promise<void> {
 
   await mkdir(configDir, { recursive: true });
   await mkdir(stateDir, { recursive: true });
-  await writeFileIfMissing(join(configDir, 'control-plane.yaml'), initControlPlaneYaml);
-  await writeFileIfMissing(join(stateDir, 'changes.jsonl'), '');
+  await writeFileIfMissing(join(configDir, 'policy-library.yaml'), initControlPlaneYaml);
   await initBrainDir(join(root, 'agent-cmdb', 'brain'));
   await writeFileIfMissing(join(root, 'agent-cmdb.config.ts'), initTypescriptConfig);
 
@@ -854,99 +860,108 @@ function optionalChangeAction(value: string | undefined): ChangeAction | undefin
 const initControlPlaneYaml = `version: "1.0"
 updatedAt: "2026-05-25"
 
+policy:
+  writeActions:
+    - post
+    - publish
+    - send
+    - update
+    - delete
+  policies:
+    - id: deny-social-posting
+      effect: deny
+      actions:
+        - social_post
+        - social_reply
+        - social_dm
+      reason: Social media posting is disabled for all agents
+      canEscalate: false
+      suggestedAlternative: Draft the post for a human to review.
+
+    - id: allow-research
+      effect: allow
+      profiles:
+        - research-agent
+      actions:
+        - web_search
+        - summarize
+        - extract
+      tools:
+        - web-search-api
+        - local-docs
+      reason: Research agent can search and summarize read-only sources
+
 sources:
-  - id: serpapi
-    label: SerpAPI Web Search
-    kind: tool
-    readOnly: true
+  sources:
+    - id: web-search-api
+      label: SerP API Web Search
+      kind: tool
+      readOnly: true
 
-  - id: local-docs
-    label: Local Documentation
-    kind: wiki
-    readOnly: true
-    freshnessTtl: 7d
-    brainEntityId: agent-security
+    - id: local-docs
+      label: Local Documentation
+      kind: wiki
+      readOnly: true
+      freshnessTtl: 7d
+      brainEntityId: agent-security
 
-profiles:
-  - id: research-agent
-    name: Research Agent
-    purpose: Web research and summarization
-    guardrails:
-      - Do not make purchases or financial transactions
-      - Do not post to social media
-      - Prefer local documentation before external search
-    routes:
-      - intent: web_research
-        sources:
-          - local-docs
-          - serpapi
+  profiles:
+    - id: research-agent
+      name: Research Agent
+      purpose: Web research and summarization
+      guardrails:
+        - Do not make purchases or financial transactions
+        - Do not post to social media
+        - Prefer local documentation before external search
+      routes:
+        - intent: web_research
+          sources:
+            - local-docs
+            - web-search-api
 
-policies:
-  - id: deny-social-posting
-    effect: deny
-    actions:
-      - social_post
-      - social_reply
-      - social_dm
-    reason: Social media posting is disabled for all agents
-    canEscalate: false
-    suggestedAlternative: Draft the post for a human to review.
+registry:
+  objects:
+    - id: profile.research-agent
+      kind: profile
+      label: Research Agent
+      status: active
+      profile: research-agent
+      tags:
+        - agent
+        - research
 
-  - id: allow-research
-    effect: allow
-    profiles:
-      - research-agent
-    actions:
-      - web_search
-      - summarize
-      - extract
-    tools:
-      - serpapi
-      - local-docs
-    reason: Research agent can search and summarize read-only sources
+    - id: source.local-docs
+      kind: source
+      label: Local Documentation
+      status: active
+      profile: research-agent
+      tags:
+        - docs
+        - read-only
 
-objects:
-  - id: profile.research-agent
-    kind: profile
-    label: Research Agent
-    status: active
-    profile: research-agent
-    tags:
-      - agent
-      - research
+    - id: source.web-search-api
+      kind: source
+      label: SerP API Web Search
+      status: active
+      profile: research-agent
+      tags:
+        - web
+        - read-only
 
-  - id: source.local-docs
-    kind: source
-    label: Local Documentation
-    status: active
-    profile: research-agent
-    tags:
-      - docs
-      - read-only
+  relationships:
+    - from: profile.research-agent
+      to: source.local-docs
+      type: uses
 
-  - id: source.serpapi
-    kind: source
-    label: SerpAPI Web Search
-    status: active
-    profile: research-agent
-    tags:
-      - web
-      - read-only
-
-relationships:
-  - from: profile.research-agent
-    to: source.local-docs
-    type: uses
-
-  - from: profile.research-agent
-    to: source.serpapi
-    type: uses
+    - from: profile.research-agent
+      to: source.web-search-api
+      type: uses
 `;
 
 const initTypescriptConfig = `import type { AgentCmdbOptions } from '@pylabmit/agent-cmdb';
 
 const config: AgentCmdbOptions = {
-  configPath: './agent-cmdb/config/control-plane.yaml',
+  configPath: './agent-cmdb/config/policy-library.yaml',
   storeDir: './agent-cmdb/state',
   brainDir: './agent-cmdb/brain'
 };

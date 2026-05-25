@@ -15,13 +15,13 @@ import type {
 
 const moduleDir = dirname(fileURLToPath(import.meta.url));
 
-export const defaultControlPlanePath = resolve(moduleDir, '..', 'examples', 'basic', 'control-plane.yaml');
+export const defaultControlPlanePath = resolve(moduleDir, '..', 'examples', 'basic', 'policy-library.yaml');
 export const multiAgentExampleControlPlanePath = resolve(
   moduleDir,
   '..',
   'examples',
   'multi-agent',
-  'control-plane.yaml'
+  'policy-library.yaml'
 );
 
 export class ControlPlaneLoadError extends Error {
@@ -39,7 +39,7 @@ export function loadControlPlane(filePath: string): ControlPlane {
 
   if (errors.length > 0) {
     const detail = errors.map((issue) => `${issue.code}: ${issue.message}`).join('; ');
-    throw new ControlPlaneLoadError(`Control plane validation failed: ${detail}`);
+    throw new ControlPlaneLoadError(`Policy config validation failed: ${detail}`);
   }
 
   return controlPlane;
@@ -54,7 +54,7 @@ function readControlPlaneFile(filePath: string): string {
     return readFileSync(filePath, 'utf8');
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
-    throw new ControlPlaneLoadError(`Failed to read control plane at ${filePath}: ${detail}`);
+    throw new ControlPlaneLoadError(`Failed to read policy config at ${filePath}: ${detail}`);
   }
 }
 
@@ -70,22 +70,35 @@ function parseControlPlaneContent(filePath: string, content: string): unknown {
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
     const format = extension === '.yaml' || extension === '.yml' ? 'YAML' : 'JSON';
-    throw new ControlPlaneLoadError(`Failed to parse control plane ${format} at ${filePath}: ${detail}`);
+    throw new ControlPlaneLoadError(`Failed to parse policy config ${format} at ${filePath}: ${detail}`);
   }
 }
 
 function parseControlPlane(value: unknown): ControlPlane {
-  const root = requireRecord(value, 'Control plane');
+  const root = requireRecord(value, 'Policy config');
+  const policyRoot = root.policy === undefined ? root : requireRecord(root.policy, 'Policy config');
+  const sourceRoot = root.sources !== undefined && !Array.isArray(root.sources)
+    ? requireRecord(root.sources, 'Source config')
+    : root;
+  const registryRoot = root.registry === undefined
+    ? root
+    : requireRecord(root.registry, 'Registry config');
 
   return {
-    version: readString(root, 'version', 'Control plane version'),
-    updatedAt: readString(root, 'updatedAt', 'Control plane updatedAt'),
-    sources: readArray(root, 'sources', 'Control plane sources').map(parseSourceRef),
-    profiles: readArray(root, 'profiles', 'Control plane profiles').map(parseAgentProfile),
-    policies: readArray(root, 'policies', 'Control plane policies').map(parsePolicyRule),
-    objects: readArray(root, 'objects', 'Control plane objects').map(parseCmdbObject),
-    relationships: readArray(root, 'relationships', 'Control plane relationships').map(parseRelationship),
-    writeActions: optionalStringArray(root, 'writeActions', 'Control plane writeActions')
+    version: readString(root, 'version', 'Policy config version'),
+    updatedAt: readString(root, 'updatedAt', 'Policy config updatedAt'),
+    policy: {
+      policies: readArray(policyRoot, 'policies', 'Policy config policies').map(parsePolicyRule),
+      writeActions: optionalStringArray(policyRoot, 'writeActions', 'Policy config writeActions')
+    },
+    sources: {
+      sources: readArray(sourceRoot, 'sources', 'Source config sources').map(parseSourceRef),
+      profiles: readArray(sourceRoot, 'profiles', 'Source config profiles').map(parseAgentProfile)
+    },
+    registry: {
+      objects: optionalArray(registryRoot, 'objects').map(parseCmdbObject),
+      relationships: optionalArray(registryRoot, 'relationships').map(parseRelationship)
+    }
   };
 }
 
@@ -118,7 +131,7 @@ function parseAgentProfile(value: unknown): AgentProfile {
     purpose: readString(record, 'purpose', 'Profile purpose'),
     guardrails: readStringArray(record, 'guardrails', 'Profile guardrails'),
     routes: readArray(record, 'routes', 'Profile routes').map(parseSourceRoute),
-    reliability: parseOptionalReliabilityConfig(record.reliability)
+    analytics: parseOptionalAnalyticsConfig(record.analytics)
   };
 }
 
@@ -200,6 +213,15 @@ function readArray(record: Record<string, unknown>, key: string, label: string):
   return value;
 }
 
+function optionalArray(record: Record<string, unknown>, key: string): unknown[] {
+  if (record[key] === undefined) return [];
+  const value = record[key];
+  if (!Array.isArray(value)) {
+    throw new ControlPlaneLoadError(`${key} must be an array.`);
+  }
+  return value;
+}
+
 function readStringArray(record: Record<string, unknown>, key: string, label: string): string[] {
   return readArray(record, key, label).map((value) => requireNonEmptyString(value, label));
 }
@@ -246,29 +268,20 @@ function parseOptionalHealthConfig(value: unknown): SourceRef['health'] {
   const record = requireRecord(value, 'Source health');
   return {
     failureThreshold: optionalPositiveInteger(record, 'failureThreshold'),
+    failureWindowMs: optionalNonNegativeNumber(record, 'failureWindowMs'),
     recoveryTimeoutMs: optionalNonNegativeNumber(record, 'recoveryTimeoutMs')
   };
 }
 
-function parseOptionalReliabilityConfig(value: unknown): AgentProfile['reliability'] {
+function parseOptionalAnalyticsConfig(value: unknown): AgentProfile['analytics'] {
   if (value === undefined) return undefined;
-  const record = requireRecord(value, 'Profile reliability');
-  const metric = readString(record, 'metric', 'Profile reliability metric');
-  if (metric !== 'allow_rate') {
-    throw new ControlPlaneLoadError(`Profile reliability metric has invalid value ${metric}.`);
-  }
-  const target = optionalNonNegativeNumber(record, 'target');
+  const record = requireRecord(value, 'Profile analytics');
   const windowHours = optionalNonNegativeNumber(record, 'windowHours');
-  if (target === undefined || target > 1) {
-    throw new ControlPlaneLoadError('Profile reliability target must be between 0 and 1.');
-  }
   if (windowHours === undefined || windowHours <= 0) {
-    throw new ControlPlaneLoadError('Profile reliability windowHours must be greater than 0.');
+    throw new ControlPlaneLoadError('Profile analytics windowHours must be greater than 0.');
   }
   return {
-    target,
-    windowHours,
-    metric
+    windowHours
   };
 }
 

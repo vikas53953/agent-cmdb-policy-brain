@@ -1,4 +1,5 @@
 import type { CmdbObject, ControlPlane, PolicyDecision, PolicyEffect, PolicyRequest, PolicyRule } from './types.js';
+import { agentProfiles, policyRules, registryObjects, sourceRefs } from './config-access.js';
 
 const effectRank: Record<PolicyEffect, number> = {
   deny: 3,
@@ -7,68 +8,97 @@ const effectRank: Record<PolicyEffect, number> = {
 };
 
 export function evaluatePolicy(controlPlane: ControlPlane, request: PolicyRequest): PolicyDecision {
-  const normalizedRequest = normalizePolicyRequest(request);
-  if (!profileExists(controlPlane, normalizedRequest.profile)) {
+  try {
+    const normalizedRequest = normalizePolicyRequest(request);
+    if (!profileExists(controlPlane, normalizedRequest.profile)) {
+      return {
+        effect: 'deny',
+        ruleId: 'unknown-profile',
+        code: 'unknown_profile',
+        reason: `Profile ${normalizedRequest.profile} is not defined in the policy library.`,
+        profile: normalizedRequest.profile,
+        action: normalizedRequest.action,
+        tool: normalizedRequest.tool,
+        canEscalate: false,
+        suggestedAlternative: 'Add the profile to the policy library before evaluating this action.'
+      };
+    }
+    if (normalizedRequest.tool && !sourceOrToolExists(controlPlane, normalizedRequest.tool)) {
+      return {
+        effect: 'deny',
+        ruleId: 'unknown-source',
+        code: 'unknown_source',
+        reason: `Source or tool ${normalizedRequest.tool} is not defined in the policy library.`,
+        profile: normalizedRequest.profile,
+        action: normalizedRequest.action,
+        tool: normalizedRequest.tool,
+        canEscalate: false,
+        suggestedAlternative: 'Add the source or tool to the policy library before evaluating this action.'
+      };
+    }
+    const blockedObject = findUnavailableReferencedObject(controlPlane, normalizedRequest);
+
+    if (blockedObject) {
+      return {
+        effect: 'deny',
+        ruleId: `object-status-${blockedObject.status}`,
+        code: `object_${blockedObject.status}`,
+        reason: `Object ${blockedObject.id} is ${blockedObject.status}.`,
+        profile: normalizedRequest.profile,
+        action: normalizedRequest.action,
+        tool: normalizedRequest.tool,
+        canEscalate: false,
+        suggestedAlternative: 'Use an active source or tool.'
+      };
+    }
+
+    const rules = policyRules(controlPlane);
+    const matchingRules = rules.filter((rule) => policyMatches(rule, normalizedRequest));
+    const selectedRule = matchingRules.sort((left, right) => {
+      const rankDelta = effectRank[right.effect] - effectRank[left.effect];
+      if (rankDelta !== 0) return rankDelta;
+      return rules.indexOf(left) - rules.indexOf(right);
+    })[0];
+
+    if (!selectedRule) {
+      return {
+        effect: 'deny',
+        ruleId: 'default-deny',
+        code: 'default_deny',
+        reason: 'No explicit allow rule matched this action.',
+        profile: normalizedRequest.profile,
+        action: normalizedRequest.action,
+        tool: normalizedRequest.tool,
+        canEscalate: false,
+        suggestedAlternative: 'Add an explicit allow or approval_required policy rule.'
+      };
+    }
+
     return {
-      effect: 'deny',
-      ruleId: 'unknown-profile',
-      code: 'unknown_profile',
-      reason: `Profile ${normalizedRequest.profile} is not defined in the control plane.`,
+      effect: selectedRule.effect,
+      ruleId: selectedRule.id,
+      code: selectedRule.code ?? selectedRule.id,
+      reason: selectedRule.reason,
       profile: normalizedRequest.profile,
       action: normalizedRequest.action,
       tool: normalizedRequest.tool,
-      canEscalate: false,
-      suggestedAlternative: 'Add the profile to the policy library before evaluating this action.'
+      canEscalate: selectedRule.canEscalate ?? selectedRule.effect === 'approval_required',
+      suggestedAlternative: selectedRule.suggestedAlternative
     };
-  }
-  const blockedObject = findUnavailableReferencedObject(controlPlane, normalizedRequest);
-
-  if (blockedObject) {
+  } catch (error) {
+    const fallback = extractFallbackRequest(request);
     return {
       effect: 'deny',
-      ruleId: `object-status-${blockedObject.status}`,
-      code: `object_${blockedObject.status}`,
-      reason: `Object ${blockedObject.id} is ${blockedObject.status}.`,
-      profile: normalizedRequest.profile,
-      action: normalizedRequest.action,
-      tool: normalizedRequest.tool,
+      ruleId: 'invalid-request',
+      code: 'invalid_request',
+      reason: `Invalid policy request: ${error instanceof Error ? error.message : String(error)}`,
+      profile: fallback.profile,
+      action: fallback.action,
+      tool: fallback.tool,
       canEscalate: false,
-      suggestedAlternative: 'Use an active source or tool.'
+      suggestedAlternative: 'Provide a non-empty profile and action before evaluating policy.'
     };
   }
-
-  const matchingRules = controlPlane.policies.filter((rule) => policyMatches(rule, normalizedRequest));
-  const selectedRule = matchingRules.sort((left, right) => {
-    const rankDelta = effectRank[right.effect] - effectRank[left.effect];
-    if (rankDelta !== 0) return rankDelta;
-    return controlPlane.policies.indexOf(left) - controlPlane.policies.indexOf(right);
-  })[0];
-
-  if (!selectedRule) {
-    return {
-      effect: 'deny',
-      ruleId: 'default-deny',
-      code: 'default_deny',
-      reason: 'No explicit allow rule matched this action.',
-      profile: normalizedRequest.profile,
-      action: normalizedRequest.action,
-      tool: normalizedRequest.tool,
-      canEscalate: false,
-      suggestedAlternative: 'Add an explicit allow or approval_required policy rule.'
-    };
-  }
-
-  return {
-    effect: selectedRule.effect,
-    ruleId: selectedRule.id,
-    code: selectedRule.code ?? selectedRule.id,
-    reason: selectedRule.reason,
-    profile: normalizedRequest.profile,
-    action: normalizedRequest.action,
-    tool: normalizedRequest.tool,
-    canEscalate: selectedRule.canEscalate ?? selectedRule.effect === 'approval_required',
-    suggestedAlternative: selectedRule.suggestedAlternative
-  };
 }
 
 export function normalizePolicyRequest(request: PolicyRequest): PolicyRequest {
@@ -139,14 +169,47 @@ function findUnavailableReferencedObject(controlPlane: ControlPlane, request: Po
     `tool.${request.tool}`
   ]);
 
-  return controlPlane.objects.find((object) => (
+  return registryObjects(controlPlane).find((object) => (
     candidateIds.has(object.id)
     && (object.status === 'blocked' || object.status === 'paused')
   ));
 }
 
 function profileExists(controlPlane: ControlPlane, profileId: string): boolean {
-  return controlPlane.profiles.some((candidate) => candidate.id === profileId);
+  try {
+    return agentProfiles(controlPlane).some((candidate) => candidate.id === profileId);
+  } catch {
+    return false;
+  }
+}
+
+function sourceOrToolExists(controlPlane: ControlPlane, sourceId: string): boolean {
+  const candidateIds = new Set([
+    sourceId,
+    `source.${sourceId}`,
+    `tool.${sourceId}`
+  ]);
+  try {
+    return sourceRefs(controlPlane).some((source) => candidateIds.has(source.id))
+      || registryObjects(controlPlane).some((object) => candidateIds.has(object.id));
+  } catch {
+    return false;
+  }
+}
+
+function extractFallbackRequest(request: unknown): PolicyRequest {
+  if (request && typeof request === 'object' && !Array.isArray(request)) {
+    const record = request as Record<string, unknown>;
+    return {
+      profile: typeof record.profile === 'string' && record.profile.trim() ? record.profile : 'unknown-profile',
+      action: typeof record.action === 'string' && record.action.trim() ? record.action : 'unknown-action',
+      tool: typeof record.tool === 'string' && record.tool.trim() ? record.tool : undefined
+    };
+  }
+  return {
+    profile: 'unknown-profile',
+    action: 'unknown-action'
+  };
 }
 
 function requireRecord(value: unknown, label: string): Record<string, unknown> {
