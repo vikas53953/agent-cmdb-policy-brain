@@ -33,7 +33,7 @@ export interface AgentProfile {
   purpose: string;
   guardrails: string[];
   routes: SourceRoute[];
-  reliability?: ReliabilityConfig;
+  analytics?: PreflightAnalyticsConfig;
 }
 
 export interface CmdbObject {
@@ -69,12 +69,24 @@ export interface PolicyRule {
 export interface ControlPlane {
   version: string;
   updatedAt: string;
+  policy: PolicyConfig;
+  sources: SourceConfig;
+  registry?: RegistryConfig;
+}
+
+export interface PolicyConfig {
+  policies: PolicyRule[];
+  writeActions?: string[];
+}
+
+export interface SourceConfig {
   sources: SourceRef[];
   profiles: AgentProfile[];
-  policies: PolicyRule[];
+}
+
+export interface RegistryConfig {
   objects: CmdbObject[];
   relationships: Relationship[];
-  writeActions?: string[];
 }
 
 export interface PolicyRequest {
@@ -169,9 +181,7 @@ export type PreflightResult = AllowPreflightResult | DenyPreflightResult | DryRu
 
 export interface BasePreflightResult {
   allowed: boolean;
-  approvalRequired: boolean;
   decision: PolicyDecision;
-  routeExecutable: boolean;
   guardrails: string[];
   warnings: string[];
   dryRun: boolean;
@@ -179,17 +189,13 @@ export interface BasePreflightResult {
 
 export interface AllowPreflightResult extends BasePreflightResult {
   allowed: true;
-  approvalRequired: false;
-  route?: ResolvedSourceRoute;
-  routeExecutable: boolean;
+  route: ResolvedSourceRoute;
   dryRun: false;
 }
 
 export interface DenyPreflightResult extends BasePreflightResult {
   allowed: false;
-  approvalRequired: boolean;
-  route?: undefined;
-  routeExecutable: false;
+  route: undefined;
   dryRun: false;
 }
 
@@ -290,6 +296,8 @@ export interface BrainEntity {
   relatedEntities?: string[];
 }
 
+export type CreateEntityInput = Omit<BrainEntity, 'lastUpdated' | 'lastUpdatedBy'>;
+
 export interface BrainIndex {
   version: string;
   updatedAt: string;
@@ -332,15 +340,24 @@ export interface DigestResult {
 
 export interface SourceHealthConfig {
   failureThreshold?: number;
+  failureWindowMs?: number;
   recoveryTimeoutMs?: number;
+}
+
+export interface FailureRecord {
+  timestamp: string;
+  reason?: string;
 }
 
 export interface SourceHealth {
   sourceId: string;
   status: 'up' | 'down' | 'half-open';
-  consecutiveFailures: number;
-  probeCount?: number;
-  recoveryAttempts?: number;
+  failures: FailureRecord[];
+  failureWindowMs: number;
+  failureThreshold: number;
+  recoveryTimeoutMs: number;
+  recoveryAttempts: number;
+  probeInFlight: boolean;
   lastChecked: string;
   lastFailure?: string;
   lastSuccess?: string;
@@ -349,21 +366,31 @@ export interface SourceHealth {
 
 export type HealthGateState = 'closed' | 'open' | 'half-open';
 
-export interface ReliabilityConfig {
-  target: number;
+export interface PreflightAnalyticsConfig {
   windowHours: number;
-  metric: 'allow_rate';
 }
 
-export interface ReliabilityResult {
+export interface RuleHitCount {
+  ruleId: string;
+  count: number;
+}
+
+export interface ActionBreakdown {
+  action: string;
+  allowed: number;
+  denied: number;
+}
+
+export interface PreflightAnalytics {
   profile: string;
-  target: number;
-  actual: number;
-  withinBudget: boolean;
-  failureBudgetRemaining: number;
+  windowHours: number;
   totalDecisions: number;
   allowedCount: number;
   deniedCount: number;
+  allowRate: number;
+  denyRate: number;
+  topDenyRules: RuleHitCount[];
+  byAction: ActionBreakdown[];
   windowStart: string;
   windowEnd: string;
   warnings?: string[];
@@ -381,21 +408,6 @@ export interface CostSummary {
     tokens: number;
     cost: number;
   }>;
-}
-
-export interface AgentCheckpoint {
-  id: string;
-  profile: string;
-  taskDescription: string;
-  currentStep: number;
-  totalSteps: number;
-  completedSteps: string[];
-  pendingSteps: string[];
-  state: Record<string, unknown>;
-  createdAt: string;
-  updatedAt: string;
-  prevHash: string;
-  warnings?: string[];
 }
 
 export interface DoctorReport {

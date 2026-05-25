@@ -8,7 +8,7 @@ Every feature must pass Gate 0 (adversarial design review) before code is writte
 Key rules from SHIP v4:
 - Every new feature needs 3 test types: positive, negative, bypass
 - Every README claim must have a matching test
-- No public exports of internal functions (evaluatePolicy, evaluatePreflight)
+- No public exports of internal functions such as `evaluatePolicy` or unaudited preflight helpers
 - Default deny on unmatched policy
 - Single entry point per concern -- no duplicate API paths
 
@@ -28,37 +28,25 @@ Key rules from SHIP v4:
 - Keep source, tests, examples, and README free of private configuration.
 - Run `npm test`, `npm run typecheck`, `npm run build`, and `npm pack --dry-run` before publish-facing commits.
 - Run a sensitive-term grep before declaring the package ready to publish.
+- No new npm dependencies unless the user explicitly approves them.
 
-## V2 development rules
+## V3 rules
 
-- No new public exports from engine.ts. Internal functions stay internal.
-- All new state files use the write-queue + hash-chain pattern from store.ts.
-- Health state persists in storeDir/health.json with atomic writes.
-- Reliability calculations use a rolling cache file, not full evidence scan.
-- Every new IAgentCMDB method: positive test + negative test + bypass test.
-- The source health monitor state machine is not marketed as a production circuit breaker.
-- No new npm dependencies. Node built-ins only (crypto, fs, path).
-- Checkpoints use prevHash for tamper detection.
-- Cost estimation is advisory (like V1 freshness). No cost-based deny.
-- All CLI commands have --help with one-line description.
-
-## V2.1 honesty rules
-
-- "Circuit breaker" is now "source health monitor" everywhere user-facing.
-- "SLO" is now "reliability metric" everywhere user-facing.
-- "Cost tracking" is now "cost estimation" everywhere user-facing.
-- "Checkpoint/resume" is now "task checkpoint" everywhere user-facing.
-- "CMDB inventory" is now "object registry" everywhere user-facing.
-- "Control plane" is now "policy library" in user-facing positioning.
-- `evaluatePolicy` never throws for an unknown profile; it returns deny.
-- Half-open allows exactly one probe call before success/failure is recorded.
-- JSONL evidence files rotate daily. Hash chains span file boundaries.
-- `IAgentCMDB` is split into `policy`, `memory`, and `ops` sub-interfaces.
+- Public API is composable only: `cmdb.policy`, `cmdb.memory`, `cmdb.ops`, and root `cmdb.health()`.
+- No flat API compatibility in V3. `cmdb.preflight()` and `cmdb.logEvidence()` must not exist.
+- "Policy library" or "policy config" is the user-facing name.
+- "Source health monitor" is the user-facing name. Do not market it as a production resilience framework.
+- "Preflight analytics" is the user-facing name. Do not use external-availability promise or budget language.
+- "Cost estimation" is caller-provided. Do not imply automatic LLM/API instrumentation.
+- Workflow resume storage is out of scope for V3.
+- `evaluatePolicy` never throws for bad user input; it returns deny.
 - Denied preflight returns `route: undefined`.
 - `PreflightResult` is a discriminated union.
-- `resolveRoute()` must use source health state just like `preflight()`.
+- `resolveRoute()` must use recorded source health just like `preflight()`.
 - `readOnly` sources must deny write-like actions.
+- JSONL evidence and change files rotate daily. Hash chains span dated files and legacy files remain readable.
 - `tamperMode: 'fail'` must throw on corrupted JSONL evidence/change stores.
+- Brain read path warns on prompt-injection patterns and supports `{ stripInjection: true }`.
 
 ## SHIP v4 amendment: Gate 0.1
 

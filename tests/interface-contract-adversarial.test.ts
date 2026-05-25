@@ -9,31 +9,41 @@ function makeCmdb() {
 }
 
 describe('IAgentCMDB adversarial contract', () => {
-  it('rejects missing preflight input with a descriptive error', async () => {
+  it('fails closed for missing preflight input with a descriptive decision', async () => {
     const cmdb = makeCmdb();
 
     await expect(
       // @ts-expect-error runtime adversarial input
-      cmdb.preflight(undefined)
-    ).rejects.toThrow('Policy request must be an object.');
+      cmdb.policy.preflight(undefined)
+    ).resolves.toMatchObject({
+      allowed: false,
+      decision: {
+        ruleId: 'malformed-request'
+      }
+    });
   });
 
-  it('rejects preflight input with missing action', async () => {
+  it('fails closed for preflight input with missing action', async () => {
     const cmdb = makeCmdb();
 
     await expect(
       // @ts-expect-error runtime adversarial input
-      cmdb.preflight({
+      cmdb.policy.preflight({
         profile: 'research-agent'
       })
-    ).rejects.toThrow('Policy request action must be a non-empty string.');
+    ).resolves.toMatchObject({
+      allowed: false,
+      decision: {
+        ruleId: 'malformed-request'
+      }
+    });
   });
 
   it('rejects missing route input with a descriptive error', async () => {
     const cmdb = makeCmdb();
 
     // @ts-expect-error runtime adversarial input
-    await expect(cmdb.resolveRoute(undefined)).rejects.toThrow('Source route request must be an object.');
+    await expect(cmdb.policy.resolveRoute(undefined)).rejects.toThrow('Source route request must be an object.');
   });
 
   it('rejects malformed evidence input before writing', async () => {
@@ -41,18 +51,18 @@ describe('IAgentCMDB adversarial contract', () => {
 
     await expect(
       // @ts-expect-error runtime adversarial input
-      cmdb.logEvidence({
+      cmdb.memory.logEvidence({
         profile: 'research-agent'
       })
     ).rejects.toThrow('Evidence source must be a non-empty string.');
-    await expect(cmdb.listEvidence()).resolves.toHaveLength(0);
+    await expect(cmdb.memory.listEvidence()).resolves.toHaveLength(0);
   });
 
   it('rejects invalid trust values before writing evidence', async () => {
     const cmdb = makeCmdb();
 
     await expect(
-      cmdb.logEvidence({
+      cmdb.memory.logEvidence({
         profile: 'research-agent',
         source: 'web-search-api',
         intent: 'web_research',
@@ -62,7 +72,7 @@ describe('IAgentCMDB adversarial contract', () => {
         capturedAt: '2026-05-24T00:00:00.000Z'
       })
     ).rejects.toThrow('Invalid trust level: garbage. Valid values: high, medium, low.');
-    await expect(cmdb.listEvidence()).resolves.toHaveLength(0);
+    await expect(cmdb.memory.listEvidence()).resolves.toHaveLength(0);
   });
 
   it('rejects malformed evidence query objects', async () => {
@@ -70,11 +80,11 @@ describe('IAgentCMDB adversarial contract', () => {
 
     await expect(
       // @ts-expect-error runtime adversarial input
-      cmdb.listEvidence(null)
+      cmdb.memory.listEvidence(null)
     ).rejects.toThrow('Evidence query must be an object.');
     await expect(
       // @ts-expect-error runtime adversarial input
-      cmdb.listEvidence({ profile: 123 })
+      cmdb.memory.listEvidence({ profile: 123 })
     ).rejects.toThrow('Evidence query profile must be a non-empty string.');
   });
 
@@ -83,18 +93,18 @@ describe('IAgentCMDB adversarial contract', () => {
 
     await expect(
       // @ts-expect-error runtime adversarial input
-      cmdb.logChange({
+      cmdb.memory.logChange({
         target: 'policy.global-deny-social-media-tool-account-actions'
       })
     ).rejects.toThrow('Change targetType must be a non-empty string.');
-    await expect(cmdb.listChanges()).resolves.toHaveLength(0);
+    await expect(cmdb.memory.listChanges()).resolves.toHaveLength(0);
   });
 
   it('rejects invalid change enums before writing', async () => {
     const cmdb = makeCmdb();
 
     await expect(
-      cmdb.logChange({
+      cmdb.memory.logChange({
         target: 'policy.global-deny-social-media-tool-account-actions',
         // @ts-expect-error runtime adversarial input
         targetType: 'bogus',
@@ -106,7 +116,7 @@ describe('IAgentCMDB adversarial contract', () => {
     ).rejects.toThrow('Invalid object kind: bogus.');
 
     await expect(
-      cmdb.logChange({
+      cmdb.memory.logChange({
         target: 'policy.global-deny-social-media-tool-account-actions',
         targetType: 'policy',
         // @ts-expect-error runtime adversarial input
@@ -123,11 +133,11 @@ describe('IAgentCMDB adversarial contract', () => {
 
     await expect(
       // @ts-expect-error runtime adversarial input
-      cmdb.listChanges(null)
+      cmdb.memory.listChanges(null)
     ).rejects.toThrow('Change query must be an object.');
     await expect(
       // @ts-expect-error runtime adversarial input
-      cmdb.listChanges({ actor: 123 })
+      cmdb.memory.listChanges({ actor: 123 })
     ).rejects.toThrow('Change query actor must be a non-empty string.');
   });
 });

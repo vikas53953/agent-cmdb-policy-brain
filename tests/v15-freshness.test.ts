@@ -9,41 +9,47 @@ import type { ControlPlane } from '../src/types.js';
 const controlPlane: ControlPlane = {
   version: '1.5-test',
   updatedAt: '2026-05-24T00:00:00.000Z',
-  sources: [
-    {
-      id: 'local-docs',
-      label: 'Local Docs',
-      kind: 'wiki',
-      readOnly: true,
-      freshnessTtl: '7d',
-      brainEntityId: 'agent-security'
-    },
-    {
-      id: 'web-search',
-      label: 'Web Search',
-      kind: 'web',
-      readOnly: true,
-      freshnessTtl: '1h'
-    }
-  ],
-  profiles: [
-    {
-      id: 'research-agent',
-      name: 'Research Agent',
-      purpose: 'Research',
-      guardrails: ['Prefer local docs first.'],
-      routes: [
-        {
-          intent: 'web_research',
-          sources: ['local-docs', 'web-search'],
-          blockOnStale: true
-        }
-      ]
-    }
-  ],
-  policies: [],
-  objects: [],
-  relationships: []
+  policy: {
+    policies: []
+  },
+  sources: {
+    sources: [
+      {
+        id: 'local-docs',
+        label: 'Local Docs',
+        kind: 'wiki',
+        readOnly: true,
+        freshnessTtl: '7d',
+        brainEntityId: 'agent-security'
+      },
+      {
+        id: 'web-search',
+        label: 'Web Search',
+        kind: 'web',
+        readOnly: true,
+        freshnessTtl: '1h'
+      }
+    ],
+    profiles: [
+      {
+        id: 'research-agent',
+        name: 'Research Agent',
+        purpose: 'Research',
+        guardrails: ['Prefer local docs first.'],
+        routes: [
+          {
+            intent: 'web_research',
+            sources: ['local-docs', 'web-search'],
+            blockOnStale: true
+          }
+        ]
+      }
+    ]
+  },
+  registry: {
+    objects: [],
+    relationships: []
+  }
 };
 
 describe('source freshness scoring', () => {
@@ -84,21 +90,24 @@ describe('source freshness scoring', () => {
     const cmdb = createAgentCmdb({
       controlPlane: {
         ...controlPlane,
-        policies: [
-          {
-            id: 'allow-web-research',
-            effect: 'allow',
-            profiles: ['research-agent'],
-            actions: ['web_research'],
-            tools: ['web-search'],
-            reason: 'Research is allowed.'
-          }
-        ]
+        policy: {
+          ...controlPlane.policy,
+          policies: [
+            {
+              id: 'allow-web-research',
+              effect: 'allow',
+              profiles: ['research-agent'],
+              actions: ['web_research'],
+              tools: ['web-search'],
+              reason: 'Research is allowed.'
+            }
+          ]
+        }
       },
       storeDir: joinTempStore()
     });
 
-    const result = await cmdb.preflight({
+    const result = await cmdb.policy.preflight({
       profile: 'research-agent',
       action: 'web_research',
       tool: 'web-search',

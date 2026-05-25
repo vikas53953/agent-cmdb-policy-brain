@@ -1,4 +1,5 @@
 import { readBrainIndex } from './brain.js';
+import { sourceRefs } from './config-access.js';
 import type { ControlPlane, SourceFreshnessInput } from './types.js';
 
 export async function sourceFreshnessFromBrain(
@@ -6,7 +7,7 @@ export async function sourceFreshnessFromBrain(
   brainDir: string
 ): Promise<SourceFreshnessInput[]> {
   const index = await readBrainIndex(brainDir);
-  return controlPlane.sources
+  return sourceRefs(controlPlane)
     .filter((source) => source.freshnessTtl)
     .flatMap((source) => {
       const entityId = source.brainEntityId ?? source.id;

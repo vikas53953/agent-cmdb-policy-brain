@@ -9,7 +9,7 @@ describe('Integration proof - full agent lifecycle', () => {
     const tempRoot = mkdtempSync(join(tmpdir(), 'agent-cmdb-integration-proof-'));
 
     try {
-      const configPath = join(process.cwd(), 'demo', 'control-plane.yaml');
+      const configPath = join(process.cwd(), 'demo', 'policy-library.yaml');
       const storeDir = join(tempRoot, 'state');
       const brainDir = join(tempRoot, 'brain');
       const cmdb = createAgentCmdb({ configPath, storeDir, brainDir });
@@ -27,25 +27,25 @@ describe('Integration proof - full agent lifecycle', () => {
       expect(initialHealth.errors).toBe(0);
 
       // 2. Brain is empty at start (listEntities returns [])
-      const initialEntities = await cmdb.listEntities();
+      const initialEntities = await cmdb.memory.listEntities();
       expect(initialEntities).toEqual([]);
 
       // 3. Allowed preflight returns correct route with sources
-      const allowedPreflight = await cmdb.preflight({
+      const allowedPreflight = await cmdb.policy.preflight({
         profile,
         action: 'web_search',
-        tool: 'serpapi',
+        tool: 'web-search-api',
         intent: 'web_research'
       });
       expect(allowedPreflight.allowed).toBe(true);
       expect(allowedPreflight.route?.sources.map((source) => source.id)).toEqual([
         'local-docs',
-        'serpapi',
+        'web-search-api',
         'news-aggregator'
       ]);
 
       // 4. Denied preflight returns reason, canEscalate, suggestedAlternative
-      const deniedPreflight = await cmdb.preflight({
+      const deniedPreflight = await cmdb.policy.preflight({
         profile,
         action: 'social_post',
         tool: 'social-media-tool',
@@ -57,15 +57,15 @@ describe('Integration proof - full agent lifecycle', () => {
       expect(deniedPreflight.decision.suggestedAlternative).toContain('Save a draft');
 
       // 5. Dry-run preflight does NOT increase evidence count
-      const evidenceBeforeDryRun = await cmdb.listEvidence();
-      const dryRun = await cmdb.preflight({
+      const evidenceBeforeDryRun = await cmdb.memory.listEvidence();
+      const dryRun = await cmdb.policy.preflight({
         profile,
         action: 'web_search',
-        tool: 'serpapi',
+        tool: 'web-search-api',
         intent: 'web_research',
         dryRun: true
       });
-      const evidenceAfterDryRun = await cmdb.listEvidence();
+      const evidenceAfterDryRun = await cmdb.memory.listEvidence();
       expect(dryRun.allowed).toBe(true);
       expect(dryRun.dryRun).toBe(true);
       expect(evidenceAfterDryRun).toHaveLength(evidenceBeforeDryRun.length);
@@ -73,9 +73,9 @@ describe('Integration proof - full agent lifecycle', () => {
       // 6. logEvidence writes 3 records, each with unique ID
       const writtenEvidence = await Promise.all(
         findings.map((summary) =>
-          cmdb.logEvidence({
+          cmdb.memory.logEvidence({
             profile,
-            source: 'serpapi',
+            source: 'web-search-api',
             intent: 'web_research',
             summary,
             trust: 'high',
@@ -88,15 +88,15 @@ describe('Integration proof - full agent lifecycle', () => {
       expect(new Set(writtenEvidence.map((record) => record.id)).size).toBe(3);
 
       // 7. listEvidence returns all 3 manual findings, filterable by profile
-      const evidence = await cmdb.listEvidence();
-      const profileEvidence = await cmdb.listEvidence({ profile });
-      const manualEvidence = await cmdb.listEvidence({ tag: 'integration-proof' });
+      const evidence = await cmdb.memory.listEvidence();
+      const profileEvidence = await cmdb.memory.listEvidence({ profile });
+      const manualEvidence = await cmdb.memory.listEvidence({ tag: 'integration-proof' });
       expect(evidence).toHaveLength(4);
       expect(manualEvidence).toHaveLength(3);
       expect(profileEvidence.every((record) => record.profile === profile)).toBe(true);
 
       // 8. createEntity creates brain entity, readable via readEntity
-      const createdEntity = await cmdb.createEntity(
+      const createdEntity = await cmdb.memory.createEntity(
         {
           id: entityId,
           kind: 'topic',
@@ -109,7 +109,7 @@ describe('Integration proof - full agent lifecycle', () => {
         `# AI Agent Security\n\n${findings.map((finding) => `- ${finding}`).join('\n')}\n`,
         profile
       );
-      const firstRead = await cmdb.readEntity(entityId);
+      const firstRead = await cmdb.memory.readEntity(entityId);
       expect(createdEntity.id).toBe(entityId);
       expect(firstRead.entity.id).toBe(entityId);
 
@@ -119,22 +119,22 @@ describe('Integration proof - full agent lifecycle', () => {
       expect(firstRead.stale).toBe(false);
 
       // 10. searchEntities finds the entity by keyword
-      const searchResults = await cmdb.searchEntities({ keyword: 'security' });
+      const searchResults = await cmdb.memory.searchEntities({ keyword: 'security' });
       expect(searchResults.map((entity) => entity.id)).toContain(entityId);
 
       // 11. listEntities returns 1 entity
-      const entities = await cmdb.listEntities();
+      const entities = await cmdb.memory.listEntities();
       expect(entities).toHaveLength(1);
 
       // 12. writeEntity with appendOnly adds content with separator
-      const appendedEntity = await cmdb.writeEntity({
+      const appendedEntity = await cmdb.memory.writeEntity({
         entityId,
         content: '- New sandboxing checklist added',
         actor: profile,
         reason: 'Append integration proof update',
         appendOnly: true
       });
-      const afterAppend = await cmdb.readEntity(entityId);
+      const afterAppend = await cmdb.memory.readEntity(entityId);
       expect(appendedEntity.id).toBe(entityId);
       expect(afterAppend.content).toContain('---\n## Update');
 
@@ -143,7 +143,7 @@ describe('Integration proof - full agent lifecycle', () => {
       expect(afterAppend.content).toContain('New sandboxing checklist added');
 
       // 14. logChange writes a change record
-      const decisionChange = await cmdb.logChange({
+      const decisionChange = await cmdb.memory.logChange({
         target: `brain.${entityId}`,
         targetType: 'memory',
         action: 'update',
@@ -154,11 +154,11 @@ describe('Integration proof - full agent lifecycle', () => {
       expect(decisionChange.target).toBe(`brain.${entityId}`);
 
       // 15. listChanges returns the change record
-      const changes = await cmdb.listChanges({ target: `brain.${entityId}` });
+      const changes = await cmdb.memory.listChanges({ target: `brain.${entityId}` });
       expect(changes.map((change) => change.id)).toContain(decisionChange.id);
 
       // 16. generateDailyDigest produces a file on disk
-      const dailyDigest = await cmdb.generateDailyDigest(profile);
+      const dailyDigest = await cmdb.memory.generateDailyDigest(profile);
       expect(existsSync(dailyDigest.digestPath)).toBe(true);
 
       // 17. Digest file content contains evidence summaries
@@ -170,7 +170,7 @@ describe('Integration proof - full agent lifecycle', () => {
       expect(dailyDigest.evidenceCount).toBe(evidence.length);
 
       // 19. generateWeeklyDigest produces a weekly file
-      const weeklyDigest = await cmdb.generateWeeklyDigest(profile);
+      const weeklyDigest = await cmdb.memory.generateWeeklyDigest(profile);
       expect(existsSync(weeklyDigest.digestPath)).toBe(true);
 
       // 20. health() still passes after all operations
@@ -178,18 +178,18 @@ describe('Integration proof - full agent lifecycle', () => {
       expect(finalHealth.ok).toBe(true);
 
       // 21. report() returns correct counts
-      const report = cmdb.report();
+      const report = cmdb.policy.report();
       expect(report.counts.profiles).toBe(2);
       expect(report.counts.sources).toBe(3);
 
       // 22. validate() returns no errors
-      const validation = cmdb.validate();
+      const validation = cmdb.policy.validate();
       expect(validation.filter((issue) => issue.severity === 'error')).toEqual([]);
 
       console.log('=== INTEGRATION PROOF ===');
       console.log(`Evidence: ${evidence.length}`);
-      console.log(`Changes: ${(await cmdb.listChanges()).length}`);
-      console.log(`Brain entities: ${(await cmdb.listEntities()).length}`);
+      console.log(`Changes: ${(await cmdb.memory.listChanges()).length}`);
+      console.log(`Brain entities: ${(await cmdb.memory.listEntities()).length}`);
       console.log('Digest generated: yes');
       console.log('Cross-method data flow: verified');
       console.log('=========================');

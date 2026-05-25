@@ -17,7 +17,7 @@ describe('IAgentCMDB brain facade', () => {
   it('brain methods throw a descriptive error when brainDir is not configured', async () => {
     const cmdb = createAgentCmdb({ storeDir: mkdtempSync(join(tmpdir(), 'agent-cmdb-no-brain-')) });
 
-    await expect(cmdb.readEntity('agent-security')).rejects.toThrow(
+    await expect(cmdb.memory.readEntity('agent-security')).rejects.toThrow(
       'Brain not configured. Pass brainDir to createAgentCmdb.'
     );
   });
@@ -26,7 +26,7 @@ describe('IAgentCMDB brain facade', () => {
     const { brainDir, storeDir } = makeDirs();
     const cmdb = createAgentCmdb({ brainDir, storeDir });
 
-    await cmdb.createEntity(
+    await cmdb.memory.createEntity(
       {
         id: 'agent-security',
         kind: 'topic',
@@ -40,15 +40,15 @@ describe('IAgentCMDB brain facade', () => {
       'research-agent'
     );
 
-    expect((await cmdb.readEntity('agent-security')).content).toContain('Agent Security');
-    expect((await cmdb.listEntities('topic')).map((entity) => entity.id)).toEqual(['agent-security']);
-    expect((await cmdb.searchEntities({ keyword: 'security' })).map((entity) => entity.id)).toEqual(['agent-security']);
+    expect((await cmdb.memory.readEntity('agent-security')).content).toContain('Agent Security');
+    expect((await cmdb.memory.listEntities('topic')).map((entity) => entity.id)).toEqual(['agent-security']);
+    expect((await cmdb.memory.searchEntities({ keyword: 'security' })).map((entity) => entity.id)).toEqual(['agent-security']);
   });
 
   it('writes brain entities through the facade', async () => {
     const { brainDir, storeDir } = makeDirs();
     const cmdb = createAgentCmdb({ brainDir, storeDir });
-    await cmdb.createEntity(
+    await cmdb.memory.createEntity(
       {
         id: 'agent-security',
         kind: 'topic',
@@ -62,7 +62,7 @@ describe('IAgentCMDB brain facade', () => {
       'research-agent'
     );
 
-    await cmdb.writeEntity({
+    await cmdb.memory.writeEntity({
       entityId: 'agent-security',
       content: 'New evidence.',
       actor: 'research-agent',
@@ -70,13 +70,13 @@ describe('IAgentCMDB brain facade', () => {
       appendOnly: true
     });
 
-    expect((await cmdb.readEntity('agent-security')).content).toContain('New evidence.');
+    expect((await cmdb.memory.readEntity('agent-security')).content).toContain('New evidence.');
   });
 
   it('deletes brain entities through the facade', async () => {
     const { brainDir, storeDir } = makeDirs();
     const cmdb = createAgentCmdb({ brainDir, storeDir });
-    await cmdb.createEntity(
+    await cmdb.memory.createEntity(
       {
         id: 'agent-security',
         kind: 'topic',
@@ -90,9 +90,9 @@ describe('IAgentCMDB brain facade', () => {
       'research-agent'
     );
 
-    await cmdb.deleteEntity('agent-security', 'research-agent', 'Cleanup');
+    await cmdb.memory.deleteEntity('agent-security', 'research-agent', 'Cleanup');
 
-    expect(await cmdb.listEntities()).toEqual([]);
+    expect(await cmdb.memory.listEntities()).toEqual([]);
   });
 
   it('generates daily digests through the facade', async () => {
@@ -108,7 +108,7 @@ describe('IAgentCMDB brain facade', () => {
       capturedAt: `${date}T00:00:00.000Z`
     });
 
-    const digest = await cmdb.generateDailyDigest('research-agent', date);
+    const digest = await cmdb.memory.generateDailyDigest('research-agent', date);
 
     expect(digest.evidenceCount).toBe(1);
     expect(digest.summary).toContain('1 evidence');

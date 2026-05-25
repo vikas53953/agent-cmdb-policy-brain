@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 
 const tsxCli = join(process.cwd(), 'node_modules', 'tsx', 'dist', 'cli.mjs');
 const cliPath = 'src/cli.ts';
-const exampleConfig = join(process.cwd(), 'examples', 'multi-agent', 'control-plane.yaml');
+const exampleConfig = join(process.cwd(), 'examples', 'multi-agent', 'policy-library.yaml');
 
 function runCli(args: string[]): unknown {
   const output = execFileSync(process.execPath, [tsxCli, cliPath, ...args, '--config', exampleConfig], {

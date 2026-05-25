@@ -1,6 +1,13 @@
 import { ensureGraphNode } from './graph-engine.js';
 import { policiesConflict, policyShadows } from './policy-engine.js';
 import { parseDuration } from './duration.js';
+import {
+  agentProfiles,
+  policyRules,
+  registryObjects,
+  registryRelationships,
+  sourceRefs
+} from './config-access.js';
 import type {
   AgentCmdbReport,
   CmdbObject,
@@ -10,7 +17,7 @@ import type {
 } from './types.js';
 
 export function listObjects(controlPlane: ControlPlane, query: ObjectQuery = {}): CmdbObject[] {
-  return controlPlane.objects.filter((object) => {
+  return registryObjects(controlPlane).filter((object) => {
     if (query.profile && object.profile && object.profile !== query.profile) return false;
     if (query.profile && !object.profile && object.kind !== 'profile') return false;
     if (query.kind && object.kind !== query.kind) return false;
@@ -22,7 +29,7 @@ export function listObjects(controlPlane: ControlPlane, query: ObjectQuery = {})
 
 export function getObject(controlPlane: ControlPlane, objectId: string): CmdbObject {
   const normalizedObjectId = requireNonEmptyString(objectId, 'CMDB object id');
-  const object = controlPlane.objects.find((candidate) => candidate.id === normalizedObjectId);
+  const object = registryObjects(controlPlane).find((candidate) => candidate.id === normalizedObjectId);
   if (!object) {
     throw new Error(`Unknown CMDB object: ${normalizedObjectId}.`);
   }
@@ -31,11 +38,16 @@ export function getObject(controlPlane: ControlPlane, objectId: string): CmdbObj
 
 export function validateControlPlane(controlPlane: ControlPlane): ValidationIssue[] {
   const issues: ValidationIssue[] = [];
-  const sourceIds = new Set(controlPlane.sources.map((source) => source.id));
-  const profileIds = new Set(controlPlane.profiles.map((profile) => profile.id));
+  const sources = sourceRefs(controlPlane);
+  const profiles = agentProfiles(controlPlane);
+  const policies = policyRules(controlPlane);
+  const relationships = registryRelationships(controlPlane);
+  const objects = registryObjects(controlPlane);
+  const sourceIds = new Set(sources.map((source) => source.id));
+  const profileIds = new Set(profiles.map((profile) => profile.id));
   const policyIds = new Set<string>();
 
-  for (const profile of controlPlane.profiles) {
+  for (const profile of profiles) {
     for (const route of profile.routes) {
       for (const sourceId of route.sources) {
         if (!sourceIds.has(sourceId)) {
@@ -49,7 +61,7 @@ export function validateControlPlane(controlPlane: ControlPlane): ValidationIssu
     }
   }
 
-  for (const source of controlPlane.sources) {
+  for (const source of sources) {
     if (source.freshnessTtl) {
       try {
         parseDuration(source.freshnessTtl);
@@ -63,7 +75,7 @@ export function validateControlPlane(controlPlane: ControlPlane): ValidationIssu
     }
   }
 
-  for (const policy of controlPlane.policies) {
+  for (const policy of policies) {
     if (policyIds.has(policy.id)) {
       issues.push({
         severity: 'error',
@@ -94,9 +106,9 @@ export function validateControlPlane(controlPlane: ControlPlane): ValidationIssu
     }
   }
 
-  for (let index = 1; index < controlPlane.policies.length; index += 1) {
-    const policy = controlPlane.policies[index];
-    const shadowingPolicy = controlPlane.policies
+  for (let index = 1; index < policies.length; index += 1) {
+    const policy = policies[index];
+    const shadowingPolicy = policies
       .slice(0, index)
       .find((candidate) => policyShadows(candidate, policy));
 
@@ -109,10 +121,10 @@ export function validateControlPlane(controlPlane: ControlPlane): ValidationIssu
     }
   }
 
-  for (let leftIndex = 0; leftIndex < controlPlane.policies.length; leftIndex += 1) {
-    for (let rightIndex = leftIndex + 1; rightIndex < controlPlane.policies.length; rightIndex += 1) {
-      const left = controlPlane.policies[leftIndex];
-      const right = controlPlane.policies[rightIndex];
+  for (let leftIndex = 0; leftIndex < policies.length; leftIndex += 1) {
+    for (let rightIndex = leftIndex + 1; rightIndex < policies.length; rightIndex += 1) {
+      const left = policies[leftIndex];
+      const right = policies[rightIndex];
       if (policiesConflict(left, right)) {
         issues.push({
           severity: 'warning',
@@ -123,7 +135,7 @@ export function validateControlPlane(controlPlane: ControlPlane): ValidationIssu
     }
   }
 
-  for (const relationship of controlPlane.relationships) {
+  for (const relationship of relationships) {
     for (const endpoint of [relationship.from, relationship.to]) {
       try {
         ensureGraphNode(controlPlane, endpoint);
@@ -142,8 +154,13 @@ export function validateControlPlane(controlPlane: ControlPlane): ValidationIssu
 
 export function generateReadinessReport(controlPlane: ControlPlane): AgentCmdbReport {
   const issues = validateControlPlane(controlPlane);
+  const sources = sourceRefs(controlPlane);
+  const profiles = agentProfiles(controlPlane);
+  const policies = policyRules(controlPlane);
+  const objects = registryObjects(controlPlane);
+  const relationships = registryRelationships(controlPlane);
   const deniedActions = unique(
-    controlPlane.policies
+    policies
       .filter((policy) => policy.effect === 'deny')
       .flatMap((policy) => policy.actions)
   );
@@ -152,16 +169,16 @@ export function generateReadinessReport(controlPlane: ControlPlane): AgentCmdbRe
     version: controlPlane.version,
     updatedAt: controlPlane.updatedAt,
     counts: {
-      profiles: controlPlane.profiles.length,
-      sources: controlPlane.sources.length,
-      policies: controlPlane.policies.length,
-      objects: controlPlane.objects.length,
-      relationships: controlPlane.relationships.length
+      profiles: profiles.length,
+      sources: sources.length,
+      policies: policies.length,
+      objects: objects.length,
+      relationships: relationships.length
     },
     guardrails: {
       deniedActions,
-      pausedObjects: controlPlane.objects.filter((object) => object.status === 'paused').map((object) => object.id),
-      blockedObjects: controlPlane.objects.filter((object) => object.status === 'blocked').map((object) => object.id)
+      pausedObjects: objects.filter((object) => object.status === 'paused').map((object) => object.id),
+      blockedObjects: objects.filter((object) => object.status === 'blocked').map((object) => object.id)
     },
     validation: {
       errors: issues.filter((issue) => issue.severity === 'error').length,

@@ -1,7 +1,7 @@
 {
   "name": "@pylabmit/agent-cmdb",
-  "version": "2.1.0",
-  "description": "Policy evaluation, source routing, and tamper-evident audit logs for AI agents",
+  "version": "3.0.0",
+  "description": "Opt-in policy checks, source routing, and hash-chained local audit records for AI agents",
   "type": "module",
   "license": "MIT",
   "engines": {
@@ -29,42 +29,20 @@
       "import": "./dist/interface.js",
       "types": "./dist/interface.d.ts"
     },
-    "./brain": {
-      "import": "./dist/brain.js",
-      "types": "./dist/brain.d.ts"
-    },
-    "./digest": {
-      "import": "./dist/digest.js",
-      "types": "./dist/digest.d.ts"
-    },
-    "./doctor": {
-      "import": "./dist/doctor.js",
-      "types": "./dist/doctor.d.ts"
-    },
-    "./duration": {
-      "import": "./dist/duration.js",
-      "types": "./dist/duration.d.ts"
-    },
-    "./freshness": {
-      "import": "./dist/freshness.js",
-      "types": "./dist/freshness.d.ts"
-    },
     "./types": {
       "import": "./dist/types.js",
       "types": "./dist/types.d.ts"
     },
-    "./route-resolver": {
-      "import": "./dist/route-resolver.js",
-      "types": "./dist/route-resolver.d.ts"
-    },
-    "./store": {
-      "import": "./dist/store.js",
-      "types": "./dist/store.d.ts"
-    },
-    "./reliability": {
-      "import": "./dist/reliability.js",
-      "types": "./dist/reliability.d.ts"
-    },
+    "./analytics": null,
+    "./brain": null,
+    "./digest": null,
+    "./doctor": null,
+    "./duration": null,
+    "./freshness": null,
+    "./policy-engine": null,
+    "./route-resolver": null,
+    "./store": null,
+    "./internal": null,
     "./dist/*": null,
     "./src/*": null
   },

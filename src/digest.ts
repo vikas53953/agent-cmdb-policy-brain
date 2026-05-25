@@ -2,9 +2,9 @@ import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { initBrainDir, readBrainIndex } from './brain.js';
 import { getCostSummary } from './cost.js';
-import { calculateReliability } from './reliability.js';
+import { calculatePreflightAnalytics } from './analytics.js';
 import { listChanges, listEvidence, sanitizeText } from './store.js';
-import type { ChangeRecord, ControlPlane, CostSummary, DigestResult, EvidenceRecord, ReliabilityResult } from './types.js';
+import type { ChangeRecord, ControlPlane, CostSummary, DigestResult, EvidenceRecord, PreflightAnalytics } from './types.js';
 
 export async function generateDailyDigest(options: {
   profile: string;
@@ -17,15 +17,14 @@ export async function generateDailyDigest(options: {
   const profile = normalizeDigestProfile(options.profile);
   await initBrainDir(options.brainDir);
   const evidence = await listEvidence(options.storeDir, { profile, dateRange: { from: date, to: date } });
-  const changes = (await listChanges(options.storeDir))
-    .filter((record) => record.changedAt.startsWith(date));
+  const changes = await listChanges(options.storeDir, { dateRange: { from: date, to: date } });
   const index = await readBrainIndex(options.brainDir);
   const updatedEntities = index.entities.filter((entity) => entity.lastUpdated.startsWith(date));
   const digestPath = join(options.brainDir, 'digest', 'daily', `${date}-${profile}.md`);
   const summary = `${evidence.length} evidence, ${changes.length} changes, ${updatedEntities.length} brain updates.`;
-  const reliability = options.controlPlane ? await calculateReliability(options.controlPlane, options.storeDir, profile) : undefined;
+  const analytics = options.controlPlane ? await calculatePreflightAnalytics(options.controlPlane, options.storeDir, profile) : undefined;
   const cost = options.controlPlane ? await getCostSummary(options.controlPlane, options.storeDir, profile, date) : undefined;
-  const markdown = renderDailyDigest(profile, date, evidence, changes, updatedEntities, summary, reliability, cost);
+  const markdown = renderDailyDigest(profile, date, evidence, changes, updatedEntities, summary, analytics, cost);
 
   await mkdir(join(options.brainDir, 'digest', 'daily'), { recursive: true });
   await writeFile(digestPath, markdown, 'utf8');
@@ -57,8 +56,7 @@ export async function generateWeeklyDigest(options: {
   const dateSet = new Set(dates);
   const evidence = (await listEvidence(options.storeDir, { profile, dateRange: { from: dates[0], to: dates[dates.length - 1] } }))
     .filter((record) => dateSet.has(record.capturedAt.slice(0, 10)));
-  const changes = (await listChanges(options.storeDir))
-    .filter((record) => dateSet.has(record.changedAt.slice(0, 10)));
+  const changes = await listChanges(options.storeDir, { dateRange: { from: dates[0], to: dates[dates.length - 1] } });
   const index = await readBrainIndex(options.brainDir);
   const updatedEntities = index.entities.filter((entity) => dateSet.has(entity.lastUpdated.slice(0, 10)));
   const dailyFiles = await listFilesIfExists(dailyDir);
@@ -92,7 +90,7 @@ function renderDailyDigest(
   changes: ChangeRecord[],
   entities: Array<{ id: string; name: string; lastUpdatedBy: string }>,
   summary: string,
-  reliability?: ReliabilityResult,
+  analytics?: PreflightAnalytics,
   cost?: CostSummary
 ): string {
   return `# Daily digest: ${profile} - ${date}
@@ -109,11 +107,11 @@ ${changes.map((record) => `- ${record.action} ${record.target}: ${sanitizeText(r
 
 ${entities.map((entity) => `- ${entity.name} - updated by ${entity.lastUpdatedBy}`).join('\n') || '- None'}
 
-## Reliability
+## Preflight analytics
 
-${reliability ? `- Preflight allow rate: ${(reliability.actual * 100).toFixed(2)}% (target ${(reliability.target * 100).toFixed(2)}%)
-- Within budget: ${reliability.withinBudget ? 'yes' : 'no'}
-- Decisions: ${reliability.totalDecisions}` : '- Not configured'}
+${analytics ? `- Preflight allow rate: ${(analytics.allowRate * 100).toFixed(2)}%
+- Preflight deny rate: ${(analytics.denyRate * 100).toFixed(2)}%
+- Decisions: ${analytics.totalDecisions}` : '- Not configured'}
 
 ## Cost
 

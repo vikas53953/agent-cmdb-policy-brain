@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readdirSync } from 'node:fs';
+import { mkdtempSync, readdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -116,6 +116,6 @@ describe('Agent CMDB CLI adversarial behavior', () => {
     ]);
 
     expect(result.status).toBe(0);
-    expect(existsSync(join(storeDir, 'changes.jsonl'))).toBe(true);
+    expect(readdirSync(storeDir).some((file) => /^changes-\d{4}-\d{2}-\d{2}\.jsonl$/.test(file))).toBe(true);
   });
 });

@@ -156,7 +156,7 @@ policies:
       - social_bookmark
       - social_dm
       - media_upload
-    reason: Social account actions are disabled for this example control plane.
+    reason: Social account actions are disabled for this example policy config.
     code: social_account_actions_disabled
     canEscalate: false
     suggestedAlternative: Draft the action for a human operator or use read-only research sources.

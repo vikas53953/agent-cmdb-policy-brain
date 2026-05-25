@@ -2,7 +2,7 @@ import { createAgentCmdb } from '../src/interface.js';
 import { loadControlPlane } from '../src/loader.js';
 import { formatDoctorReport, runDoctor } from '../src/doctor.js';
 
-const configPath = './demo/control-plane.yaml';
+const configPath = './demo/policy-library.yaml';
 const storeDir = './demo/state';
 const brainDir = './demo/brain';
 const profile = 'research-agent';
@@ -20,7 +20,7 @@ await main();
 async function main(): Promise<void> {
   printHeader('Agent CMDB - Live Demo (research-agent, day 1)');
   const health = cmdb.health();
-  console.log(`[BOOT]       Control plane: ${health.ok ? 'HEALTHY' : 'UNHEALTHY'} (${health.errors} errors, ${health.warnings} warnings)`);
+  console.log(`[BOOT]       Policy library: ${health.ok ? 'HEALTHY' : 'UNHEALTHY'} (${health.errors} errors, ${health.warnings} warnings)`);
   if (!health.ok) {
     for (const issue of health.issues) {
       console.log(`[BOOT]       ${issue.severity.toUpperCase()}: ${issue.message}`);
@@ -30,19 +30,19 @@ async function main(): Promise<void> {
   }
 
   const existing = await readPriorKnowledge();
-  const search = await cmdb.preflight({
+  const search = await cmdb.policy.preflight({
     profile,
     action: 'web_search',
-    tool: 'serpapi',
+    tool: 'web-search-api',
     intent: 'web_research'
   });
   attempted += 1;
   if (search.allowed) allowed += 1;
-  console.log('[PREFLIGHT]  web_search via serpapi -> ALLOWED');
+  console.log('[PREFLIGHT]  web_search via web-search-api -> ALLOWED');
   console.log(`             Route: ${search.route?.sources.map((source) => source.id).join(' -> ') ?? 'none'}`);
   console.log(`             Guardrails: ${search.guardrails.join(', ')}`);
 
-  const blockedMarketing = await cmdb.preflight({
+  const blockedMarketing = await cmdb.policy.preflight({
     profile,
     action: 'social_post',
     tool: 'social-media-tool',
@@ -56,17 +56,17 @@ async function main(): Promise<void> {
   console.log(`             Can escalate: ${blockedMarketing.decision.canEscalate}`);
   console.log(`             Try instead: ${blockedMarketing.decision.suggestedAlternative ?? 'none'}`);
 
-  const evidenceBeforeDryRun = (await cmdb.listEvidence()).length;
-  const dryRun = await cmdb.preflight({
+  const evidenceBeforeDryRun = (await cmdb.memory.listEvidence()).length;
+  const dryRun = await cmdb.policy.preflight({
     profile,
     action: 'web_search',
-    tool: 'serpapi',
+    tool: 'web-search-api',
     intent: 'web_research',
     dryRun: true
   });
   attempted += 1;
   if (dryRun.allowed) allowed += 1;
-  const evidenceAfterDryRun = (await cmdb.listEvidence()).length;
+  const evidenceAfterDryRun = (await cmdb.memory.listEvidence()).length;
   console.log(`[DRY-RUN]    web_search -> ${dryRun.allowed ? 'ALLOWED' : 'BLOCKED'} (no side effects logged)`);
   console.log(`             Evidence count stayed at ${evidenceAfterDryRun} (before: ${evidenceBeforeDryRun})`);
 
@@ -79,9 +79,9 @@ async function main(): Promise<void> {
   console.log(`             Found: ${findings.join('; ')}`);
 
   for (const finding of findings) {
-    const record = await cmdb.logEvidence({
+    const record = await cmdb.memory.logEvidence({
       profile,
-      source: 'serpapi',
+      source: 'web-search-api',
       intent: 'web_research',
       summary: finding,
       trust: 'high',
@@ -92,7 +92,7 @@ async function main(): Promise<void> {
   }
 
   if (!existing) {
-    const entity = await cmdb.createEntity(
+    const entity = await cmdb.memory.createEntity(
       {
         id: entityId,
         kind: 'topic',
@@ -108,7 +108,7 @@ async function main(): Promise<void> {
     console.log(`[BRAIN]      Created entity: ${entity.id} (${entity.kind})`);
     console.log(`             Tags: ${entity.tags.join(', ')}`);
   } else {
-    const entity = await cmdb.writeEntity({
+    const entity = await cmdb.memory.writeEntity({
       entityId,
       content: renderUpdateMarkdown(findings),
       actor: profile,
@@ -118,7 +118,7 @@ async function main(): Promise<void> {
     console.log(`[BRAIN]      Updated entity: ${entity.id}`);
   }
 
-  await cmdb.logChange({
+  await cmdb.memory.logChange({
     target: `brain.${entityId}`,
     targetType: 'memory',
     action: 'update',
@@ -128,7 +128,7 @@ async function main(): Promise<void> {
   });
   console.log(`[CHANGE]     Logged: brain.${entityId} updated`);
 
-  const blockedShare = await cmdb.preflight({
+  const blockedShare = await cmdb.policy.preflight({
     profile,
     action: 'social_post',
     tool: 'social-media-tool',
@@ -138,10 +138,10 @@ async function main(): Promise<void> {
   if (!blockedShare.allowed) denied += 1;
   console.log('[BLOCKED]    social_post -> DENIED (logged as evidence)');
 
-  const matches = await cmdb.searchEntities({ keyword: 'security' });
+  const matches = await cmdb.memory.searchEntities({ keyword: 'security' });
   console.log(`[SEARCH]     Brain search 'security' -> ${matches.length} entity found${matches.length === 1 ? '' : 's'}`);
 
-  const digest = await cmdb.generateDailyDigest(profile);
+  const digest = await cmdb.memory.generateDailyDigest(profile);
   console.log(`[DIGEST]     Generated daily digest: ${digest.digestPath.replaceAll('\\', '/')}`);
   console.log(`             Summary: ${digest.summary}`);
 
@@ -149,9 +149,9 @@ async function main(): Promise<void> {
   console.log('[DOCTOR]     Full health report');
   console.log(indent(formatDoctorReport(doctor), '             '));
 
-  const evidence = await cmdb.listEvidence();
-  const changes = await cmdb.listChanges();
-  const entities = await cmdb.listEntities();
+  const evidence = await cmdb.memory.listEvidence();
+  const changes = await cmdb.memory.listChanges();
+  const entities = await cmdb.memory.listEntities();
   printSummary({
     attempted,
     allowed,
@@ -165,7 +165,7 @@ async function main(): Promise<void> {
 
 async function readPriorKnowledge(): Promise<boolean> {
   try {
-    const knowledge = await cmdb.readEntity(entityId);
+    const knowledge = await cmdb.memory.readEntity(entityId);
     console.log(`[BRAIN]      Found prior knowledge on '${entityId}'. Stale: ${knowledge.stale ? 'yes' : 'no'}.`);
     console.log(`             Preview: ${preview(knowledge.content)}`);
     return true;

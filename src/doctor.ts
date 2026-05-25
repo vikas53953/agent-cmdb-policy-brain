@@ -33,10 +33,10 @@ export async function runDoctor(options: {
   const controlPlaneErrors = issues.filter((issue) => issue.severity === 'error').length;
   const controlPlaneWarnings = issues.filter((issue) => issue.severity === 'warning').length;
   if (controlPlaneErrors > 0) {
-    errors.push(`Control plane has ${controlPlaneErrors} validation error${controlPlaneErrors === 1 ? '' : 's'}.`);
+    errors.push(`Policy config has ${controlPlaneErrors} validation error${controlPlaneErrors === 1 ? '' : 's'}.`);
   }
   if (controlPlaneWarnings > 0) {
-    warnings.push(`Control plane has ${controlPlaneWarnings} validation warning${controlPlaneWarnings === 1 ? '' : 's'}.`);
+    warnings.push(`Policy config has ${controlPlaneWarnings} validation warning${controlPlaneWarnings === 1 ? '' : 's'}.`);
   }
 
   return {
@@ -59,7 +59,7 @@ export function formatDoctorReport(report: DoctorReport): string {
     `Agent CMDB Doctor - ${status}`,
     `Checked: ${report.checkedAt}`,
     '',
-    `Control plane: ${report.controlPlane.errors} errors, ${report.controlPlane.warnings} warnings`,
+    `Policy config: ${report.controlPlane.errors} errors, ${report.controlPlane.warnings} warnings`,
     `Store: writable=${report.store.writable}, evidence=${report.store.evidenceCount}, changes=${report.store.changesCount}`,
     `Brain: configured=${report.brain.configured}, entities=${report.brain.entityCount}, stale=${report.brain.staleEntityCount}, orphaned=${report.brain.orphanedFiles.length}`,
     '',

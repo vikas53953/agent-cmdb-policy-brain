@@ -7,10 +7,7 @@ import {
   searchEntities,
   writeEntity
 } from './brain.js';
-import {
-  generateDailyDigest,
-  generateWeeklyDigest
-} from './digest.js';
+import { generateDailyDigest, generateWeeklyDigest } from './digest.js';
 import {
   getHealthState,
   getSourceHealth,
@@ -21,28 +18,15 @@ import {
   recordSourceSuccess,
   resetSourceHealth
 } from './health.js';
-import { calculateReliability } from './reliability.js';
+import { calculatePreflightAnalytics } from './analytics.js';
 import { getCostSummary } from './cost.js';
-import {
-  deleteCheckpoint,
-  listCheckpoints,
-  loadCheckpoint,
-  saveCheckpoint
-} from './checkpoint.js';
-import {
-  generateReadinessReport,
-  validateControlPlane
-} from './validator.js';
-import {
-  loadDefaultControlPlane,
-  loadControlPlane
-} from './loader.js';
+import { generateReadinessReport, validateControlPlane } from './validator.js';
+import { loadControlPlane, loadDefaultControlPlane } from './loader.js';
 import { preflight } from './preflight.js';
 import { resolveSourceRoute } from './route-resolver.js';
 import { appendChange, appendEvidence, listChanges, listEvidence } from './store.js';
 import type {
   AgentCmdbReport,
-  AgentCheckpoint,
   BrainEntity,
   BrainEntityKind,
   BrainReadResult,
@@ -53,14 +37,15 @@ import type {
   ChangeRecord,
   ControlPlane,
   CostSummary,
+  CreateEntityInput,
   DigestResult,
   EvidenceInput,
   EvidenceQuery,
   EvidenceRecord,
   HealthGateState,
+  PreflightAnalytics,
   PreflightRequest,
   PreflightResult,
-  ReliabilityResult,
   ResolvedSourceRoute,
   SourceHealth,
   SourceRouteRequest,
@@ -88,13 +73,9 @@ export interface IMemoryClient {
   listEvidence(query?: EvidenceQuery): Promise<EvidenceRecord[]>;
   logChange(input: ChangeInput): Promise<ChangeRecord>;
   listChanges(query?: ChangeQuery): Promise<ChangeRecord[]>;
-  readEntity(entityId: string): Promise<BrainReadResult>;
+  readEntity(entityId: string, options?: { stripInjection?: boolean }): Promise<BrainReadResult>;
   writeEntity(input: BrainWriteInput): Promise<BrainEntity>;
-  createEntity(
-    entity: Omit<BrainEntity, 'lastUpdated' | 'lastUpdatedBy'>,
-    content: string,
-    actor: string
-  ): Promise<BrainEntity>;
+  createEntity(entity: CreateEntityInput, content: string, actor: string): Promise<BrainEntity>;
   deleteEntity(entityId: string, actor: string, reason: string): Promise<void>;
   searchEntities(query: BrainSearchQuery): Promise<BrainEntity[]>;
   listEntities(kind?: BrainEntityKind): Promise<BrainEntity[]>;
@@ -104,24 +85,21 @@ export interface IMemoryClient {
 
 export interface IOpsClient {
   recordSourceSuccess(sourceId: string): Promise<SourceHealth>;
-  recordSourceFailure(sourceId: string): Promise<SourceHealth>;
+  recordSourceFailure(sourceId: string, reason?: string): Promise<SourceHealth>;
   getSourceHealth(sourceId: string): Promise<SourceHealth>;
   listSourceHealth(): Promise<SourceHealth[]>;
   isSourceAvailable(sourceId: string): Promise<boolean>;
   getHealthState(sourceId: string): Promise<HealthGateState>;
   resetSourceHealth(sourceId: string): Promise<SourceHealth>;
-  calculateReliability(profile: string): Promise<ReliabilityResult>;
+  calculatePreflightAnalytics(profile: string): Promise<PreflightAnalytics>;
   getCostSummary(profile: string, date?: string): Promise<CostSummary>;
-  saveCheckpoint(checkpoint: AgentCheckpoint): Promise<void>;
-  loadCheckpoint(id: string): Promise<AgentCheckpoint | null>;
-  listCheckpoints(profile?: string): Promise<AgentCheckpoint[]>;
-  deleteCheckpoint(id: string): Promise<void>;
 }
 
-export interface IAgentCMDB extends IPolicyClient, IMemoryClient, IOpsClient {
+export interface IAgentCMDB {
   policy: IPolicyClient;
   memory: IMemoryClient;
   ops: IOpsClient;
+  health(): AgentCmdbHealth;
 }
 
 export interface AgentCmdbOptions {
@@ -138,16 +116,36 @@ export function createAgentCmdb(options: AgentCmdbOptions = {}): IAgentCMDB {
   const brainDir = options.brainDir;
   const tamperMode = options.tamperMode ?? 'warn';
 
+  function health(): AgentCmdbHealth {
+    const issues = [
+      ...validateControlPlane(controlPlane),
+      ...readHealthWarningsSync(storeDir).map((message): ValidationIssue => ({
+        severity: 'warning',
+        code: 'health_state_tampered',
+        message
+      }))
+    ];
+    const errors = issues.filter((issue) => issue.severity === 'error').length;
+    const warnings = issues.filter((issue) => issue.severity === 'warning').length;
+
+    return {
+      ok: errors === 0,
+      errors,
+      warnings,
+      issues
+    };
+  }
+
   const policy: IPolicyClient = {
     preflight(request: PreflightRequest): Promise<PreflightResult> {
-      return preflight(controlPlane, storeDir, request);
+      return preflight(controlPlane, storeDir, request, { tamperMode });
     },
     async resolveRoute(request: SourceRouteRequest): Promise<ResolvedSourceRoute> {
       if (!request || typeof request !== 'object' || Array.isArray(request)) {
         throw new Error('Source route request must be an object.');
       }
-      const health = await listSourceHealth(controlPlane, storeDir);
-      return resolveSourceRoute(controlPlane, { ...request, health });
+      const healthState = await listSourceHealth(controlPlane, storeDir, tamperMode);
+      return resolveSourceRoute(controlPlane, { ...request, health: healthState });
     },
     validate(): ValidationIssue[] {
       return validateControlPlane(controlPlane);
@@ -155,25 +153,7 @@ export function createAgentCmdb(options: AgentCmdbOptions = {}): IAgentCMDB {
     report(): AgentCmdbReport {
       return generateReadinessReport(controlPlane);
     },
-    health(): AgentCmdbHealth {
-      const issues = [
-        ...validateControlPlane(controlPlane),
-        ...readHealthWarningsSync(storeDir).map((message): ValidationIssue => ({
-          severity: 'warning',
-          code: 'health_state_tampered',
-          message
-        }))
-      ];
-      const errors = issues.filter((issue) => issue.severity === 'error').length;
-      const warnings = issues.filter((issue) => issue.severity === 'warning').length;
-
-      return {
-        ok: errors === 0,
-        errors,
-        warnings,
-        issues
-      };
-    }
+    health
   };
 
   const memory: IMemoryClient = {
@@ -189,17 +169,13 @@ export function createAgentCmdb(options: AgentCmdbOptions = {}): IAgentCMDB {
     listChanges(query: ChangeQuery = {}): Promise<ChangeRecord[]> {
       return listChanges(storeDir, query, { tamperMode });
     },
-    async readEntity(entityId: string): Promise<BrainReadResult> {
-      return readEntity(await requireBrainDir(brainDir), entityId);
+    async readEntity(entityId: string, options?: { stripInjection?: boolean }): Promise<BrainReadResult> {
+      return readEntity(await requireBrainDir(brainDir), entityId, options);
     },
     async writeEntity(input: BrainWriteInput): Promise<BrainEntity> {
       return writeEntity(await requireBrainDir(brainDir), storeDir, input);
     },
-    async createEntity(
-      entity: Omit<BrainEntity, 'lastUpdated' | 'lastUpdatedBy'>,
-      content: string,
-      actor: string
-    ): Promise<BrainEntity> {
+    async createEntity(entity: CreateEntityInput, content: string, actor: string): Promise<BrainEntity> {
       return createEntity(await requireBrainDir(brainDir), storeDir, entity, content, actor);
     },
     async deleteEntity(entityId: string, actor: string, reason: string): Promise<void> {
@@ -232,43 +208,31 @@ export function createAgentCmdb(options: AgentCmdbOptions = {}): IAgentCMDB {
 
   const ops: IOpsClient = {
     recordSourceSuccess(sourceId: string): Promise<SourceHealth> {
-      return recordSourceSuccess(controlPlane, storeDir, sourceId);
+      return recordSourceSuccess(controlPlane, storeDir, sourceId, tamperMode);
     },
-    recordSourceFailure(sourceId: string): Promise<SourceHealth> {
-      return recordSourceFailure(controlPlane, storeDir, sourceId);
+    recordSourceFailure(sourceId: string, reason = 'source failure'): Promise<SourceHealth> {
+      return recordSourceFailure(controlPlane, storeDir, sourceId, reason, tamperMode);
     },
     getSourceHealth(sourceId: string): Promise<SourceHealth> {
-      return getSourceHealth(controlPlane, storeDir, sourceId);
+      return getSourceHealth(controlPlane, storeDir, sourceId, tamperMode);
     },
     listSourceHealth(): Promise<SourceHealth[]> {
-      return listSourceHealth(controlPlane, storeDir);
+      return listSourceHealth(controlPlane, storeDir, tamperMode);
     },
     isSourceAvailable(sourceId: string): Promise<boolean> {
-      return isSourceAvailable(controlPlane, storeDir, sourceId);
+      return isSourceAvailable(controlPlane, storeDir, sourceId, tamperMode);
     },
     getHealthState(sourceId: string): Promise<HealthGateState> {
-      return getHealthState(controlPlane, storeDir, sourceId);
+      return getHealthState(controlPlane, storeDir, sourceId, tamperMode);
     },
     resetSourceHealth(sourceId: string): Promise<SourceHealth> {
-      return resetSourceHealth(controlPlane, storeDir, sourceId);
+      return resetSourceHealth(controlPlane, storeDir, sourceId, tamperMode);
     },
-    calculateReliability(profile: string): Promise<ReliabilityResult> {
-      return calculateReliability(controlPlane, storeDir, profile);
+    calculatePreflightAnalytics(profile: string): Promise<PreflightAnalytics> {
+      return calculatePreflightAnalytics(controlPlane, storeDir, profile, tamperMode);
     },
     getCostSummary(profile: string, date?: string): Promise<CostSummary> {
       return getCostSummary(controlPlane, storeDir, profile, date);
-    },
-    saveCheckpoint(checkpoint: AgentCheckpoint): Promise<void> {
-      return saveCheckpoint(storeDir, checkpoint);
-    },
-    loadCheckpoint(id: string): Promise<AgentCheckpoint | null> {
-      return loadCheckpoint(storeDir, id);
-    },
-    listCheckpoints(profile?: string): Promise<AgentCheckpoint[]> {
-      return listCheckpoints(storeDir, profile);
-    },
-    deleteCheckpoint(id: string): Promise<void> {
-      return deleteCheckpoint(storeDir, id);
     }
   };
 
@@ -276,9 +240,7 @@ export function createAgentCmdb(options: AgentCmdbOptions = {}): IAgentCMDB {
     policy,
     memory,
     ops,
-    ...policy,
-    ...memory,
-    ...ops
+    health
   };
 }
 

@@ -2,13 +2,13 @@ version: "1.0"
 updatedAt: "2026-05-25"
 
 sources:
-  - id: serpapi
-    label: SerpAPI Web Search
+  - id: web-search-api
+    label: Web Search API
     kind: tool
     readOnly: true
 
-  - id: openai-api
-    label: OpenAI API
+  - id: llm-api
+    label: LLM API
     kind: tool
     readOnly: false
 
@@ -31,12 +31,12 @@ profiles:
       - intent: web_research
         sources:
           - local-docs
-          - serpapi
+          - web-search-api
         notes: Check local docs first, then search the web
       - intent: code_generation
         sources:
           - local-docs
-          - openai-api
+          - llm-api
 
 policies:
   - id: deny-social-posting
@@ -70,7 +70,7 @@ policies:
       - summarize
       - extract
     tools:
-      - serpapi
+      - web-search-api
       - local-docs
     reason: Research agent can search and summarize read-only sources
     code: research_agent_readonly_allowed
@@ -95,18 +95,18 @@ objects:
       - docs
       - read-only
 
-  - id: source.serpapi
+  - id: source.web-search-api
     kind: source
-    label: SerpAPI Web Search
+    label: Web Search API
     status: active
     profile: research-agent
     tags:
       - web
       - read-only
 
-  - id: tool.openai-api
+  - id: tool.llm-api
     kind: tool
-    label: OpenAI API
+    label: LLM API
     status: active
     tags:
       - llm
@@ -118,5 +118,5 @@ relationships:
     type: uses
 
   - from: profile.research-agent
-    to: source.serpapi
+    to: source.web-search-api
     type: uses
