@@ -18,7 +18,7 @@ describe('IAgentCMDB adversarial contract', () => {
     ).resolves.toMatchObject({
       allowed: false,
       decision: {
-        ruleId: 'malformed-request'
+        ruleId: 'invalid-request'
       }
     });
   });
@@ -34,7 +34,7 @@ describe('IAgentCMDB adversarial contract', () => {
     ).resolves.toMatchObject({
       allowed: false,
       decision: {
-        ruleId: 'malformed-request'
+        ruleId: 'invalid-request'
       }
     });
   });

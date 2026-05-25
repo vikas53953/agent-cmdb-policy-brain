@@ -36,7 +36,7 @@ describe('Agent CMDB policy adversarial behavior', () => {
     const decision = evaluatePolicy(withPolicies(policies), {
       profile: 'research-agent',
       action: 'social_post',
-      tool: 'synthetic-social-tool'
+      tool: 'web-search-api'
     });
     const elapsedMs = performance.now() - startedAt;
 
@@ -63,7 +63,7 @@ describe('Agent CMDB policy adversarial behavior', () => {
           reason: 'Profile-specific allow.'
         }
       ]),
-      { profile: 'research-agent', action: 'social_post', tool: 'synthetic-social-tool' }
+      { profile: 'research-agent', action: 'social_post', tool: 'web-search-api' }
     );
 
     expect(decision.effect).toBe('deny');
@@ -88,7 +88,7 @@ describe('Agent CMDB policy adversarial behavior', () => {
           reason: 'Global deny.'
         }
       ]),
-      { profile: 'research-agent', action: 'social_post', tool: 'synthetic-social-tool' }
+      { profile: 'research-agent', action: 'social_post', tool: 'web-search-api' }
     );
 
     expect(decision.effect).toBe('deny');
@@ -107,7 +107,7 @@ describe('Agent CMDB policy adversarial behavior', () => {
           reason: 'Everything must be approved.'
         }
       ]),
-      { profile: 'research-agent', action: 'brand_new_action', tool: 'unknown-tool' }
+      { profile: 'research-agent', action: 'brand_new_action', tool: 'web-search-api' }
     );
 
     expect(decision.effect).toBe('approval_required');
@@ -150,7 +150,7 @@ describe('Agent CMDB policy adversarial behavior', () => {
         profile: null,
         action: 'web_research'
       })
-    ).toMatchObject({ effect: 'deny', ruleId: 'malformed-request' });
+    ).toMatchObject({ effect: 'deny', ruleId: 'invalid-request' });
 
     expect(
       evaluatePolicy(controlPlane, {
@@ -158,7 +158,7 @@ describe('Agent CMDB policy adversarial behavior', () => {
         // @ts-expect-error runtime adversarial input still needs a clean error
         action: undefined
       })
-    ).toMatchObject({ effect: 'deny', ruleId: 'malformed-request' });
+    ).toMatchObject({ effect: 'deny', ruleId: 'invalid-request' });
   });
 
   it('warns when deny and allow policies conflict on the same request shape', () => {

@@ -1,5 +1,5 @@
 import type { CmdbObject, ControlPlane, PolicyDecision, PolicyEffect, PolicyRequest, PolicyRule } from './types.js';
-import { agentProfiles, policyRules, registryObjects } from './config-access.js';
+import { agentProfiles, policyRules, registryObjects, sourceRefs } from './config-access.js';
 
 const effectRank: Record<PolicyEffect, number> = {
   deny: 3,
@@ -21,6 +21,19 @@ export function evaluatePolicy(controlPlane: ControlPlane, request: PolicyReques
         tool: normalizedRequest.tool,
         canEscalate: false,
         suggestedAlternative: 'Add the profile to the policy library before evaluating this action.'
+      };
+    }
+    if (normalizedRequest.tool && !sourceOrToolExists(controlPlane, normalizedRequest.tool)) {
+      return {
+        effect: 'deny',
+        ruleId: 'unknown-source',
+        code: 'unknown_source',
+        reason: `Source or tool ${normalizedRequest.tool} is not defined in the policy library.`,
+        profile: normalizedRequest.profile,
+        action: normalizedRequest.action,
+        tool: normalizedRequest.tool,
+        canEscalate: false,
+        suggestedAlternative: 'Add the source or tool to the policy library before evaluating this action.'
       };
     }
     const blockedObject = findUnavailableReferencedObject(controlPlane, normalizedRequest);
@@ -76,9 +89,9 @@ export function evaluatePolicy(controlPlane: ControlPlane, request: PolicyReques
     const fallback = extractFallbackRequest(request);
     return {
       effect: 'deny',
-      ruleId: 'malformed-request',
-      code: 'malformed_request',
-      reason: error instanceof Error ? error.message : String(error),
+      ruleId: 'invalid-request',
+      code: 'invalid_request',
+      reason: `Invalid policy request: ${error instanceof Error ? error.message : String(error)}`,
       profile: fallback.profile,
       action: fallback.action,
       tool: fallback.tool,
@@ -163,7 +176,25 @@ function findUnavailableReferencedObject(controlPlane: ControlPlane, request: Po
 }
 
 function profileExists(controlPlane: ControlPlane, profileId: string): boolean {
-  return agentProfiles(controlPlane).some((candidate) => candidate.id === profileId);
+  try {
+    return agentProfiles(controlPlane).some((candidate) => candidate.id === profileId);
+  } catch {
+    return false;
+  }
+}
+
+function sourceOrToolExists(controlPlane: ControlPlane, sourceId: string): boolean {
+  const candidateIds = new Set([
+    sourceId,
+    `source.${sourceId}`,
+    `tool.${sourceId}`
+  ]);
+  try {
+    return sourceRefs(controlPlane).some((source) => candidateIds.has(source.id))
+      || registryObjects(controlPlane).some((object) => candidateIds.has(object.id));
+  } catch {
+    return false;
+  }
 }
 
 function extractFallbackRequest(request: unknown): PolicyRequest {

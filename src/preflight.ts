@@ -27,9 +27,9 @@ export function evaluatePreflight(
     const message = error instanceof Error ? error.message : String(error);
     const decision = denyDecision(
       fallback,
-      'malformed-request',
-      'malformed_request',
-      `Malformed preflight request: ${message}`,
+      'invalid-request',
+      'invalid_request',
+      `Invalid preflight request: ${message}`,
       'Pass non-empty profile and action strings before evaluating policy.'
     );
     if (fallback.dryRun) {
@@ -223,52 +223,60 @@ export async function preflight(
   options: { tamperMode?: TamperMode } = {}
 ): Promise<PreflightResult> {
   const tamperMode = options.tamperMode ?? 'warn';
-  const availabilityEntries = await Promise.all(sourceRefs(controlPlane).map(async (source) => [
-    source.id,
-    await isSourceAvailable(controlPlane, storeDir, source.id, tamperMode)
-  ] as const));
-  const availability = new Map(availabilityEntries);
-  const health = (await listSourceHealth(controlPlane, storeDir, tamperMode)).map((entry) => {
-    const available = availability.get(entry.sourceId);
-    if (available === false) return { ...entry, status: 'down' as const };
-    if (available === true && entry.status === 'half-open') return { ...entry, probeInFlight: false };
-    return entry;
-  });
-  const result = evaluatePreflight(controlPlane, request, { health });
-
-  if (result.dryRun) {
-    return result;
-  }
-
-  if (!result.allowed) {
-    const intent = request && typeof request === 'object' && !Array.isArray(request)
-      ? request.intent
-      : undefined;
-    await appendEvidence(storeDir, {
-      profile: result.decision.profile,
-      source: 'agent-cmdb-preflight',
-      intent: intent ?? result.decision.action,
-      summary: `Denied by ${result.decision.ruleId}: ${result.decision.reason}`,
-      trust: 'high',
-      capturedAt: new Date().toISOString(),
-      estimatedCost: estimateCost(controlPlane, result),
-      tags: ['preflight', 'deny', result.decision.ruleId]
+  try {
+    const availabilityEntries = await Promise.all(safeSourceRefs(controlPlane).map(async (source) => [
+      source.id,
+      await isSourceAvailable(controlPlane, storeDir, source.id, tamperMode)
+    ] as const));
+    const availability = new Map(availabilityEntries);
+    const health = (await safeListSourceHealth(controlPlane, storeDir, tamperMode)).map((entry) => {
+      const available = availability.get(entry.sourceId);
+      if (available === false) return { ...entry, status: 'down' as const };
+      if (available === true && entry.status === 'half-open') return { ...entry, probeInFlight: false };
+      return entry;
     });
+    const result = evaluatePreflight(controlPlane, request, { health });
+
+    if (result.dryRun) {
+      return result;
+    }
+
+    if (!result.allowed) {
+      const intent = request && typeof request === 'object' && !Array.isArray(request)
+        ? request.intent
+        : undefined;
+      await appendEvidence(storeDir, {
+        profile: result.decision.profile,
+        source: 'agent-cmdb-preflight',
+        intent: intent ?? result.decision.action,
+        summary: `Denied by ${result.decision.ruleId}: ${result.decision.reason}`,
+        trust: 'high',
+        capturedAt: new Date().toISOString(),
+        estimatedCost: estimateCost(controlPlane, result),
+        tags: ['preflight', 'deny', result.decision.ruleId]
+      });
+    }
+
+    await appendChange(storeDir, {
+      target: `policy.${result.decision.ruleId}`,
+      targetType: 'policy',
+      action: 'verify',
+      actor: 'agent-cmdb-preflight',
+      reason: `Preflight ${result.decision.effect} for ${result.decision.profile}:${result.decision.action}.`,
+      changedAt: new Date().toISOString(),
+      after: result
+    });
+
+    try {
+      await updatePreflightAnalyticsCache(controlPlane, storeDir, result, tamperMode);
+    } catch {
+      // Analytics are advisory; policy decisions must not throw after evaluation.
+    }
+
+    return result;
+  } catch (error) {
+    return preflightErrorResult(request, error);
   }
-
-  await appendChange(storeDir, {
-    target: `policy.${result.decision.ruleId}`,
-    targetType: 'policy',
-    action: 'verify',
-    actor: 'agent-cmdb-preflight',
-    reason: `Preflight ${result.decision.effect} for ${result.decision.profile}:${result.decision.action}.`,
-    changedAt: new Date().toISOString(),
-    after: result
-  });
-
-  await updatePreflightAnalyticsCache(controlPlane, storeDir, result, tamperMode);
-
-  return result;
 }
 
 function normalizePreflightRequest(request: PreflightRequest): PreflightRequest {
@@ -360,7 +368,44 @@ function requireNonEmptyString(value: unknown, label: string, suffix?: string): 
 function estimateCost(controlPlane: ControlPlane, result: PreflightResult): number {
   const sourceId = result.decision.tool ?? result.route?.sources[0]?.id;
   if (!sourceId) return 0;
-  return sourceRefs(controlPlane).find((source) => source.id === sourceId)?.costPerCall ?? 0;
+  return safeSourceRefs(controlPlane).find((source) => source.id === sourceId)?.costPerCall ?? 0;
+}
+
+function safeSourceRefs(controlPlane: ControlPlane) {
+  try {
+    const sources = sourceRefs(controlPlane);
+    return Array.isArray(sources) ? sources : [];
+  } catch {
+    return [];
+  }
+}
+
+async function safeListSourceHealth(controlPlane: ControlPlane, storeDir: string, tamperMode: TamperMode): Promise<SourceHealth[]> {
+  try {
+    return await listSourceHealth(controlPlane, storeDir, tamperMode);
+  } catch {
+    return [];
+  }
+}
+
+function preflightErrorResult(request: unknown, error: unknown): PreflightResult {
+  const fallback = fallbackPreflightRequest(request);
+  const message = error instanceof Error ? error.message : String(error);
+  const decision = denyDecision(
+    fallback,
+    'preflight-error',
+    'preflight_error',
+    `Preflight failed safely: ${message}`,
+    'Fix the policy library or request before retrying.'
+  );
+  return {
+    allowed: false,
+    decision,
+    route: undefined,
+    guardrails: [],
+    warnings: [decision.reason],
+    dryRun: false
+  };
 }
 
 function skippedSourcesIncludeTool(skippedSources: string[], tool: string): boolean {

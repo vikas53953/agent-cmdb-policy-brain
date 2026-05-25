@@ -99,7 +99,7 @@ describe('single Agent CMDB preflight entry point', () => {
     })).resolves.toMatchObject({
       allowed: false,
       decision: {
-        ruleId: 'malformed-request'
+        ruleId: 'invalid-request'
       }
     });
   });

@@ -48,7 +48,6 @@ describe('Integration proof - full agent lifecycle', () => {
       const deniedPreflight = await cmdb.policy.preflight({
         profile,
         action: 'social_post',
-        tool: 'social-media-tool',
         intent: 'marketing'
       });
       expect(deniedPreflight.allowed).toBe(false);

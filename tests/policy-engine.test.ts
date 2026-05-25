@@ -21,7 +21,7 @@ describe('Agent CMDB policy engine', () => {
     const decision = evaluatePolicy(controlPlane, {
       profile: 'research-agent',
       action: 'send_bot_ops_status',
-      tool: 'telegram'
+      tool: 'web-search-api'
     });
 
     expect(decision.effect).toBe('deny');
@@ -166,7 +166,7 @@ describe('Agent CMDB policy engine', () => {
     const decision = evaluatePolicy(controlPlane, {
       profile: 'research-agent',
       action: 'new_unclassified_action',
-      tool: 'unknown-tool'
+      tool: 'web-search-api'
     });
 
     expect(decision.effect).toBe('deny');
