@@ -1,7 +1,7 @@
 # agent-cmdb
 
 [![CI](https://github.com/vikas53953/agent-cmdb-policy-brain/actions/workflows/ci.yml/badge.svg)](https://github.com/vikas53953/agent-cmdb-policy-brain/actions/workflows/ci.yml)
-![Tests](https://img.shields.io/badge/tests-207_passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-212_passing-brightgreen)
 
 Opt-in policy checks with hash-chained local audit records for AI agents.
 
@@ -26,6 +26,38 @@ This is a library, not a proxy. Your agent must call `cmdb.policy.preflight()` b
 - Cost estimation aggregates values you provide in evidence records and optional per-call source config. It does not auto-instrument LLM or API calls.
 - The audit store is tamper-evident, not tamper-proof. Hash chains detect changes, but records are not signed or written to immutable storage.
 - Sanitization detects and can strip common prompt-injection patterns. It is not a security boundary.
+
+## Known Limits
+
+Measurements below were taken on a Windows development machine with `npx tsx scripts/measure-listEvidence.ts` and `npx tsx scripts/measure-brain.ts`. Treat them as local-order-of-magnitude numbers, not a service guarantee.
+
+Agent CMDB v3 stores audit records in append-only JSONL files and brain entities in a single JSON index. Both work well at small scale and degrade predictably as data grows.
+
+**Evidence log (`listEvidence`):**
+
+| Records | `listEvidence()` | Incremental append time |
+| ---: | ---: | ---: |
+| 100 | 8.39 ms | 520.36 ms |
+| 1,000 | 8.78 ms | 3,397.33 ms |
+| 5,000 | 39.85 ms | 8,648.97 ms |
+| 10,000 | 92.42 ms | 10,451.63 ms |
+| 25,000 | 180.81 ms | 29,184.74 ms |
+| 50,000 | 359.20 ms | 56,907.42 ms |
+
+Up to 10,000 records, list calls stayed under 100 ms in this run. At 25,000 records, list calls became noticeable. At 50,000 records, list calls were still below 400 ms, but append throughput was slow enough that this should be treated as a local audit log, not a high-volume event pipeline.
+
+**Brain index (`listEntities`, `readEntity`):**
+
+| Entities | `listEntities()` | `readEntity()` | Index write setup |
+| ---: | ---: | ---: | ---: |
+| 100 | 25.20 ms | 31.00 ms | 98.17 ms |
+| 1,000 | 26.63 ms | 33.75 ms | 1,440.30 ms |
+| 5,000 | 60.40 ms | 73.16 ms | 3,985.20 ms |
+| 10,000 | 108.77 ms | 123.45 ms | 5,739.95 ms |
+| 25,000 | 698.39 ms | 487.57 ms | 19,905.49 ms |
+| 50,000 | 722.53 ms | 846.79 ms | 28,997.82 ms |
+
+Up to 10,000 brain entities, reads stayed around 125 ms or less in this run. Past 25,000 entities, the single JSON index becomes the bottleneck. Agent CMDB v3 has daily JSONL file rotation, but it does not have retention, compaction, or external storage offload. For higher volume, archive old JSONL files manually or pipe evidence to external storage.
 
 ## Install
 
