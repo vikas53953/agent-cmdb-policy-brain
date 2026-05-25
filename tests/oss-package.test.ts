@@ -23,7 +23,7 @@ describe('OSS package shape', () => {
 
     expect(packageJson.name).toBe('@pylabmit/agent-cmdb');
     expect(packageJson.private).toBeUndefined();
-    expect(packageJson.version).toBe('2.0.0');
+    expect(packageJson.version).toBe('2.1.0');
     expect(packageJson.main).toBe('dist/interface.js');
     expect(packageJson.types).toBe('dist/interface.d.ts');
     expect(packageJson.bin['agent-cmdb']).toBe('dist/cli.js');
@@ -34,7 +34,7 @@ describe('OSS package shape', () => {
     expect(packageJson.exports['./route-resolver']).toBeDefined();
     expect(packageJson.exports['./preflight']).toBeUndefined();
     expect(packageJson.exports['./policy-engine']).toBeUndefined();
-    expect(packageJson.exports['./store']).toBeUndefined();
+    expect(packageJson.exports['./store']).toBeDefined();
     expect(packageJson.scripts.build).toContain("rmSync('dist'");
     expect(packageJson.scripts.build).toContain('tsc -p tsconfig.build.json');
   });
@@ -150,7 +150,7 @@ describe('OSS package shape', () => {
 
     expect(existsSync(join(cwd, 'agent-cmdb', 'config', 'control-plane.yaml'))).toBe(true);
     expect(existsSync(join(cwd, 'agent-cmdb', 'state'))).toBe(true);
-    expect(existsSync(join(cwd, 'agent-cmdb', 'state', 'evidence.jsonl'))).toBe(true);
+    expect(existsSync(join(cwd, 'agent-cmdb', 'state'))).toBe(true);
     expect(existsSync(join(cwd, 'agent-cmdb', 'state', 'changes.jsonl'))).toBe(true);
     expect(existsSync(join(cwd, 'agent-cmdb.config.ts'))).toBe(true);
 

@@ -5,6 +5,7 @@ export type TrustLevel = 'high' | 'medium' | 'low';
 export type IssueSeverity = 'error' | 'warning';
 export type ChangeAction = 'create' | 'update' | 'pause' | 'resume' | 'delete' | 'verify';
 export type BrainEntityKind = 'person' | 'company' | 'topic' | 'tool' | 'project';
+export type TamperMode = 'warn' | 'fail';
 
 export interface SourceRef {
   id: string;
@@ -23,6 +24,7 @@ export interface SourceRoute {
   sources: string[];
   notes?: string;
   blockOnStale?: boolean;
+  writeActions?: string[];
 }
 
 export interface AgentProfile {
@@ -31,7 +33,7 @@ export interface AgentProfile {
   purpose: string;
   guardrails: string[];
   routes: SourceRoute[];
-  slo?: SloConfig;
+  reliability?: ReliabilityConfig;
 }
 
 export interface CmdbObject {
@@ -72,6 +74,7 @@ export interface ControlPlane {
   policies: PolicyRule[];
   objects: CmdbObject[];
   relationships: Relationship[];
+  writeActions?: string[];
 }
 
 export interface PolicyRequest {
@@ -162,15 +165,38 @@ export interface PreflightRequest extends PolicyRequest {
   freshness?: SourceFreshnessInput[];
 }
 
-export interface PreflightResult {
+export type PreflightResult = AllowPreflightResult | DenyPreflightResult | DryRunPreflightResult;
+
+export interface BasePreflightResult {
   allowed: boolean;
   approvalRequired: boolean;
   decision: PolicyDecision;
-  route?: ResolvedSourceRoute;
   routeExecutable: boolean;
   guardrails: string[];
   warnings: string[];
   dryRun: boolean;
+}
+
+export interface AllowPreflightResult extends BasePreflightResult {
+  allowed: true;
+  approvalRequired: false;
+  route?: ResolvedSourceRoute;
+  routeExecutable: boolean;
+  dryRun: false;
+}
+
+export interface DenyPreflightResult extends BasePreflightResult {
+  allowed: false;
+  approvalRequired: boolean;
+  route?: undefined;
+  routeExecutable: false;
+  dryRun: false;
+}
+
+export interface DryRunPreflightResult extends BasePreflightResult {
+  dryRun: true;
+  wouldAllow: boolean;
+  route?: ResolvedSourceRoute;
 }
 
 export interface AgentCmdbReport {
@@ -219,6 +245,12 @@ export interface EvidenceQuery {
   intent?: string;
   trust?: TrustLevel;
   tag?: string;
+  dateRange?: DateRange;
+}
+
+export interface DateRange {
+  from?: string;
+  to?: string;
 }
 
 export interface ChangeRecord {
@@ -242,6 +274,7 @@ export interface ChangeQuery {
   targetType?: ObjectKind;
   actor?: string;
   action?: ChangeAction;
+  dateRange?: DateRange;
 }
 
 export interface BrainEntity {
@@ -306,26 +339,28 @@ export interface SourceHealth {
   sourceId: string;
   status: 'up' | 'down' | 'half-open';
   consecutiveFailures: number;
+  probeCount?: number;
+  recoveryAttempts?: number;
   lastChecked: string;
   lastFailure?: string;
   lastSuccess?: string;
   warnings?: string[];
 }
 
-export type CircuitState = 'closed' | 'open' | 'half-open';
+export type HealthGateState = 'closed' | 'open' | 'half-open';
 
-export interface SloConfig {
+export interface ReliabilityConfig {
   target: number;
   windowHours: number;
   metric: 'allow_rate';
 }
 
-export interface SloResult {
+export interface ReliabilityResult {
   profile: string;
   target: number;
   actual: number;
   withinBudget: boolean;
-  errorBudgetRemaining: number;
+  failureBudgetRemaining: number;
   totalDecisions: number;
   allowedCount: number;
   deniedCount: number;

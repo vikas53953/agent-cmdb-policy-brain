@@ -21,7 +21,7 @@ describe('IAgentCMDB contract', () => {
     expect(preflight.decision.code).toBe('object_blocked');
     expect(preflight.routeExecutable).toBe(false);
 
-    const route = cmdb.resolveRoute({
+    const route = await cmdb.resolveRoute({
       profile: 'content-agent',
       intent: 'weather'
     });

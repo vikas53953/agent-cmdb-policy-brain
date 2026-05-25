@@ -10,11 +10,13 @@ import type {
   EvidenceQuery,
   EvidenceRecord,
   ObjectKind,
+  TamperMode,
   TrustLevel
 } from './types.js';
 
 const evidenceFile = 'evidence.jsonl';
 const changesFile = 'changes.jsonl';
+const evidenceFilePattern = /^evidence-\d{4}-\d{2}-\d{2}\.jsonl$/;
 const maxScalarLength = 2048;
 const maxTextLength = 16000;
 const injectionReplacement = '[CONTENT REMOVED - injection pattern detected]';
@@ -46,7 +48,7 @@ export async function appendEvidence(storeDir: string, input: EvidenceInput): Pr
     intent: sanitizeScalar(requireString(recordInput.intent, 'Evidence intent')),
     summary: sanitizeText(requireString(recordInput.summary, 'Evidence summary')),
     trust: parseTrustLevel(recordInput.trust),
-    capturedAt: sanitizeScalar(requireString(recordInput.capturedAt, 'Evidence capturedAt')),
+    capturedAt: sanitizeTimestamp(requireString(recordInput.capturedAt, 'Evidence capturedAt')),
     tokenCount: optionalNonNegativeNumber(recordInput.tokenCount, 'Evidence tokenCount'),
     estimatedCost: optionalNonNegativeNumber(recordInput.estimatedCost, 'Evidence estimatedCost'),
     links: optionalStringArray(recordInput.links, 'Evidence links')?.map(sanitizeScalar),
@@ -54,12 +56,17 @@ export async function appendEvidence(storeDir: string, input: EvidenceInput): Pr
     id: `ev_${randomUUID()}`
   };
 
-  return appendJsonLine(storeDir, evidenceFile, record);
+  return appendEvidenceJsonLine(storeDir, evidenceFileForTimestamp(record.capturedAt), record);
 }
 
-export async function listEvidence(storeDir: string, query: EvidenceQuery = {}): Promise<EvidenceRecord[]> {
+export async function listEvidence(
+  storeDir: string,
+  query: EvidenceQuery = {},
+  options: { tamperMode?: TamperMode } = {}
+): Promise<EvidenceRecord[]> {
   const normalizedQuery = normalizeEvidenceQuery(query);
-  const records = await readJsonLines<EvidenceRecord>(storeDir, evidenceFile);
+  const effectiveDateRange = normalizedQuery.dateRange ?? defaultEvidenceDateRange();
+  const records = await readEvidenceJsonLines(storeDir, { ...normalizedQuery, dateRange: effectiveDateRange }, options.tamperMode ?? 'warn');
 
   return records.filter((record) => {
     if (definedFilter(normalizedQuery.profile) && record.profile !== sanitizeScalar(normalizedQuery.profile)) return false;
@@ -67,6 +74,7 @@ export async function listEvidence(storeDir: string, query: EvidenceQuery = {}):
     if (definedFilter(normalizedQuery.intent) && record.intent !== sanitizeScalar(normalizedQuery.intent)) return false;
     if (normalizedQuery.trust && record.trust !== normalizedQuery.trust) return false;
     if (definedFilter(normalizedQuery.tag) && !record.tags?.includes(sanitizeScalar(normalizedQuery.tag))) return false;
+    if (!dateInRange(record.capturedAt, effectiveDateRange)) return false;
     return true;
   });
 }
@@ -89,15 +97,20 @@ export async function appendChange(storeDir: string, input: ChangeInput): Promis
   return appendJsonLine(storeDir, changesFile, record);
 }
 
-export async function listChanges(storeDir: string, query: ChangeQuery = {}): Promise<ChangeRecord[]> {
+export async function listChanges(
+  storeDir: string,
+  query: ChangeQuery = {},
+  options: { tamperMode?: TamperMode } = {}
+): Promise<ChangeRecord[]> {
   const normalizedQuery = normalizeChangeQuery(query);
-  const records = await readJsonLines<ChangeRecord>(storeDir, changesFile);
+  const records = await readJsonLines<ChangeRecord>(storeDir, changesFile, options.tamperMode ?? 'warn');
 
   return records.filter((record) => {
     if (definedFilter(normalizedQuery.target) && record.target !== sanitizeScalar(normalizedQuery.target)) return false;
     if (normalizedQuery.targetType && record.targetType !== normalizedQuery.targetType) return false;
     if (definedFilter(normalizedQuery.actor) && record.actor !== sanitizeScalar(normalizedQuery.actor)) return false;
     if (normalizedQuery.action && record.action !== normalizedQuery.action) return false;
+    if (normalizedQuery.dateRange && !dateInRange(record.changedAt, normalizedQuery.dateRange)) return false;
     return true;
   });
 }
@@ -205,6 +218,38 @@ async function appendJsonLine<T extends Record<string, unknown>>(
   return next;
 }
 
+async function appendEvidenceJsonLine<T extends Record<string, unknown>>(
+  storeDir: string,
+  fileName: string,
+  record: T
+): Promise<T & { prevHash: string }> {
+  const queueKey = join(storeDir, 'evidence-rotation');
+  const previous = appendQueues.get(queueKey) ?? Promise.resolve();
+  const next = previous.then(() => appendEvidenceJsonLineUnlocked(storeDir, fileName, record));
+  appendQueues.set(queueKey, next.catch(() => undefined));
+  return next;
+}
+
+async function appendEvidenceJsonLineUnlocked<T extends Record<string, unknown>>(
+  storeDir: string,
+  fileName: string,
+  record: T
+): Promise<T & { prevHash: string }> {
+  try {
+    await mkdir(storeDir, { recursive: true });
+    const filePath = join(storeDir, fileName);
+    const prevHash = await latestEvidenceHash(storeDir, fileName);
+    const recordWithHash = { ...record, prevHash };
+    const line = JSON.stringify(recordWithHash);
+    await appendFile(filePath, `${line}\n`, 'utf8');
+    lastHashByFile.set(filePath, sha256(line));
+    return recordWithHash;
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    throw new StoreWriteError(storeDir, fileName, detail);
+  }
+}
+
 async function appendJsonLineUnlocked<T extends Record<string, unknown>>(
   storeDir: string,
   fileName: string,
@@ -227,7 +272,8 @@ async function appendJsonLineUnlocked<T extends Record<string, unknown>>(
 
 async function readJsonLines<T extends { prevHash?: string; warnings?: string[] }>(
   storeDir: string,
-  fileName: string
+  fileName: string,
+  tamperMode: TamperMode = 'warn'
 ): Promise<T[]> {
   const filePath = join(storeDir, fileName);
   const content = await readFileIfExists(filePath);
@@ -246,6 +292,9 @@ async function readJsonLines<T extends { prevHash?: string; warnings?: string[] 
       assertObjectRecord(parsed, fileName, index + 1);
       const expectedPrevHash = previousLine ? sha256(previousLine) : 'genesis';
       if (parsed.prevHash !== expectedPrevHash) {
+        if (tamperMode === 'fail') {
+          throw new CorruptStoreError(fileName, index + 1, `expected prevHash ${expectedPrevHash}`);
+        }
         const warnings = Array.isArray(parsed.warnings) ? parsed.warnings : [];
         warnings.push(
           `JSONL hash chain warning in ${fileName}:${index + 1}: expected prevHash ${expectedPrevHash}.`
@@ -265,6 +314,69 @@ async function readJsonLines<T extends { prevHash?: string; warnings?: string[] 
   return records;
 }
 
+async function readEvidenceJsonLines(
+  storeDir: string,
+  query: EvidenceQuery,
+  tamperMode: TamperMode
+): Promise<EvidenceRecord[]> {
+  const files = await evidenceFilesForQuery(storeDir, query);
+  const records: EvidenceRecord[] = [];
+  let previousLine: string | undefined;
+
+  for (const fileName of files) {
+    const content = await readFileIfExists(join(storeDir, fileName));
+    if (!content.trim()) continue;
+    const lines = content.split(/\r?\n/);
+    for (const [index, rawLine] of lines.entries()) {
+      const line = rawLine.trim();
+      if (!line) continue;
+      try {
+        const parsed = JSON.parse(line);
+        assertObjectRecord(parsed, fileName, index + 1);
+        const expectedPrevHash = previousLine ? sha256(previousLine) : 'genesis';
+        if (parsed.prevHash !== expectedPrevHash) {
+          if (tamperMode === 'fail') {
+            throw new CorruptStoreError(fileName, index + 1, `expected prevHash ${expectedPrevHash}`);
+          }
+          const warnings = Array.isArray(parsed.warnings) ? parsed.warnings : [];
+          warnings.push(
+            `JSONL hash chain warning in ${fileName}:${index + 1}: expected prevHash ${expectedPrevHash}.`
+          );
+          parsed.warnings = warnings;
+        }
+        records.push(parsed as unknown as EvidenceRecord);
+        previousLine = line;
+      } catch (error) {
+        if (error instanceof CorruptStoreError) throw error;
+        const detail = error instanceof Error ? error.message : String(error);
+        throw new CorruptStoreError(fileName, index + 1, detail);
+      }
+    }
+  }
+
+  return records;
+}
+
+async function evidenceFilesForQuery(storeDir: string, query: EvidenceQuery): Promise<string[]> {
+  const files = await listStoreFiles(storeDir);
+  const rotated = files.filter((file) => evidenceFilePattern.test(file)).sort();
+  const range = query.dateRange;
+  const selected = range
+    ? rotated.filter((file) => evidenceFileNeededForRangeValidation(file, range))
+    : rotated.filter((file) => evidenceFileInRange(file, defaultEvidenceDateRange()));
+  const legacy = files.includes(evidenceFile) ? [evidenceFile] : [];
+  return [...legacy, ...selected];
+}
+
+async function listStoreFiles(storeDir: string): Promise<string[]> {
+  try {
+    return await readdir(storeDir);
+  } catch (error) {
+    if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT') return [];
+    throw error;
+  }
+}
+
 async function readFileIfExists(filePath: string): Promise<string> {
   try {
     return await readFile(filePath, 'utf8');
@@ -278,6 +390,15 @@ async function readFileIfExists(filePath: string): Promise<string> {
 
 function sanitizeScalar(value: string): string {
   return sanitizeText(value).slice(0, maxScalarLength);
+}
+
+function sanitizeTimestamp(value: string): string {
+  const cleaned = value
+    .normalize('NFKC')
+    .replace(/[\u0000-\u001F\u007F-\u009F\u200B-\u200F\u202A-\u202E\u2060-\u206F]/g, ' ')
+    .trim();
+  const isoPrefix = cleaned.match(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z/);
+  return isoPrefix ? isoPrefix[0] : sanitizeScalar(value);
 }
 
 export function sanitizeText(value: string, options: { preserveLineBreaks?: boolean } = {}): string {
@@ -327,7 +448,8 @@ function normalizeEvidenceQuery(query: EvidenceQuery): EvidenceQuery {
     source: optionalString(record.source, 'Evidence query source'),
     intent: optionalString(record.intent, 'Evidence query intent'),
     trust: record.trust === undefined ? undefined : parseTrustLevel(record.trust),
-    tag: optionalString(record.tag, 'Evidence query tag')
+    tag: optionalString(record.tag, 'Evidence query tag'),
+    dateRange: normalizeDateRange(record.dateRange, 'Evidence query dateRange')
   };
 }
 
@@ -338,7 +460,8 @@ function normalizeChangeQuery(query: ChangeQuery): ChangeQuery {
     target: optionalString(record.target, 'Change query target'),
     targetType: record.targetType === undefined ? undefined : parseObjectKind(record.targetType),
     actor: optionalString(record.actor, 'Change query actor'),
-    action: record.action === undefined ? undefined : parseChangeAction(record.action)
+    action: record.action === undefined ? undefined : parseChangeAction(record.action),
+    dateRange: normalizeDateRange(record.dateRange, 'Change query dateRange')
   };
 }
 
@@ -424,6 +547,80 @@ async function latestRecordHash(filePath: string): Promise<string> {
   const hash = sha256(lines[lines.length - 1]);
   lastHashByFile.set(filePath, hash);
   return hash;
+}
+
+async function latestEvidenceHash(storeDir: string, fileName: string): Promise<string> {
+  const filePath = join(storeDir, fileName);
+  const cached = lastHashByFile.get(filePath);
+  if (cached) return cached;
+
+  const currentHash = await latestRecordHash(filePath);
+  if (currentHash !== 'genesis') return currentHash;
+
+  const files = (await listStoreFiles(storeDir))
+    .filter((file) => file === evidenceFile || evidenceFilePattern.test(file))
+    .filter((file) => file < fileName)
+    .sort();
+  for (const previousFile of files.reverse()) {
+    const hash = await latestRecordHash(join(storeDir, previousFile));
+    if (hash !== 'genesis') return hash;
+  }
+  return 'genesis';
+}
+
+function evidenceFileForTimestamp(value: string): string {
+  const date = value.slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || Number.isNaN(Date.parse(`${date}T00:00:00.000Z`))) {
+    throw new Error('Evidence capturedAt must start with an ISO date.');
+  }
+  return `evidence-${date}.jsonl`;
+}
+
+function normalizeDateRange(value: unknown, label: string): EvidenceQuery['dateRange'] {
+  if (value === undefined) return undefined;
+  const record = requireRecord(value, label);
+  return {
+    from: optionalDate(record.from, `${label} from`),
+    to: optionalDate(record.to, `${label} to`)
+  };
+}
+
+function optionalDate(value: unknown, label: string): string | undefined {
+  if (value === undefined) return undefined;
+  const text = requireString(value, label);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(text) || Number.isNaN(Date.parse(`${text}T00:00:00.000Z`))) {
+    throw new Error(`${label} must be YYYY-MM-DD.`);
+  }
+  return text;
+}
+
+function dateInRange(timestamp: string, range: EvidenceQuery['dateRange']): boolean {
+  if (!range) return true;
+  const date = timestamp.slice(0, 10);
+  if (range.from && date < range.from) return false;
+  if (range.to && date > range.to) return false;
+  return true;
+}
+
+function evidenceFileInRange(fileName: string, range: Required<NonNullable<EvidenceQuery['dateRange']>> | NonNullable<EvidenceQuery['dateRange']>): boolean {
+  const date = fileName.slice('evidence-'.length, 'evidence-YYYY-MM-DD'.length);
+  if (range.from && date < range.from) return false;
+  if (range.to && date > range.to) return false;
+  return true;
+}
+
+function evidenceFileNeededForRangeValidation(fileName: string, range: NonNullable<EvidenceQuery['dateRange']>): boolean {
+  const date = fileName.slice('evidence-'.length, 'evidence-YYYY-MM-DD'.length);
+  if (range.to && date > range.to) return false;
+  return true;
+}
+
+function defaultEvidenceDateRange(): Required<NonNullable<EvidenceQuery['dateRange']>> {
+  const now = new Date();
+  const to = now.toISOString().slice(0, 10);
+  const fromDate = new Date(now.getTime() - 6 * 24 * 60 * 60 * 1000);
+  const from = fromDate.toISOString().slice(0, 10);
+  return { from, to };
 }
 
 function sha256(value: string): string {

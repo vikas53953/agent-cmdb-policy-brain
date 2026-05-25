@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdtempSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -95,7 +95,7 @@ describe('Agent CMDB CLI adversarial behavior', () => {
     ]);
 
     expect(result.status).toBe(0);
-    expect(existsSync(join(storeDir, 'evidence.jsonl'))).toBe(true);
+    expect(readdirSync(storeDir).some((file) => /^evidence-\d{4}-\d{2}-\d{2}\.jsonl$/.test(file))).toBe(true);
   });
 
   it('creates a missing change store directory', () => {

@@ -19,7 +19,7 @@ describe('live demo integration', () => {
     expect(day1Output).toContain('[BOOT]       Control plane: HEALTHY');
     expect(day1Output).toContain('[BRAIN]      No prior knowledge');
     expect(day1Output).toContain('[DIGEST]     Generated daily digest');
-    expect(jsonlCount(join(stateDir, 'evidence.jsonl'))).toBeGreaterThanOrEqual(4);
+    expect(evidenceJsonlCount()).toBeGreaterThanOrEqual(4);
     expect(jsonlCount(join(stateDir, 'changes.jsonl'))).toBeGreaterThanOrEqual(3);
     expect(existsSync(join(brainDir, 'entities', 'topics', 'ai-agent-security.md'))).toBe(true);
     expect(readBrainIndexEntityCount()).toBeGreaterThanOrEqual(1);
@@ -48,6 +48,12 @@ function jsonlCount(filePath: string): number {
   return readFileSync(filePath, 'utf8')
     .split('\n')
     .filter((line) => line.trim().length > 0).length;
+}
+
+function evidenceJsonlCount(): number {
+  return readdirSync(stateDir)
+    .filter((file) => /^evidence-\d{4}-\d{2}-\d{2}\.jsonl$/.test(file) || file === 'evidence.jsonl')
+    .reduce((sum, file) => sum + jsonlCount(join(stateDir, file)), 0);
 }
 
 function readBrainIndexEntityCount(): number {

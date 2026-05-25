@@ -1,9 +1,12 @@
 {
   "name": "@pylabmit/agent-cmdb",
-  "version": "2.0.0",
-  "description": "Policy enforcement and memory for AI agents: preflight checks, source routing, and audit trails before your agent acts.",
+  "version": "2.1.0",
+  "description": "Policy evaluation, source routing, and tamper-evident audit logs for AI agents",
   "type": "module",
   "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/vikas53953/agent-cmdb-policy-brain.git"
@@ -53,7 +56,17 @@
     "./route-resolver": {
       "import": "./dist/route-resolver.js",
       "types": "./dist/route-resolver.d.ts"
-    }
+    },
+    "./store": {
+      "import": "./dist/store.js",
+      "types": "./dist/store.d.ts"
+    },
+    "./reliability": {
+      "import": "./dist/reliability.js",
+      "types": "./dist/reliability.d.ts"
+    },
+    "./dist/*": null,
+    "./src/*": null
   },
   "files": [
     "dist",

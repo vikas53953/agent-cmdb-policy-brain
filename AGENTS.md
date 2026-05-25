@@ -34,10 +34,32 @@ Key rules from SHIP v4:
 - No new public exports from engine.ts. Internal functions stay internal.
 - All new state files use the write-queue + hash-chain pattern from store.ts.
 - Health state persists in storeDir/health.json with atomic writes.
-- SLO calculations use a rolling cache file, not full evidence scan.
+- Reliability calculations use a rolling cache file, not full evidence scan.
 - Every new IAgentCMDB method: positive test + negative test + bypass test.
-- Circuit breaker IS the health monitor state machine. Not a separate system.
+- The source health monitor state machine is not marketed as a production circuit breaker.
 - No new npm dependencies. Node built-ins only (crypto, fs, path).
 - Checkpoints use prevHash for tamper detection.
-- Cost tracking is advisory (like V1 freshness). No cost-based deny.
+- Cost estimation is advisory (like V1 freshness). No cost-based deny.
 - All CLI commands have --help with one-line description.
+
+## V2.1 honesty rules
+
+- "Circuit breaker" is now "source health monitor" everywhere user-facing.
+- "SLO" is now "reliability metric" everywhere user-facing.
+- "Cost tracking" is now "cost estimation" everywhere user-facing.
+- "Checkpoint/resume" is now "task checkpoint" everywhere user-facing.
+- "CMDB inventory" is now "object registry" everywhere user-facing.
+- "Control plane" is now "policy library" in user-facing positioning.
+- `evaluatePolicy` never throws for an unknown profile; it returns deny.
+- Half-open allows exactly one probe call before success/failure is recorded.
+- JSONL evidence files rotate daily. Hash chains span file boundaries.
+- `IAgentCMDB` is split into `policy`, `memory`, and `ops` sub-interfaces.
+- Denied preflight returns `route: undefined`.
+- `PreflightResult` is a discriminated union.
+- `resolveRoute()` must use source health state just like `preflight()`.
+- `readOnly` sources must deny write-like actions.
+- `tamperMode: 'fail'` must throw on corrupted JSONL evidence/change stores.
+
+## SHIP v4 amendment: Gate 0.1
+
+Before any code, share the feature list with a model that had no part in the design. Ask: "For each feature name, would a specialist in this domain accept this as a real implementation of that concept?" If the answer is no, rename the feature before writing code.

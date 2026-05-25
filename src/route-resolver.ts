@@ -6,6 +6,7 @@ import type {
   ResolvedSourceRoute,
   SourceFreshnessInput,
   SourceFreshnessStatus,
+  SourceHealth,
   SourceRef,
   SourceRouteRequest
 } from './types.js';
@@ -26,9 +27,9 @@ export function resolveSourceRoute(
 
   const healthBySource = new Map((normalizedRequest.health ?? []).map((health) => [health.sourceId, health]));
   const routeSources = route.sources.map((sourceId) => ensureSource(controlPlane, sourceId));
-  const sources = routeSources.filter((source) => healthBySource.get(source.id)?.status !== 'down');
+  const sources = routeSources.filter((source) => routeSourceAvailable(healthBySource.get(source.id)));
   const skippedSources = routeSources
-    .filter((source) => healthBySource.get(source.id)?.status === 'down')
+    .filter((source) => !routeSourceAvailable(healthBySource.get(source.id)))
     .map((source) => source.id);
 
   return {
@@ -44,6 +45,13 @@ export function resolveSourceRoute(
       normalizedRequest.freshness
     )
   };
+}
+
+function routeSourceAvailable(health: SourceHealth | undefined): boolean {
+  if (!health) return true;
+  if (health.status === 'down') return false;
+  if (health.status === 'half-open' && (health.probeCount ?? 0) > 0) return false;
+  return true;
 }
 
 export function inspectProfile(controlPlane: ControlPlane, profileId: string): ProfileInspection {
@@ -105,6 +113,12 @@ function normalizeHealth(value: unknown): SourceRouteRequest['health'] {
       sourceId: requireNonEmptyString(record.sourceId, 'Source health sourceId'),
       status: status as 'up' | 'down' | 'half-open',
       consecutiveFailures: readNonNegativeNumber(record.consecutiveFailures, 'Source health consecutiveFailures'),
+      probeCount: record.probeCount === undefined
+        ? 0
+        : readNonNegativeNumber(record.probeCount, 'Source health probeCount'),
+      recoveryAttempts: record.recoveryAttempts === undefined
+        ? 0
+        : readNonNegativeNumber(record.recoveryAttempts, 'Source health recoveryAttempts'),
       lastChecked: requireNonEmptyString(record.lastChecked, 'Source health lastChecked'),
       lastFailure: record.lastFailure === undefined
         ? undefined

@@ -42,7 +42,7 @@ type Command =
   | 'digest-weekly'
   | 'doctor'
   | 'health'
-  | 'slo'
+  | 'reliability'
   | 'cost'
   | 'policy'
   | 'route'
@@ -139,13 +139,13 @@ async function main(argv: string[]): Promise<void> {
     return;
   }
 
-  if (parsed.command === 'slo') {
+  if (parsed.command === 'reliability') {
     const cmdb = createAgentCmdb({
       controlPlane,
       storeDir: storeDir(parsed.flags),
       brainDir: brainDir(parsed.flags)
     });
-    printJson(await cmdb.calculateSlo(required(parsed.flags, 'profile')));
+    printJson(await cmdb.ops.calculateReliability(required(parsed.flags, 'profile')));
     return;
   }
 
@@ -170,8 +170,13 @@ async function main(argv: string[]): Promise<void> {
   if (parsed.command === 'route') {
     const profile = required(parsed.flags, 'profile');
     const intent = required(parsed.flags, 'intent');
+    const cmdb = createAgentCmdb({
+      controlPlane,
+      storeDir: storeDir(parsed.flags),
+      brainDir: brainDir(parsed.flags)
+    });
     printJson(
-      resolveSourceRoute(controlPlane, {
+      await cmdb.policy.resolveRoute({
         profile,
         intent,
         freshness: await cliFreshness(controlPlane, parsed.flags)
@@ -308,7 +313,7 @@ function parseArgs(argv: string[]): ParsedArgs {
     'digest-weekly',
     'doctor',
     'health',
-    'slo',
+    'reliability',
     'cost',
     'route',
     'inspect',
@@ -326,7 +331,7 @@ function parseArgs(argv: string[]): ParsedArgs {
 
   if (!command || !commands.includes(command as Command)) {
     throw new Error(
-      'Usage: agent-cmdb <init|policy|route|inspect|inventory|sources|preflight|validate|graph|evidence-add|evidence-list|change-add|change-list|brain|digest|digest-weekly|doctor|health|slo|cost|report> [--key value]'
+      'Usage: agent-cmdb <init|policy|route|inspect|inventory|sources|preflight|validate|graph|evidence-add|evidence-list|change-add|change-list|brain|digest|digest-weekly|doctor|health|reliability|cost|report> [--key value]'
     );
   }
 
@@ -389,21 +394,21 @@ function rootHelp(): string {
     '  preflight       Run a policy preflight check',
     '  policy          Evaluate a policy decision',
     '  route           Resolve a source route',
-    '  doctor          Check control plane, store, and brain health',
-    '  health          Show or reset source health and circuit state',
-    '  slo             Calculate an agent SLO',
-    '  cost            Summarize evidence cost for a profile',
+    '  doctor          Check policy library config, store, and brain health',
+    '  health          Show or reset source health state',
+    '  reliability     Calculate a preflight reliability metric',
+    '  cost            Summarize evidence cost estimates for a profile',
     '  brain           Manage local brain entities',
     '  digest          Generate a daily digest',
     '  digest-weekly   Generate a weekly digest',
-    '  inventory       List CMDB objects',
+    '  inventory       List object registry entries',
     '  graph           Inspect graph neighbors',
     '  evidence-add    Add an evidence record',
     '  evidence-list   List evidence records',
     '  change-add      Add a change record',
     '  change-list     List change records',
     '  report          Print readiness report',
-    '  validate        Validate the control plane',
+    '  validate        Validate the policy library config',
     '',
     'Run agent-cmdb <command> --help for command-specific options.'
   ].join('\n');
@@ -433,7 +438,7 @@ function commandHelp(command: string): string {
       '  --tool <id>          Optional source/tool id',
       '  --intent <name>      Optional route intent',
       '  --dry-run            Evaluate without writing audit records',
-      '  --config <path>      Control-plane YAML or JSON path',
+      '  --config <path>      Policy library YAML or JSON path',
       '  --store <path>       State directory for evidence and changes',
       '  --brain-dir <path>   Brain directory for freshness snapshots'
     ].join('\n');
@@ -443,24 +448,24 @@ function commandHelp(command: string): string {
     return [
       'Usage: agent-cmdb health [--source <id>] [reset --source <id>] [options]',
       '',
-      'Show source health and circuit state, or reset one source to up.',
+      'Show source health state, or reset one source to up.',
       '',
       'Options:',
       '  --source <id>   Optional source id',
-      '  --config <path> Control-plane YAML or JSON path',
+      '  --config <path> Policy library YAML or JSON path',
       '  --store <path>  State directory'
     ].join('\n');
   }
 
-  if (command === 'slo') {
+  if (command === 'reliability') {
     return [
-      'Usage: agent-cmdb slo --profile <id> [options]',
+      'Usage: agent-cmdb reliability --profile <id> [options]',
       '',
-      'Calculate the configured allow-rate SLO for a profile.',
+      'Calculate the configured preflight allow-rate reliability metric for a profile.',
       '',
       'Options:',
       '  --profile <id>  Agent profile id',
-      '  --config <path> Control-plane YAML or JSON path',
+      '  --config <path> Policy library YAML or JSON path',
       '  --store <path>  State directory'
     ].join('\n');
   }
@@ -469,13 +474,171 @@ function commandHelp(command: string): string {
     return [
       'Usage: agent-cmdb cost --profile <id> [--date YYYY-MM-DD] [options]',
       '',
-      'Summarize evidence token and cost records for a profile.',
+      'Summarize evidence token and cost estimates for a profile.',
       '',
       'Options:',
       '  --profile <id>  Agent profile id',
       '  --date <date>   Optional date, YYYY-MM-DD',
-      '  --config <path> Control-plane YAML or JSON path',
+      '  --config <path> Policy library YAML or JSON path',
       '  --store <path>  State directory'
+    ].join('\n');
+  }
+
+  if (command === 'route') {
+    return [
+      'Usage: agent-cmdb route --profile <id> --intent <name> [options]',
+      '',
+      'Resolve a source route using source health state.',
+      '',
+      'Options:',
+      '  --profile <id>  Agent profile id',
+      '  --intent <name> Route intent',
+      '  --config <path> Policy library YAML or JSON path',
+      '  --store <path>  State directory'
+    ].join('\n');
+  }
+
+  if (command === 'brain') {
+    return [
+      'Usage: agent-cmdb brain <list|read|search|create|delete> [options]',
+      '',
+      'Manage local markdown brain entities.',
+      '',
+      'Common options:',
+      '  --brain-dir <path> Brain directory',
+      '  --store <path>     State directory for change logs'
+    ].join('\n');
+  }
+
+  if (command === 'digest' || command === 'digest-weekly') {
+    return [
+      `Usage: agent-cmdb ${command} --profile <id> [options]`,
+      '',
+      command === 'digest' ? 'Generate a daily digest.' : 'Generate a weekly digest.',
+      '',
+      'Options:',
+      '  --profile <id>      Agent profile id',
+      '  --date <date>       Daily digest date, YYYY-MM-DD',
+      '  --week-start <date> Weekly start date, YYYY-MM-DD',
+      '  --store <path>      State directory',
+      '  --brain-dir <path>  Brain directory'
+    ].join('\n');
+  }
+
+  if (command === 'doctor') {
+    return [
+      'Usage: agent-cmdb doctor [options]',
+      '',
+      'Check policy library config, state store, and brain health.',
+      '',
+      'Options:',
+      '  --config <path>    Policy library YAML or JSON path',
+      '  --store <path>     State directory',
+      '  --brain-dir <path> Brain directory'
+    ].join('\n');
+  }
+
+  if (command === 'policy') {
+    return [
+      'Usage: agent-cmdb policy --profile <id> --action <name> [--tool <id>]',
+      '',
+      'Evaluate a policy decision without route or audit side effects.'
+    ].join('\n');
+  }
+
+  if (command === 'inventory') {
+    return [
+      'Usage: agent-cmdb inventory [--profile <id>] [--kind <kind>] [--status <status>] [--tag <tag>]',
+      '',
+      'List object registry entries.'
+    ].join('\n');
+  }
+
+  if (command === 'inspect') {
+    return [
+      'Usage: agent-cmdb inspect --profile <id> [options]',
+      '',
+      'Inspect one agent profile and its configured routes.',
+      '',
+      'Options:',
+      '  --profile <id>  Agent profile id',
+      '  --config <path> Policy library YAML or JSON path'
+    ].join('\n');
+  }
+
+  if (command === 'graph') {
+    return [
+      'Usage: agent-cmdb graph --id <object-id>',
+      '',
+      'Inspect graph neighbors for an object, source, profile, or policy.'
+    ].join('\n');
+  }
+
+  if (command === 'evidence-add') {
+    return [
+      'Usage: agent-cmdb evidence-add --profile <id> --source <id> --intent <name> --summary <text> [options]',
+      '',
+      'Add one evidence record to the dated JSONL evidence store.',
+      '',
+      'Options:',
+      '  --trust <level>       high, medium, or low; defaults to medium',
+      '  --captured-at <iso>   ISO timestamp; defaults to now',
+      '  --links <csv>         Optional comma-separated links',
+      '  --tags <csv>          Optional comma-separated tags',
+      '  --store <path>        State directory'
+    ].join('\n');
+  }
+
+  if (command === 'evidence-list') {
+    return [
+      'Usage: agent-cmdb evidence-list [--profile <id>] [--source <id>] [--intent <name>] [options]',
+      '',
+      'List evidence records from the evidence store.'
+    ].join('\n');
+  }
+
+  if (command === 'change-add') {
+    return [
+      'Usage: agent-cmdb change-add --target <id> --target-type <kind> --action <action> --reason <text> [options]',
+      '',
+      'Add one change record to the JSONL change store.',
+      '',
+      'Options:',
+      '  --actor <id>          Actor id; defaults to codex',
+      '  --changed-at <iso>    ISO timestamp; defaults to now',
+      '  --store <path>        State directory'
+    ].join('\n');
+  }
+
+  if (command === 'change-list') {
+    return [
+      'Usage: agent-cmdb change-list [--target <id>] [--target-type <kind>] [--actor <id>] [--action <action>]',
+      '',
+      'List change records from the change store.'
+    ].join('\n');
+  }
+
+  if (command === 'sources') {
+    return [
+      'Usage: agent-cmdb sources [--config <path>]',
+      '',
+      'List configured source definitions.'
+    ].join('\n');
+  }
+
+  if (command === 'validate') {
+    return [
+      'Usage: agent-cmdb validate [--config <path>]',
+      '',
+      'Validate the policy library config and print issues.'
+    ].join('\n');
+  }
+
+  if (command === 'report') {
+    return [
+      `Usage: agent-cmdb ${command} [options]`,
+      '',
+      'Print a readiness report for the policy library config.'
     ].join('\n');
   }
 
@@ -538,7 +701,6 @@ async function initProject(flags: Record<string, string>): Promise<void> {
   await mkdir(configDir, { recursive: true });
   await mkdir(stateDir, { recursive: true });
   await writeFileIfMissing(join(configDir, 'control-plane.yaml'), initControlPlaneYaml);
-  await writeFileIfMissing(join(stateDir, 'evidence.jsonl'), '');
   await writeFileIfMissing(join(stateDir, 'changes.jsonl'), '');
   await initBrainDir(join(root, 'agent-cmdb', 'brain'));
   await writeFileIfMissing(join(root, 'agent-cmdb.config.ts'), initTypescriptConfig);

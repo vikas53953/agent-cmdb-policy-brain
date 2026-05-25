@@ -1,7 +1,7 @@
 import { evaluatePolicy, normalizePolicyRequest } from './policy-engine.js';
 import { inspectProfile, resolveSourceRoute } from './route-resolver.js';
 import { isSourceAvailable, listSourceHealth } from './health.js';
-import { updateSloCache } from './slo.js';
+import { updateReliabilityCache } from './reliability.js';
 import { appendChange, appendEvidence } from './store.js';
 import type {
   ControlPlane,
@@ -71,6 +71,41 @@ export function evaluatePreflight(
           'Use one of the returned route fallback sources instead of the down requested tool.'
         );
       }
+
+      if (finalDecision.effect === 'allow' && isWriteAction(controlPlane, route, normalizedRequest.action)) {
+        const readOnlySourceIds = route.sources.filter((source) => source.readOnly).map((source) => source.id);
+        const readOnlySource = normalizedRequest.tool && readOnlySourceIds.includes(normalizedRequest.tool)
+          ? route.sources.find((source) => source.id === normalizedRequest.tool)
+          : undefined;
+        if (readOnlySource) {
+          const reason = `Source ${readOnlySource.id} is read-only and the action ${normalizedRequest.action} is a write operation.`;
+          warnings.push(reason);
+          finalDecision = denyDecision(
+            normalizedRequest,
+            'read-only-source-write-blocked',
+            'read_only_source_write_blocked',
+            reason,
+            'Use a read-write source for write operations.'
+          );
+        } else if (readOnlySourceIds.length > 0) {
+          route = {
+            ...route,
+            sources: route.sources.filter((source) => !source.readOnly),
+            skippedSources: [...new Set([...route.skippedSources, ...readOnlySourceIds])]
+          };
+          if (route.sources.length === 0) {
+            const reason = `All route sources are read-only for write action ${normalizedRequest.action}: ${readOnlySourceIds.join(', ')}.`;
+            warnings.push(reason);
+            finalDecision = denyDecision(
+              normalizedRequest,
+              'read-only-route-write-blocked',
+              'read_only_route_write_blocked',
+              reason,
+              'Use a route with at least one read-write source for write operations.'
+            );
+          }
+        }
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       const reason = `Route resolution failed: ${message}`;
@@ -89,15 +124,40 @@ export function evaluatePreflight(
 
   const profile = inspectProfile(controlPlane, normalizedRequest.profile);
 
-  return {
-    allowed: finalDecision.effect === 'allow',
+  const allowed = finalDecision.effect === 'allow';
+  const base = {
+    allowed,
     approvalRequired: finalDecision.effect === 'approval_required',
     decision: finalDecision,
-    route,
-    routeExecutable: finalDecision.effect === 'allow' && Boolean(route),
+    routeExecutable: allowed && Boolean(route),
     guardrails: route?.guardrails ?? profile.guardrails,
-    warnings,
-    dryRun: Boolean(normalizedRequest.dryRun)
+    warnings
+  };
+
+  if (normalizedRequest.dryRun) {
+    return {
+      ...base,
+      ...(allowed ? { route } : {}),
+      dryRun: true,
+      wouldAllow: allowed
+    };
+  }
+
+  if (allowed) {
+    return {
+      ...base,
+      route,
+      allowed: true,
+      approvalRequired: false,
+      dryRun: false
+    };
+  }
+
+  return {
+    ...base,
+    allowed: false,
+    routeExecutable: false,
+    dryRun: false
   };
 }
 
@@ -106,8 +166,17 @@ export async function preflight(
   storeDir: string,
   request: PreflightRequest
 ): Promise<PreflightResult> {
-  await Promise.all(controlPlane.sources.map((source) => isSourceAvailable(controlPlane, storeDir, source.id)));
-  const health = await listSourceHealth(controlPlane, storeDir);
+  const availabilityEntries = await Promise.all(controlPlane.sources.map(async (source) => [
+    source.id,
+    await isSourceAvailable(controlPlane, storeDir, source.id)
+  ] as const));
+  const availability = new Map(availabilityEntries);
+  const health = (await listSourceHealth(controlPlane, storeDir)).map((entry) => {
+    const available = availability.get(entry.sourceId);
+    if (available === false) return { ...entry, status: 'down' as const };
+    if (available === true && entry.status === 'half-open') return { ...entry, status: 'up' as const };
+    return entry;
+  });
   const result = evaluatePreflight(controlPlane, request, { health });
 
   if (result.dryRun) {
@@ -137,7 +206,7 @@ export async function preflight(
     after: result
   });
 
-  await updateSloCache(controlPlane, storeDir, result);
+  await updateReliabilityCache(controlPlane, storeDir, result);
 
   return result;
 }
@@ -223,4 +292,24 @@ function estimateCost(controlPlane: ControlPlane, result: PreflightResult): numb
 
 function skippedSourcesIncludeTool(skippedSources: string[], tool: string): boolean {
   return skippedSources.includes(tool) || skippedSources.includes(`source.${tool}`) || skippedSources.includes(`tool.${tool}`);
+}
+
+function isWriteAction(controlPlane: ControlPlane, route: ResolvedSourceRoute, action: string): boolean {
+  const writeActions = routeWriteActions(controlPlane, route);
+  return writeActions.some((writeAction) => action === writeAction || action.includes(writeAction));
+}
+
+function routeWriteActions(controlPlane: ControlPlane, route: ResolvedSourceRoute): string[] {
+  const profile = controlPlane.profiles.find((candidate) => candidate.id === route.profile);
+  const sourceRoute = profile?.routes.find((candidate) => candidate.intent === route.intent);
+  return sourceRoute?.writeActions ?? controlPlane.writeActions ?? [
+    'create',
+    'update',
+    'delete',
+    'write',
+    'post',
+    'publish',
+    'send',
+    'modify'
+  ];
 }

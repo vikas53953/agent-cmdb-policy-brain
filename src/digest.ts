@@ -2,9 +2,9 @@ import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { initBrainDir, readBrainIndex } from './brain.js';
 import { getCostSummary } from './cost.js';
-import { calculateSlo } from './slo.js';
+import { calculateReliability } from './reliability.js';
 import { listChanges, listEvidence, sanitizeText } from './store.js';
-import type { ChangeRecord, ControlPlane, CostSummary, DigestResult, EvidenceRecord, SloResult } from './types.js';
+import type { ChangeRecord, ControlPlane, CostSummary, DigestResult, EvidenceRecord, ReliabilityResult } from './types.js';
 
 export async function generateDailyDigest(options: {
   profile: string;
@@ -16,17 +16,16 @@ export async function generateDailyDigest(options: {
   const date = normalizeDigestDate(options.date ?? todayString(), 'date');
   const profile = normalizeDigestProfile(options.profile);
   await initBrainDir(options.brainDir);
-  const evidence = (await listEvidence(options.storeDir, { profile }))
-    .filter((record) => record.capturedAt.startsWith(date));
+  const evidence = await listEvidence(options.storeDir, { profile, dateRange: { from: date, to: date } });
   const changes = (await listChanges(options.storeDir))
     .filter((record) => record.changedAt.startsWith(date));
   const index = await readBrainIndex(options.brainDir);
   const updatedEntities = index.entities.filter((entity) => entity.lastUpdated.startsWith(date));
   const digestPath = join(options.brainDir, 'digest', 'daily', `${date}-${profile}.md`);
   const summary = `${evidence.length} evidence, ${changes.length} changes, ${updatedEntities.length} brain updates.`;
-  const slo = options.controlPlane ? await calculateSlo(options.controlPlane, options.storeDir, profile) : undefined;
+  const reliability = options.controlPlane ? await calculateReliability(options.controlPlane, options.storeDir, profile) : undefined;
   const cost = options.controlPlane ? await getCostSummary(options.controlPlane, options.storeDir, profile, date) : undefined;
-  const markdown = renderDailyDigest(profile, date, evidence, changes, updatedEntities, summary, slo, cost);
+  const markdown = renderDailyDigest(profile, date, evidence, changes, updatedEntities, summary, reliability, cost);
 
   await mkdir(join(options.brainDir, 'digest', 'daily'), { recursive: true });
   await writeFile(digestPath, markdown, 'utf8');
@@ -56,7 +55,7 @@ export async function generateWeeklyDigest(options: {
   await mkdir(weeklyDir, { recursive: true });
   const dates = sevenDayWindow(weekStart);
   const dateSet = new Set(dates);
-  const evidence = (await listEvidence(options.storeDir, { profile }))
+  const evidence = (await listEvidence(options.storeDir, { profile, dateRange: { from: dates[0], to: dates[dates.length - 1] } }))
     .filter((record) => dateSet.has(record.capturedAt.slice(0, 10)));
   const changes = (await listChanges(options.storeDir))
     .filter((record) => dateSet.has(record.changedAt.slice(0, 10)));
@@ -93,7 +92,7 @@ function renderDailyDigest(
   changes: ChangeRecord[],
   entities: Array<{ id: string; name: string; lastUpdatedBy: string }>,
   summary: string,
-  slo?: SloResult,
+  reliability?: ReliabilityResult,
   cost?: CostSummary
 ): string {
   return `# Daily digest: ${profile} - ${date}
@@ -110,11 +109,11 @@ ${changes.map((record) => `- ${record.action} ${record.target}: ${sanitizeText(r
 
 ${entities.map((entity) => `- ${entity.name} - updated by ${entity.lastUpdatedBy}`).join('\n') || '- None'}
 
-## SLO
+## Reliability
 
-${slo ? `- Allow rate: ${(slo.actual * 100).toFixed(2)}% (target ${(slo.target * 100).toFixed(2)}%)
-- Within budget: ${slo.withinBudget ? 'yes' : 'no'}
-- Decisions: ${slo.totalDecisions}` : '- Not configured'}
+${reliability ? `- Preflight allow rate: ${(reliability.actual * 100).toFixed(2)}% (target ${(reliability.target * 100).toFixed(2)}%)
+- Within budget: ${reliability.withinBudget ? 'yes' : 'no'}
+- Decisions: ${reliability.totalDecisions}` : '- Not configured'}
 
 ## Cost
 

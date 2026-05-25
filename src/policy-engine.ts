@@ -8,7 +8,19 @@ const effectRank: Record<PolicyEffect, number> = {
 
 export function evaluatePolicy(controlPlane: ControlPlane, request: PolicyRequest): PolicyDecision {
   const normalizedRequest = normalizePolicyRequest(request);
-  ensureProfileExists(controlPlane, normalizedRequest.profile);
+  if (!profileExists(controlPlane, normalizedRequest.profile)) {
+    return {
+      effect: 'deny',
+      ruleId: 'unknown-profile',
+      code: 'unknown_profile',
+      reason: `Profile ${normalizedRequest.profile} is not defined in the control plane.`,
+      profile: normalizedRequest.profile,
+      action: normalizedRequest.action,
+      tool: normalizedRequest.tool,
+      canEscalate: false,
+      suggestedAlternative: 'Add the profile to the policy library before evaluating this action.'
+    };
+  }
   const blockedObject = findUnavailableReferencedObject(controlPlane, normalizedRequest);
 
   if (blockedObject) {
@@ -133,10 +145,8 @@ function findUnavailableReferencedObject(controlPlane: ControlPlane, request: Po
   ));
 }
 
-function ensureProfileExists(controlPlane: ControlPlane, profileId: string): void {
-  if (!controlPlane.profiles.some((candidate) => candidate.id === profileId)) {
-    throw new Error(`Unknown profile: ${profileId}.`);
-  }
+function profileExists(controlPlane: ControlPlane, profileId: string): boolean {
+  return controlPlane.profiles.some((candidate) => candidate.id === profileId);
 }
 
 function requireRecord(value: unknown, label: string): Record<string, unknown> {

@@ -144,7 +144,7 @@ describe('Agent CMDB store adversarial behavior', () => {
       capturedAt: '2026-05-24T00:01:00.000Z'
     });
 
-    const evidencePath = join(storeDir, 'evidence.jsonl');
+    const evidencePath = join(storeDir, 'evidence-2026-05-24.jsonl');
     const lines = readFileSync(evidencePath, 'utf8').trim().split(/\r?\n/);
     const first = JSON.parse(lines[0]) as { prevHash: string };
     const second = JSON.parse(lines[1]) as { prevHash: string };

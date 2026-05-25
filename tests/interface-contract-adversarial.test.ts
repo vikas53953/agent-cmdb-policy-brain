@@ -29,13 +29,11 @@ describe('IAgentCMDB adversarial contract', () => {
     ).rejects.toThrow('Policy request action must be a non-empty string.');
   });
 
-  it('rejects missing route input with a descriptive error', () => {
+  it('rejects missing route input with a descriptive error', async () => {
     const cmdb = makeCmdb();
 
-    expect(() =>
-      // @ts-expect-error runtime adversarial input
-      cmdb.resolveRoute(undefined)
-    ).toThrow('Source route request must be an object.');
+    // @ts-expect-error runtime adversarial input
+    await expect(cmdb.resolveRoute(undefined)).rejects.toThrow('Source route request must be an object.');
   });
 
   it('rejects malformed evidence input before writing', async () => {

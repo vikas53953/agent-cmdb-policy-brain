@@ -1,5 +1,8 @@
 import { appendChange, readJsonState, writeJsonState } from './store.js';
-import type { CircuitState, ControlPlane, SourceHealth, SourceHealthConfig } from './types.js';
+import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import type { ControlPlane, HealthGateState, SourceHealth, SourceHealthConfig } from './types.js';
 
 interface HealthState {
   sources: SourceHealth[];
@@ -11,6 +14,7 @@ const defaultHealthConfig: Required<SourceHealthConfig> = {
   failureThreshold: 5,
   recoveryTimeoutMs: 30_000
 };
+const maxRecoveryTimeoutMs = 300_000;
 
 export async function recordSourceSuccess(
   controlPlane: ControlPlane,
@@ -34,6 +38,8 @@ export async function recordSourceSuccess(
     sourceId,
     status: 'up',
     consecutiveFailures: 0,
+    probeCount: 0,
+    recoveryAttempts: 0,
     lastChecked: now,
     lastFailure: current.lastFailure,
     lastSuccess: now
@@ -61,17 +67,25 @@ export async function recordSourceFailure(
   const current = getHealthFromState(state, sourceId);
   const config = healthConfig(controlPlane, sourceId);
   const now = new Date().toISOString();
-  const consecutiveFailures = current.status === 'half-open'
+  const recoveredForProbe = current.status === 'down' && recoveryElapsed(controlPlane, current);
+  const effectiveCurrent: SourceHealth = recoveredForProbe
+    ? { ...current, status: 'half-open', probeCount: 1, lastChecked: now }
+    : current;
+  const consecutiveFailures = effectiveCurrent.status === 'half-open'
     ? config.failureThreshold
-    : current.consecutiveFailures + 1;
+    : effectiveCurrent.consecutiveFailures + 1;
   const status: SourceHealth['status'] = consecutiveFailures >= config.failureThreshold ? 'down' : 'up';
   const next: SourceHealth = {
     sourceId,
     status,
     consecutiveFailures,
+    probeCount: 0,
+    recoveryAttempts: status === 'down' && effectiveCurrent.status === 'half-open'
+      ? Math.min((effectiveCurrent.recoveryAttempts ?? 0) + 1, 32)
+      : effectiveCurrent.recoveryAttempts ?? 0,
     lastChecked: now,
     lastFailure: now,
-    lastSuccess: current.lastSuccess
+    lastSuccess: effectiveCurrent.lastSuccess
   };
 
   await writeHealthEntry(storeDir, state, next);
@@ -110,7 +124,19 @@ export async function isSourceAvailable(
   const state = await readHealthState(storeDir);
   const current = getHealthFromState(state, sourceId);
 
-  if (current.status === 'up' || current.status === 'half-open') {
+  if (current.status === 'up') {
+    return true;
+  }
+
+  if (current.status === 'half-open') {
+    if ((current.probeCount ?? 0) > 0) {
+      return false;
+    }
+    await writeHealthEntry(storeDir, state, {
+      ...current,
+      probeCount: 1,
+      lastChecked: new Date().toISOString()
+    });
     return true;
   }
 
@@ -121,17 +147,18 @@ export async function isSourceAvailable(
   const next: SourceHealth = {
     ...current,
     status: 'half-open',
+    probeCount: 1,
     lastChecked: new Date().toISOString()
   };
   await writeHealthEntry(storeDir, state, next);
   return true;
 }
 
-export async function getCircuitState(
+export async function getHealthState(
   controlPlane: ControlPlane,
   storeDir: string,
   sourceId: string
-): Promise<CircuitState> {
+): Promise<HealthGateState> {
   const health = await getSourceHealth(controlPlane, storeDir, sourceId);
   if (health.status === 'down') return 'open';
   if (health.status === 'half-open') return 'half-open';
@@ -150,6 +177,8 @@ export async function resetSourceHealth(
     sourceId,
     status: 'up',
     consecutiveFailures: 0,
+    probeCount: 0,
+    recoveryAttempts: 0,
     lastChecked: now,
     lastSuccess: now
   };
@@ -167,7 +196,35 @@ export async function resetSourceHealth(
 }
 
 async function readHealthState(storeDir: string): Promise<HealthState> {
-  return readJsonState<HealthState>(storeDir, healthFile, { sources: [] }, parseHealthState);
+  try {
+    return await readJsonState<HealthState>(storeDir, healthFile, { sources: [] }, parseHealthState);
+  } catch {
+    return {
+      sources: [],
+      warnings: [healthTamperWarning()]
+    };
+  }
+}
+
+export function readHealthWarningsSync(storeDir: string): string[] {
+  try {
+    const raw = readFileSync(join(storeDir, healthFile), 'utf8');
+    if (!raw.trim()) return [];
+    const parsed = JSON.parse(raw) as { prevHash?: unknown };
+    if (typeof parsed.prevHash === 'string' && parsed.prevHash.length > 0 && parsed.prevHash !== hashHealthPayload(parsed)) {
+      return [healthTamperWarning()];
+    }
+    return [];
+  } catch (error) {
+    if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT') {
+      return [];
+    }
+    return [healthTamperWarning()];
+  }
+}
+
+function healthTamperWarning(): string {
+  return 'Health state was tampered. All sources reset to up. Re-record failures to rebuild health state.';
 }
 
 async function writeHealthEntry(storeDir: string, state: HealthState, entry: SourceHealth): Promise<void> {
@@ -187,17 +244,25 @@ function getHealthFromState(state: HealthState, sourceId: string): SourceHealth 
   if (!state.warnings || state.warnings.length === 0) return health;
 
   return {
-    ...health,
-    status: 'down',
-    consecutiveFailures: Math.max(health.consecutiveFailures, healthConfigFromStateFallback()),
-    warnings: state.warnings
+    sourceId,
+    status: 'up',
+    consecutiveFailures: 0,
+    probeCount: 0,
+    recoveryAttempts: 0,
+    lastChecked: new Date(0).toISOString(),
+    warnings: ['Health state was tampered. All sources reset to up. Re-record failures to rebuild health state.']
   };
 }
 
 function recoveryElapsed(controlPlane: ControlPlane, health: SourceHealth): boolean {
   if (!health.lastFailure) return true;
   const elapsedMs = Date.now() - Date.parse(health.lastFailure);
-  return elapsedMs >= healthConfig(controlPlane, health.sourceId).recoveryTimeoutMs;
+  return elapsedMs >= effectiveRecoveryTimeoutMs(controlPlane, health);
+}
+
+function effectiveRecoveryTimeoutMs(controlPlane: ControlPlane, health: SourceHealth): number {
+  const base = healthConfig(controlPlane, health.sourceId).recoveryTimeoutMs;
+  return Math.min(base * 2 ** (health.recoveryAttempts ?? 0), maxRecoveryTimeoutMs);
 }
 
 function healthConfig(controlPlane: ControlPlane, sourceId: string): Required<SourceHealthConfig> {
@@ -237,6 +302,8 @@ function parseSourceHealth(value: unknown): SourceHealth {
     sourceId: readString(record, 'sourceId', 'Source health sourceId'),
     status: status as SourceHealth['status'],
     consecutiveFailures: readNumber(record, 'consecutiveFailures', 'Source health consecutiveFailures'),
+    probeCount: optionalNumber(record, 'probeCount') ?? 0,
+    recoveryAttempts: optionalNumber(record, 'recoveryAttempts') ?? 0,
     lastChecked: readString(record, 'lastChecked', 'Source health lastChecked'),
     lastFailure: optionalString(record, 'lastFailure'),
     lastSuccess: optionalString(record, 'lastSuccess')
@@ -271,6 +338,35 @@ function readNumber(record: Record<string, unknown>, key: string, label: string)
   return value;
 }
 
-function healthConfigFromStateFallback(): number {
-  return defaultHealthConfig.failureThreshold;
+function optionalNumber(record: Record<string, unknown>, key: string): number | undefined {
+  if (record[key] === undefined) return undefined;
+  return readNumber(record, key, key);
+}
+
+function hashHealthPayload(value: Record<string, unknown>): string {
+  return sha256(stableStringify(stripHashFields(value)));
+}
+
+function stripHashFields(value: Record<string, unknown>): Record<string, unknown> {
+  const clone = { ...value };
+  delete clone.prevHash;
+  delete clone.warnings;
+  return clone;
+}
+
+function stableStringify(value: unknown): string {
+  if (Array.isArray(value)) {
+    return `[${value.map(stableStringify).join(',')}]`;
+  }
+  if (value && typeof value === 'object') {
+    const entries = Object.entries(value as Record<string, unknown>)
+      .filter(([, entryValue]) => entryValue !== undefined)
+      .sort(([left], [right]) => left.localeCompare(right));
+    return `{${entries.map(([key, entryValue]) => `${JSON.stringify(key)}:${stableStringify(entryValue)}`).join(',')}}`;
+  }
+  return JSON.stringify(value);
+}
+
+function sha256(value: string): string {
+  return createHash('sha256').update(value).digest('hex');
 }

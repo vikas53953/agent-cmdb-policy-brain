@@ -21,9 +21,9 @@ function runtimeControlPlane(overrides: Partial<ControlPlane> = {}): ControlPlan
     })),
     profiles: (overrides.profiles ?? base.profiles).map((profile) => ({
       ...profile,
-      slo: profile.id === 'research-agent'
+      reliability: profile.id === 'research-agent'
         ? { target: 0.95, windowHours: 24, metric: 'allow_rate' }
-        : profile.slo
+        : profile.reliability
     }))
   };
 }
@@ -32,15 +32,15 @@ function tempStore(prefix = 'agent-cmdb-v2-'): string {
   return mkdtempSync(join(tmpdir(), prefix));
 }
 
-describe('V2 source health and circuit breakers', () => {
+describe('V2 source health and source health monitors', () => {
   it('starts unknown sources as available/up by default', async () => {
     const cmdb = createAgentCmdb({ controlPlane: runtimeControlPlane(), storeDir: tempStore() });
 
     await expect(cmdb.isSourceAvailable('web-search-api')).resolves.toBe(true);
-    await expect(cmdb.getCircuitState('web-search-api')).resolves.toBe('closed');
+    await expect(cmdb.getHealthState('web-search-api')).resolves.toBe('closed');
   });
 
-  it('records failures and opens the circuit at the configured threshold', async () => {
+  it('records failures and marks the source down at the configured threshold', async () => {
     const cmdb = createAgentCmdb({ controlPlane: runtimeControlPlane(), storeDir: tempStore() });
 
     expect((await cmdb.recordSourceFailure('web-search-api')).status).toBe('up');
@@ -48,10 +48,10 @@ describe('V2 source health and circuit breakers', () => {
 
     expect(health.status).toBe('down');
     expect(health.consecutiveFailures).toBe(2);
-    await expect(cmdb.getCircuitState('web-search-api')).resolves.toBe('open');
+    await expect(cmdb.getHealthState('web-search-api')).resolves.toBe('open');
   });
 
-  it('does not close a down circuit from a success before half-open recovery', async () => {
+  it('does not close a down source from a success before half-open recovery', async () => {
     const controlPlane = runtimeControlPlane({
       sources: runtimeControlPlane().sources.map((source) => source.id === 'web-search-api'
         ? { ...source, health: { failureThreshold: 1, recoveryTimeoutMs: 30_000 } }
@@ -77,10 +77,10 @@ describe('V2 source health and circuit breakers', () => {
     await cmdb.recordSourceFailure('web-search-api');
 
     await expect(cmdb.isSourceAvailable('web-search-api')).resolves.toBe(true);
-    await expect(cmdb.getCircuitState('web-search-api')).resolves.toBe('half-open');
+    await expect(cmdb.getHealthState('web-search-api')).resolves.toBe('half-open');
   });
 
-  it('closes a half-open circuit after success', async () => {
+  it('recovers a half-open source after success', async () => {
     const controlPlane = runtimeControlPlane({
       sources: runtimeControlPlane().sources.map((source) => source.id === 'web-search-api'
         ? { ...source, health: { failureThreshold: 1, recoveryTimeoutMs: 0 } }
@@ -112,10 +112,10 @@ describe('V2 source health and circuit breakers', () => {
       intent: 'web_research'
     });
 
-    await expect(cmdb.getCircuitState('web-search-api')).resolves.toBe('half-open');
+    await expect(cmdb.getHealthState('web-search-api')).resolves.toBe('half-open');
   });
 
-  it('reopens a half-open circuit after failure', async () => {
+  it('marks a half-open source down after failure', async () => {
     const controlPlane = runtimeControlPlane({
       sources: runtimeControlPlane().sources.map((source) => source.id === 'web-search-api'
         ? { ...source, health: { failureThreshold: 1, recoveryTimeoutMs: 0 } }
@@ -145,8 +145,7 @@ describe('V2 source health and circuit breakers', () => {
 
     expect(result.allowed).toBe(false);
     expect(result.decision.ruleId).toBe('requested-tool-down');
-    expect(result.route?.skippedSources).toContain('web-search-api');
-    expect(result.route?.sources.map((source) => source.id)).not.toContain('web-search-api');
+    expect('route' in result).toBe(false);
   });
 
   it('skips down route sources and allows fallback when no specific down tool is requested', async () => {
@@ -223,17 +222,17 @@ describe('V2 source health and circuit breakers', () => {
   });
 });
 
-describe('V2 SLO and cost tracking', () => {
-  it('updates SLO cache on audited preflight calls', async () => {
+describe('V2 reliability and cost estimation', () => {
+  it('updates reliability cache on audited preflight calls', async () => {
     const cmdb = createAgentCmdb({ controlPlane: runtimeControlPlane(), storeDir: tempStore() });
 
     await cmdb.preflight({ profile: 'research-agent', action: 'web_research', tool: 'web-search-api' });
     await cmdb.preflight({ profile: 'research-agent', action: 'unknown_action', tool: 'web-search-api' });
-    const slo = await cmdb.calculateSlo('research-agent');
+    const reliability = await cmdb.calculateReliability('research-agent');
 
-    expect(slo.totalDecisions).toBe(2);
-    expect(slo.allowedCount).toBe(1);
-    expect(slo.deniedCount).toBe(1);
+    expect(reliability.totalDecisions).toBe(2);
+    expect(reliability.allowedCount).toBe(1);
+    expect(reliability.deniedCount).toBe(1);
   });
 
   it('reports within budget for 97 allowed decisions out of 100', async () => {
@@ -246,9 +245,9 @@ describe('V2 SLO and cost tracking', () => {
       await cmdb.preflight({ profile: 'research-agent', action: `unknown_action_${index}`, tool: 'web-search-api' });
     }
 
-    const slo = await cmdb.calculateSlo('research-agent');
-    expect(slo.totalDecisions).toBe(100);
-    expect(slo.withinBudget).toBe(true);
+    const reliability = await cmdb.calculateReliability('research-agent');
+    expect(reliability.totalDecisions).toBe(100);
+    expect(reliability.withinBudget).toBe(true);
   });
 
   it('reports exhausted budget for 93 allowed decisions out of 100', async () => {
@@ -261,23 +260,23 @@ describe('V2 SLO and cost tracking', () => {
       await cmdb.preflight({ profile: 'research-agent', action: `blocked_action_${index}`, tool: 'web-search-api' });
     }
 
-    const slo = await cmdb.calculateSlo('research-agent');
-    expect(slo.totalDecisions).toBe(100);
-    expect(slo.withinBudget).toBe(false);
+    const reliability = await cmdb.calculateReliability('research-agent');
+    expect(reliability.totalDecisions).toBe(100);
+    expect(reliability.withinBudget).toBe(false);
   });
 
-  it('treats zero SLO decisions as healthy', async () => {
+  it('treats zero reliability decisions as healthy', async () => {
     const cmdb = createAgentCmdb({ controlPlane: runtimeControlPlane(), storeDir: tempStore() });
-    const slo = await cmdb.calculateSlo('research-agent');
+    const reliability = await cmdb.calculateReliability('research-agent');
 
-    expect(slo.totalDecisions).toBe(0);
-    expect(slo.actual).toBe(1);
-    expect(slo.withinBudget).toBe(true);
+    expect(reliability.totalDecisions).toBe(0);
+    expect(reliability.actual).toBe(1);
+    expect(reliability.withinBudget).toBe(true);
   });
 
-  it('lets profiles without SLO config run preflight normally', async () => {
+  it('lets profiles without reliability config run preflight normally', async () => {
     const controlPlane = runtimeControlPlane({
-      profiles: runtimeControlPlane().profiles.map((profile) => ({ ...profile, slo: undefined }))
+      profiles: runtimeControlPlane().profiles.map((profile) => ({ ...profile, reliability: undefined }))
     });
     const cmdb = createAgentCmdb({ controlPlane, storeDir: tempStore() });
 
@@ -344,10 +343,10 @@ describe('V2 SLO and cost tracking', () => {
     expect(summary.bySource[0].cost).toBe(0);
   });
 
-  it('rejects SLO calculation for an unknown profile', async () => {
+  it('rejects reliability calculation for an unknown profile', async () => {
     const cmdb = createAgentCmdb({ controlPlane: runtimeControlPlane(), storeDir: tempStore() });
 
-    await expect(cmdb.calculateSlo('missing-profile')).rejects.toThrow('Unknown profile: missing-profile.');
+    await expect(cmdb.calculateReliability('missing-profile')).rejects.toThrow('Unknown profile: missing-profile.');
   });
 
   it('rejects malformed cost dates', async () => {
@@ -466,12 +465,12 @@ describe('V2 public surface and CLI', () => {
     expect(output).toContain('--source');
   });
 
-  it('prints SLO help text', () => {
-    const output = execFileSync(process.execPath, [tsxCli, join(process.cwd(), 'src', 'cli.ts'), 'slo', '--help'], {
+  it('prints reliability help text', () => {
+    const output = execFileSync(process.execPath, [tsxCli, join(process.cwd(), 'src', 'cli.ts'), 'reliability', '--help'], {
       encoding: 'utf8'
     });
 
-    expect(output).toContain('agent-cmdb slo');
+    expect(output).toContain('agent-cmdb reliability');
     expect(output).toContain('--profile');
   });
 
@@ -517,12 +516,12 @@ describe('V2 public surface and CLI', () => {
     expect(output).toContain('"status": "up"');
   });
 
-  it('runs SLO command from the CLI', () => {
-    const cwd = tempStore('agent-cmdb-cli-slo-');
+  it('runs reliability command from the CLI', () => {
+    const cwd = tempStore('agent-cmdb-cli-reliability-');
     const output = execFileSync(process.execPath, [
       tsxCli,
       join(process.cwd(), 'src', 'cli.ts'),
-      'slo',
+      'reliability',
       '--profile',
       'research-agent',
       '--config',
@@ -562,7 +561,7 @@ describe('V2 public surface and CLI', () => {
     expect(existsSync(join(storeDir, 'health.json'))).toBe(true);
   });
 
-  it('fails closed when health state is tampered', async () => {
+  it('resets source health to up when health state is tampered', async () => {
     const storeDir = tempStore();
     const cmdb = createAgentCmdb({ controlPlane: runtimeControlPlane(), storeDir });
 
@@ -572,22 +571,22 @@ describe('V2 public surface and CLI', () => {
     writeFileSync(healthPath, readFileSync(healthPath, 'utf8').replace('"status": "down"', '"status": "up"'), 'utf8');
 
     const health = await cmdb.getSourceHealth('web-search-api');
-    expect(health.status).toBe('down');
-    expect(health.warnings?.[0]).toContain('hash');
-    await expect(cmdb.getCircuitState('web-search-api')).resolves.toBe('open');
+    expect(health.status).toBe('up');
+    expect(health.warnings?.[0]).toContain('tampered');
+    await expect(cmdb.getHealthState('web-search-api')).resolves.toBe('closed');
   });
 
-  it('reports forged SLO cache as out of budget with warnings', async () => {
+  it('reports forged reliability cache as out of budget with warnings', async () => {
     const storeDir = tempStore();
     const cmdb = createAgentCmdb({ controlPlane: runtimeControlPlane(), storeDir });
 
     await cmdb.preflight({ profile: 'research-agent', action: 'blocked_action', tool: 'web-search-api' });
-    const cachePath = join(storeDir, 'slo-cache', 'research-agent.json');
+    const cachePath = join(storeDir, 'reliability-cache', 'research-agent.json');
     writeFileSync(cachePath, readFileSync(cachePath, 'utf8').replace('"denied": 1', '"denied": 0'), 'utf8');
 
-    const slo = await cmdb.calculateSlo('research-agent');
-    expect(slo.withinBudget).toBe(false);
-    expect(slo.actual).toBe(0);
-    expect(slo.warnings?.[0]).toContain('hash');
+    const reliability = await cmdb.calculateReliability('research-agent');
+    expect(reliability.withinBudget).toBe(false);
+    expect(reliability.actual).toBe(0);
+    expect(reliability.warnings?.[0]).toContain('hash');
   });
 });

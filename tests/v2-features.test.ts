@@ -61,7 +61,7 @@ describe('Agent CMDB V2 preflight', () => {
     expect(result.decision.canEscalate).toBe(false);
     expect(result.decision.reason).toBe('Object tool.social-media-tool is blocked.');
     expect(result.decision.suggestedAlternative).toContain('active source or tool');
-    expect(result.route?.sources[0].id).toBe('web-search-api');
+    expect('route' in result).toBe(false);
   });
 
   it('allows Research read-only research and attaches source route', () => {

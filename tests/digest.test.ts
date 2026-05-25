@@ -249,8 +249,8 @@ describe('Agent CMDB digest', () => {
     });
 
     expect(result.evidenceCount).toBe(1);
-    expect(result.changesCount).toBe(1);
+    expect(result.changesCount).toBe(2);
     expect(result.entitiesUpdated).toEqual(['weekly-topic']);
-    expect(result.summary).toBe('1 evidence, 1 changes, 1 brain updates, 0 daily digests rolled up.');
+    expect(result.summary).toBe('1 evidence, 2 changes, 1 brain updates, 0 daily digests rolled up.');
   });
 });

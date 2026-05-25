@@ -84,7 +84,8 @@ function parseControlPlane(value: unknown): ControlPlane {
     profiles: readArray(root, 'profiles', 'Control plane profiles').map(parseAgentProfile),
     policies: readArray(root, 'policies', 'Control plane policies').map(parsePolicyRule),
     objects: readArray(root, 'objects', 'Control plane objects').map(parseCmdbObject),
-    relationships: readArray(root, 'relationships', 'Control plane relationships').map(parseRelationship)
+    relationships: readArray(root, 'relationships', 'Control plane relationships').map(parseRelationship),
+    writeActions: optionalStringArray(root, 'writeActions', 'Control plane writeActions')
   };
 }
 
@@ -117,7 +118,7 @@ function parseAgentProfile(value: unknown): AgentProfile {
     purpose: readString(record, 'purpose', 'Profile purpose'),
     guardrails: readStringArray(record, 'guardrails', 'Profile guardrails'),
     routes: readArray(record, 'routes', 'Profile routes').map(parseSourceRoute),
-    slo: parseOptionalSloConfig(record.slo)
+    reliability: parseOptionalReliabilityConfig(record.reliability)
   };
 }
 
@@ -128,7 +129,8 @@ function parseSourceRoute(value: unknown): AgentProfile['routes'][number] {
     intent: readString(record, 'intent', 'Source route intent'),
     sources: readStringArray(record, 'sources', 'Source route sources'),
     notes: optionalString(record, 'notes'),
-    blockOnStale: optionalBoolean(record, 'blockOnStale')
+    blockOnStale: optionalBoolean(record, 'blockOnStale'),
+    writeActions: optionalStringArray(record, 'writeActions', 'Source route writeActions')
   };
 }
 
@@ -248,20 +250,20 @@ function parseOptionalHealthConfig(value: unknown): SourceRef['health'] {
   };
 }
 
-function parseOptionalSloConfig(value: unknown): AgentProfile['slo'] {
+function parseOptionalReliabilityConfig(value: unknown): AgentProfile['reliability'] {
   if (value === undefined) return undefined;
-  const record = requireRecord(value, 'Profile SLO');
-  const metric = readString(record, 'metric', 'Profile SLO metric');
+  const record = requireRecord(value, 'Profile reliability');
+  const metric = readString(record, 'metric', 'Profile reliability metric');
   if (metric !== 'allow_rate') {
-    throw new ControlPlaneLoadError(`Profile SLO metric has invalid value ${metric}.`);
+    throw new ControlPlaneLoadError(`Profile reliability metric has invalid value ${metric}.`);
   }
   const target = optionalNonNegativeNumber(record, 'target');
   const windowHours = optionalNonNegativeNumber(record, 'windowHours');
   if (target === undefined || target > 1) {
-    throw new ControlPlaneLoadError('Profile SLO target must be between 0 and 1.');
+    throw new ControlPlaneLoadError('Profile reliability target must be between 0 and 1.');
   }
   if (windowHours === undefined || windowHours <= 0) {
-    throw new ControlPlaneLoadError('Profile SLO windowHours must be greater than 0.');
+    throw new ControlPlaneLoadError('Profile reliability windowHours must be greater than 0.');
   }
   return {
     target,
