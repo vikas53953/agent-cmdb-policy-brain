@@ -141,11 +141,17 @@ export function createAgentCmdb(options: AgentCmdbOptions = {}): IAgentCMDB {
       return preflight(controlPlane, storeDir, request, { tamperMode });
     },
     async resolveRoute(request: SourceRouteRequest): Promise<ResolvedSourceRoute> {
-      if (!request || typeof request !== 'object' || Array.isArray(request)) {
-        throw new Error('Source route request must be an object.');
+      const fallback = fallbackRouteRequest(request);
+      try {
+        if (!request || typeof request !== 'object' || Array.isArray(request)) {
+          throw new Error('Source route request must be an object.');
+        }
+        const healthState = await listSourceHealth(controlPlane, storeDir, tamperMode);
+        return resolveSourceRoute(controlPlane, { ...request, health: healthState });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        return emptyRouteResult(fallback.profile, fallback.intent, message);
       }
-      const healthState = await listSourceHealth(controlPlane, storeDir, tamperMode);
-      return resolveSourceRoute(controlPlane, { ...request, health: healthState });
     },
     validate(): ValidationIssue[] {
       return validateControlPlane(controlPlane);
@@ -250,4 +256,29 @@ async function requireBrainDir(brainDir: string | undefined): Promise<string> {
   }
   await initBrainDir(brainDir);
   return brainDir;
+}
+
+function fallbackRouteRequest(request: unknown): SourceRouteRequest {
+  const record = request && typeof request === 'object' && !Array.isArray(request)
+    ? request as Record<string, unknown>
+    : {};
+  return {
+    profile: typeof record.profile === 'string' && record.profile.trim() ? record.profile : 'unknown-profile',
+    intent: typeof record.intent === 'string' && record.intent.trim() ? record.intent : 'unknown-intent'
+  };
+}
+
+function emptyRouteResult(profile: string, intent: string, warning: string): ResolvedSourceRoute {
+  return {
+    profile,
+    intent,
+    sources: [],
+    skippedSources: [],
+    guardrails: [],
+    notes: undefined,
+    blockOnStale: false,
+    staleSourceIds: [],
+    freshness: [],
+    warnings: [warning]
+  } as ResolvedSourceRoute & { warnings: string[] };
 }

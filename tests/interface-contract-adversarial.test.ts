@@ -39,11 +39,23 @@ describe('IAgentCMDB adversarial contract', () => {
     });
   });
 
-  it('rejects missing route input with a descriptive error', async () => {
+  it('fails closed for missing route input with an empty route and warning', async () => {
     const cmdb = makeCmdb();
 
-    // @ts-expect-error runtime adversarial input
-    await expect(cmdb.policy.resolveRoute(undefined)).rejects.toThrow('Source route request must be an object.');
+    await expect(
+      // @ts-expect-error runtime adversarial input
+      cmdb.policy.resolveRoute(undefined)
+    ).resolves.toMatchObject({
+      profile: 'unknown-profile',
+      intent: 'unknown-intent',
+      sources: [],
+      skippedSources: [],
+      guardrails: [],
+      warnings: ['Source route request must be an object.'],
+      blockOnStale: false,
+      staleSourceIds: [],
+      freshness: []
+    });
   });
 
   it('rejects malformed evidence input before writing', async () => {
