@@ -95,7 +95,7 @@ describe('Agent CMDB policy adversarial behavior', () => {
     expect(decision.ruleId).toBe('global-deny');
   });
 
-  it('matches wildcard actions, profiles, and tools as a catch-all rule', () => {
+  it('collapses legacy approval_required wildcard catch-all rules to explicit denies', () => {
     const decision = evaluatePolicy(
       withPolicies([
         {
@@ -105,13 +105,15 @@ describe('Agent CMDB policy adversarial behavior', () => {
           actions: ['*'],
           tools: ['*'],
           reason: 'Everything must be approved.'
-        }
+        } as unknown as PolicyRule
       ]),
       { profile: 'research-agent', action: 'brand_new_action', tool: 'web-search-api' }
     );
 
-    expect(decision.effect).toBe('approval_required');
+    expect(decision.effect).toBe('deny');
     expect(decision.ruleId).toBe('catch-all-approval');
+    expect(decision.code).toBe('needs_approval');
+    expect(decision.canEscalate).toBe(false);
   });
 
   it('does not match wildcard tool rules when the request has no tool', () => {

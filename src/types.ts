@@ -1,4 +1,4 @@
-export type PolicyEffect = 'allow' | 'deny' | 'approval_required';
+export type PolicyEffect = 'allow' | 'deny';
 export type ObjectKind = 'profile' | 'source' | 'tool' | 'job' | 'memory' | 'policy' | 'workspace';
 export type ObjectStatus = 'active' | 'paused' | 'blocked' | 'planned';
 export type TrustLevel = 'high' | 'medium' | 'low';

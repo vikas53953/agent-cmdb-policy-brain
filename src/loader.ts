@@ -150,7 +150,7 @@ function parseSourceRoute(value: unknown): AgentProfile['routes'][number] {
 function parsePolicyRule(value: unknown): PolicyRule {
   const record = requireRecord(value, 'Policy');
   const effect = readString(record, 'effect', 'Policy effect');
-  if (!['allow', 'deny', 'approval_required'].includes(effect)) {
+  if (!['allow', 'deny'].includes(effect)) {
     throw new ControlPlaneLoadError(`Policy effect has invalid value ${effect}.`);
   }
 

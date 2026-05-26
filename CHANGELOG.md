@@ -5,6 +5,11 @@
 ### Breaking
 
 - `tamperMode` default changed from `warn` to `fail`. A corrupted health state file now causes operations to error instead of silently resetting sources to `up`. Callers that need the old behavior must pass `tamperMode: 'warn'` explicitly.
+- `approval_required` was removed from supported policy config effects. Use `effect: deny` with `code: needs_approval` and implement escalation in your agent orchestrator.
+
+### Fixed
+
+- Legacy in-memory `approval_required` rules now collapse to deny decisions with `code: needs_approval` instead of returning a dead-letter policy effect.
 
 ## v3.0.1 - Hot-path safety + release hygiene
 

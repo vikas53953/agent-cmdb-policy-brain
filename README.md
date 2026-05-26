@@ -26,6 +26,7 @@ This is a library, not a proxy. Your agent must call `cmdb.policy.preflight()` b
 - Cost estimation aggregates values you provide in evidence records and optional per-call source config. It does not auto-instrument LLM or API calls.
 - The audit store is tamper-evident, not tamper-proof. Hash chains detect changes, but records are not signed or written to immutable storage.
 - `tamperMode` defaults to `fail`. Corrupted health, evidence, change, or analytics state raises an error by default instead of silently recovering. Pass `tamperMode: 'warn'` only when availability is more important than fail-closed behavior.
+- Agent CMDB does not implement a built-in human approval workflow. Model approval-required actions as `effect: deny` with `code: needs_approval`, then handle escalation in your agent orchestrator.
 - Sanitization detects and can strip common prompt-injection patterns. It is not a security boundary.
 
 ## Known Limits
@@ -176,6 +177,8 @@ sources:
 ```
 
 Read-only sources are denied for write-like actions such as `post`, `publish`, `send`, `update`, and `delete`.
+
+`approval_required` is not a supported policy effect in V3.1 configs. Use `effect: deny` with `code: needs_approval` for actions that need human review. Legacy in-memory policy objects with `effect: approval_required` are interpreted as deny decisions with `code: needs_approval`.
 
 ## API
 

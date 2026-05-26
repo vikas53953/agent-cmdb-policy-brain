@@ -1,7 +1,9 @@
 import type { CmdbObject, ControlPlane, PolicyDecision, PolicyEffect, PolicyRequest, PolicyRule } from './types.js';
 import { agentProfiles, policyRules, registryObjects, sourceRefs } from './config-access.js';
 
-const effectRank: Record<PolicyEffect, number> = {
+type LegacyPolicyEffect = PolicyEffect | 'approval_required';
+
+const effectRank: Record<LegacyPolicyEffect, number> = {
   deny: 3,
   approval_required: 2,
   allow: 1
@@ -55,7 +57,7 @@ export function evaluatePolicy(controlPlane: ControlPlane, request: PolicyReques
     const rules = policyRules(controlPlane);
     const matchingRules = rules.filter((rule) => policyMatches(rule, normalizedRequest));
     const selectedRule = matchingRules.sort((left, right) => {
-      const rankDelta = effectRank[right.effect] - effectRank[left.effect];
+      const rankDelta = effectRank[policyEffect(right)] - effectRank[policyEffect(left)];
       if (rankDelta !== 0) return rankDelta;
       return rules.indexOf(left) - rules.indexOf(right);
     })[0];
@@ -70,7 +72,21 @@ export function evaluatePolicy(controlPlane: ControlPlane, request: PolicyReques
         action: normalizedRequest.action,
         tool: normalizedRequest.tool,
         canEscalate: false,
-        suggestedAlternative: 'Add an explicit allow or approval_required policy rule.'
+        suggestedAlternative: 'Add an explicit allow policy rule.'
+      };
+    }
+
+    if (policyEffect(selectedRule) === 'approval_required') {
+      return {
+        effect: 'deny',
+        ruleId: selectedRule.id,
+        code: 'needs_approval',
+        reason: selectedRule.reason,
+        profile: normalizedRequest.profile,
+        action: normalizedRequest.action,
+        tool: normalizedRequest.tool,
+        canEscalate: false,
+        suggestedAlternative: selectedRule.suggestedAlternative ?? 'Route this action to a human approval workflow outside Agent CMDB.'
       };
     }
 
@@ -82,7 +98,7 @@ export function evaluatePolicy(controlPlane: ControlPlane, request: PolicyReques
       profile: normalizedRequest.profile,
       action: normalizedRequest.action,
       tool: normalizedRequest.tool,
-      canEscalate: selectedRule.canEscalate ?? selectedRule.effect === 'approval_required',
+      canEscalate: selectedRule.canEscalate ?? false,
       suggestedAlternative: selectedRule.suggestedAlternative
     };
   } catch (error) {
@@ -139,6 +155,10 @@ export function policiesConflict(left: PolicyRule, right: PolicyRule): boolean {
 
 function matchesList(values: string[], candidate: string): boolean {
   return values.includes('*') || values.includes(candidate);
+}
+
+function policyEffect(rule: PolicyRule): LegacyPolicyEffect {
+  return (rule as PolicyRule & { effect: LegacyPolicyEffect }).effect;
 }
 
 function optionalListCovers(candidate: string[] | undefined, policy: string[] | undefined): boolean {

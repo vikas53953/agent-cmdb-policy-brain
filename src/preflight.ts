@@ -143,7 +143,7 @@ export function evaluatePreflight(
       const message = error instanceof Error ? error.message : String(error);
       const reason = `Route resolution failed: ${message}`;
       warnings.push(reason);
-      if (decision.effect === 'allow' || decision.effect === 'approval_required') {
+      if (decision.effect === 'allow') {
         finalDecision = denyDecision(
           normalizedRequest,
           'route-resolution-failed',
