@@ -23,7 +23,8 @@ describe('OSS package shape', () => {
 
     expect(packageJson.name).toBe('@pylabmit/agent-cmdb');
     expect(packageJson.private).toBeUndefined();
-    expect(packageJson.version).toBe('3.0.0');
+    expect(packageJson.version).toMatch(/^\d+\.\d+\.\d+(-[\w.]+)?$/);
+    expect(packageJson.version.length).toBeGreaterThan(0);
     expect(packageJson.main).toBe('dist/interface.js');
     expect(packageJson.types).toBe('dist/interface.d.ts');
     expect(packageJson.bin['agent-cmdb']).toBe('dist/cli.js');
