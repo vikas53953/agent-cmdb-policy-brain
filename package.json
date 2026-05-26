@@ -1,6 +1,6 @@
 {
   "name": "@pylabmit/agent-cmdb",
-  "version": "3.0.0",
+  "version": "3.0.1",
   "description": "Opt-in policy checks, source routing, and hash-chained local audit records for AI agents",
   "type": "module",
   "license": "MIT",
