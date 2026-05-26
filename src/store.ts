@@ -41,6 +41,24 @@ export class StoreWriteError extends Error {
   }
 }
 
+function normalizeStoreWriteError(storeDir: string, fileName: string, error: unknown): Error {
+  if (error instanceof StoreWriteError || error instanceof CorruptStoreError) return error;
+  if (isFileSystemError(error)) {
+    const detail = error instanceof Error ? error.message : String(error);
+    return new StoreWriteError(storeDir, fileName, detail);
+  }
+  return error instanceof Error ? error : new Error(String(error));
+}
+
+function isFileSystemError(error: unknown): boolean {
+  return Boolean(
+    error
+      && typeof error === 'object'
+      && 'code' in error
+      && typeof (error as { code?: unknown }).code === 'string'
+  );
+}
+
 export async function appendEvidence(storeDir: string, input: EvidenceInput): Promise<EvidenceRecord> {
   const recordInput = requireRecord(input, 'Evidence input');
 
@@ -58,11 +76,16 @@ export async function appendEvidence(storeDir: string, input: EvidenceInput): Pr
     id: `ev_${randomUUID()}`
   };
 
-  await migrateLegacyStore(storeDir, evidenceFile, 'evidence', evidenceFilePattern);
-  return appendRotatedJsonLine(storeDir, evidenceFileForTimestamp(record.capturedAt), record, {
-    pattern: evidenceFilePattern,
-    legacyFile: evidenceFile
-  });
+  const targetFile = evidenceFileForTimestamp(record.capturedAt);
+  try {
+    await migrateLegacyStore(storeDir, evidenceFile, 'evidence', evidenceFilePattern);
+    return appendRotatedJsonLine(storeDir, targetFile, record, {
+      pattern: evidenceFilePattern,
+      legacyFile: evidenceFile
+    });
+  } catch (error) {
+    throw normalizeStoreWriteError(storeDir, targetFile, error);
+  }
 }
 
 export async function listEvidence(
@@ -101,11 +124,16 @@ export async function appendChange(storeDir: string, input: ChangeInput): Promis
     id: `chg_${randomUUID()}`
   };
 
-  await migrateLegacyStore(storeDir, changesFile, 'changes', changeFilePattern);
-  return appendRotatedJsonLine(storeDir, changeFileForTimestamp(record.changedAt), record, {
-    pattern: changeFilePattern,
-    legacyFile: changesFile
-  });
+  const targetFile = changeFileForTimestamp(record.changedAt);
+  try {
+    await migrateLegacyStore(storeDir, changesFile, 'changes', changeFilePattern);
+    return appendRotatedJsonLine(storeDir, targetFile, record, {
+      pattern: changeFilePattern,
+      legacyFile: changesFile
+    });
+  } catch (error) {
+    throw normalizeStoreWriteError(storeDir, targetFile, error);
+  }
 }
 
 export async function listChanges(
