@@ -34,7 +34,7 @@ describe('IAgentCMDB contract', () => {
       intent: 'web_research',
       summary: 'Interface smoke evidence',
       trust: 'medium',
-      capturedAt: '2026-05-24T00:20:00.000Z'
+      capturedAt: '2026-05-26T00:20:00.000Z'
     });
 
     await cmdb.memory.logChange({
@@ -43,7 +43,7 @@ describe('IAgentCMDB contract', () => {
       action: 'verify',
       actor: 'codex',
       reason: 'Interface smoke change',
-      changedAt: '2026-05-24T00:21:00.000Z'
+      changedAt: '2026-05-26T00:21:00.000Z'
     });
 
     expect(await cmdb.memory.listEvidence({ profile: 'research-agent' })).toHaveLength(2);

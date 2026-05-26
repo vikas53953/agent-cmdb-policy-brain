@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Breaking
+
+- `tamperMode` default changed from `warn` to `fail`. A corrupted health state file now causes operations to error instead of silently resetting sources to `up`. Callers that need the old behavior must pass `tamperMode: 'warn'` explicitly.
+
 ## v3.0.1 - Hot-path safety + release hygiene
 
 ### Fixed

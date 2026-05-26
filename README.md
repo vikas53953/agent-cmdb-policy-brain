@@ -25,6 +25,7 @@ This is a library, not a proxy. Your agent must call `cmdb.policy.preflight()` b
 - Preflight analytics measure logged allow and deny decisions. They are decision summaries, not external availability promises or alerts.
 - Cost estimation aggregates values you provide in evidence records and optional per-call source config. It does not auto-instrument LLM or API calls.
 - The audit store is tamper-evident, not tamper-proof. Hash chains detect changes, but records are not signed or written to immutable storage.
+- `tamperMode` defaults to `fail`. Corrupted health, evidence, change, or analytics state raises an error by default instead of silently recovering. Pass `tamperMode: 'warn'` only when availability is more important than fail-closed behavior.
 - Sanitization detects and can strip common prompt-injection patterns. It is not a security boundary.
 
 ## Known Limits

@@ -409,7 +409,7 @@ describe('V3 public surface and CLI', () => {
 
   it('resets source health to up when health state is tampered in warn mode', async () => {
     const storeDir = tempStore();
-    const cmdb = createAgentCmdb({ controlPlane: runtimeControlPlane(), storeDir });
+    const cmdb = createAgentCmdb({ controlPlane: runtimeControlPlane(), storeDir, tamperMode: 'warn' });
 
     await cmdb.ops.recordSourceFailure('web-search-api');
     await cmdb.ops.recordSourceFailure('web-search-api');
@@ -424,7 +424,7 @@ describe('V3 public surface and CLI', () => {
 
   it('reports forged analytics cache with warnings in warn mode and throws in fail mode', async () => {
     const storeDir = tempStore();
-    const cmdb = createAgentCmdb({ controlPlane: runtimeControlPlane(), storeDir });
+    const cmdb = createAgentCmdb({ controlPlane: runtimeControlPlane(), storeDir, tamperMode: 'warn' });
 
     await cmdb.policy.preflight({ profile: 'research-agent', action: 'blocked_action', tool: 'web-search-api' });
     const cachePath = join(storeDir, 'analytics-cache', 'research-agent.json');

@@ -114,7 +114,7 @@ export function createAgentCmdb(options: AgentCmdbOptions = {}): IAgentCMDB {
   const controlPlane = options.controlPlane ?? (options.configPath ? loadControlPlane(options.configPath) : loadDefaultControlPlane());
   const storeDir = options.storeDir ?? process.env.AGENT_CMDB_STORE_DIR ?? 'agent-cmdb/state';
   const brainDir = options.brainDir;
-  const tamperMode = options.tamperMode ?? 'warn';
+  const tamperMode = options.tamperMode ?? 'fail';
 
   function health(): AgentCmdbHealth {
     const issues = [
