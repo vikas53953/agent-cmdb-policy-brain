@@ -241,31 +241,7 @@ export async function preflight(
       return result;
     }
 
-    if (!result.allowed) {
-      const intent = request && typeof request === 'object' && !Array.isArray(request)
-        ? request.intent
-        : undefined;
-      await appendEvidence(storeDir, {
-        profile: result.decision.profile,
-        source: 'agent-cmdb-preflight',
-        intent: intent ?? result.decision.action,
-        summary: `Denied by ${result.decision.ruleId}: ${result.decision.reason}`,
-        trust: 'high',
-        capturedAt: new Date().toISOString(),
-        estimatedCost: estimateCost(controlPlane, result),
-        tags: ['preflight', 'deny', result.decision.ruleId]
-      });
-    }
-
-    await appendChange(storeDir, {
-      target: `policy.${result.decision.ruleId}`,
-      targetType: 'policy',
-      action: 'verify',
-      actor: 'agent-cmdb-preflight',
-      reason: `Preflight ${result.decision.effect} for ${result.decision.profile}:${result.decision.action}.`,
-      changedAt: new Date().toISOString(),
-      after: result
-    });
+    await auditPreflightResult(controlPlane, storeDir, request, result);
 
     try {
       await updatePreflightAnalyticsCache(controlPlane, storeDir, result, tamperMode);
@@ -275,7 +251,14 @@ export async function preflight(
 
     return result;
   } catch (error) {
-    return preflightErrorResult(request, error);
+    const result = preflightErrorResult(request, error);
+    try {
+      await auditPreflightResult(controlPlane, storeDir, request, result);
+    } catch (auditError) {
+      const message = auditError instanceof Error ? auditError.message : String(auditError);
+      result.warnings.push(`Audit write failed for preflight-error deny: ${message}`);
+    }
+    return result;
   }
 }
 
@@ -368,7 +351,44 @@ function requireNonEmptyString(value: unknown, label: string, suffix?: string): 
 function estimateCost(controlPlane: ControlPlane, result: PreflightResult): number {
   const sourceId = result.decision.tool ?? result.route?.sources[0]?.id;
   if (!sourceId) return 0;
-  return safeSourceRefs(controlPlane).find((source) => source.id === sourceId)?.costPerCall ?? 0;
+  try {
+    return safeSourceRefs(controlPlane).find((source) => source.id === sourceId)?.costPerCall ?? 0;
+  } catch {
+    return 0;
+  }
+}
+
+async function auditPreflightResult(
+  controlPlane: ControlPlane,
+  storeDir: string,
+  request: unknown,
+  result: PreflightResult
+): Promise<void> {
+  if (!result.allowed) {
+    const intent = request && typeof request === 'object' && !Array.isArray(request)
+      ? (request as { intent?: string }).intent
+      : undefined;
+    await appendEvidence(storeDir, {
+      profile: result.decision.profile,
+      source: 'agent-cmdb-preflight',
+      intent: intent ?? result.decision.action,
+      summary: `Denied by ${result.decision.ruleId}: ${result.decision.reason}`,
+      trust: 'high',
+      capturedAt: new Date().toISOString(),
+      estimatedCost: estimateCost(controlPlane, result),
+      tags: ['preflight', 'deny', result.decision.ruleId]
+    });
+  }
+
+  await appendChange(storeDir, {
+    target: `policy.${result.decision.ruleId}`,
+    targetType: 'policy',
+    action: 'verify',
+    actor: 'agent-cmdb-preflight',
+    reason: `Preflight ${result.decision.effect} for ${result.decision.profile}:${result.decision.action}.`,
+    changedAt: new Date().toISOString(),
+    after: result
+  });
 }
 
 function safeSourceRefs(controlPlane: ControlPlane) {
