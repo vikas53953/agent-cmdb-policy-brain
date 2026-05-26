@@ -4,6 +4,7 @@
 
 This project follows SHIP v4 (docs/SHIP-v4.md).
 Every feature must pass Gate 0 (adversarial design review) before code is written and Gate 9 (multi-persona adversarial review) before publish.
+Before every npm publish, run the pre-publish audit template in `audits/pre-publish-audit-template.md` and paste the verdict table into the release notes or handoff.
 
 Key rules from SHIP v4:
 - Every new feature needs 3 test types: positive, negative, bypass
