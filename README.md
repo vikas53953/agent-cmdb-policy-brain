@@ -1,7 +1,7 @@
 # agent-cmdb
 
 [![CI](https://github.com/vikas53953/agent-cmdb-policy-brain/actions/workflows/ci.yml/badge.svg)](https://github.com/vikas53953/agent-cmdb-policy-brain/actions/workflows/ci.yml)
-![Tests](https://img.shields.io/badge/tests-212_passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-217_passing-brightgreen)
 
 Opt-in policy checks with hash-chained local audit records for AI agents.
 
@@ -21,11 +21,15 @@ This is a library, not a proxy. Your agent must call `cmdb.policy.preflight()` b
 ## Honest Limitations
 
 - Agent CMDB does not intercept tool calls automatically. You wire it into your agent framework.
+- Action matching for configured write actions uses simple substring checks in V3.1. Keep write action names specific, and avoid using untrusted action names as policy input.
 - Source health monitoring uses windowed failure counting with `up`, `down`, and `half-open` states. It is not a production-grade resilience framework.
 - Preflight analytics measure logged allow and deny decisions. They are decision summaries, not external availability promises or alerts.
 - Cost estimation aggregates values you provide in evidence records and optional per-call source config. It does not auto-instrument LLM or API calls.
 - The audit store is tamper-evident, not tamper-proof. Hash chains detect changes, but records are not signed or written to immutable storage.
 - `tamperMode` defaults to `fail`. Corrupted health, evidence, change, or analytics state raises an error by default instead of silently recovering. Pass `tamperMode: 'warn'` only when availability is more important than fail-closed behavior.
+- State writes use in-process queues and atomic file replacement where applicable. Multiple independent Node processes sharing one `storeDir` are not a supported high-concurrency mode in V3.1.
+- YAML configs are intended to be trusted local files. V3.1 does not include depth, alias, or schema-bomb guards for untrusted YAML input.
+- Preflight analytics are advisory. Analytics cache update failures do not block or change policy decisions.
 - Agent CMDB does not implement a built-in human approval workflow. Model approval-required actions as `effect: deny` with `code: needs_approval`, then handle escalation in your agent orchestrator.
 - Sanitization detects and can strip common prompt-injection patterns. It is not a security boundary.
 
@@ -265,6 +269,7 @@ Use agent-cmdb when you want a lightweight local policy library with hash-chaine
 | V1.5 | Shipped | npm packaging, dry-run, source freshness, doctor command |
 | V1.5.1 | Shipped | default deny, audited preflight path, tamper-evident JSONL, sanitization hardening |
 | V3.0 | Shipped | composable API, preflight analytics, windowed source health, daily JSONL rotation, no public unaudited policy API |
+| V3.1 | Shipped | fail-closed route safety, audited preflight-error denies, fail-closed tamper default, defined approval semantics |
 | V4.0 | Planned | REST/MCP API, dashboard, policy versioning, templates, incident records |
 
 The detailed roadmap is in [docs/agent-cmdb-roadmap.md](docs/agent-cmdb-roadmap.md).
@@ -289,4 +294,4 @@ npm run typecheck
 npm run build
 ```
 
-Current verification: 207 tests passing, strict TypeScript clean, clean `dist/` build.
+Current verification: 217 tests passing, strict TypeScript clean, clean `dist/` build.
