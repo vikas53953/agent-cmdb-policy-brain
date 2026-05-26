@@ -23,7 +23,7 @@ export async function updatePreflightAnalyticsCache(
   controlPlane: ControlPlane,
   storeDir: string,
   result: PreflightResult,
-  tamperMode: TamperMode = 'warn'
+  tamperMode: TamperMode = 'fail'
 ): Promise<void> {
   const profile = agentProfiles(controlPlane).find((candidate) => candidate.id === result.decision.profile);
   if (!profile) return;
@@ -71,7 +71,7 @@ export async function calculatePreflightAnalytics(
   controlPlane: ControlPlane,
   storeDir: string,
   profileId: string,
-  tamperMode: TamperMode = 'warn'
+  tamperMode: TamperMode = 'fail'
 ): Promise<PreflightAnalytics> {
   const profile = agentProfiles(controlPlane).find((candidate) => candidate.id === profileId);
   if (!profile) {

@@ -154,7 +154,7 @@ describe('Agent CMDB store adversarial behavior', () => {
     lines[0] = lines[0].replace('First record', 'Tampered record');
     writeFileSync(evidencePath, `${lines.join('\n')}\n`, 'utf8');
 
-    const records = await listEvidence(storeDir, { intent: 'hash' });
+    const records = await listEvidence(storeDir, { intent: 'hash' }, { tamperMode: 'warn' });
     expect(records).toHaveLength(2);
     expect(records[1].warnings?.join(' ')).toContain('hash chain');
   });

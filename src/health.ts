@@ -24,7 +24,7 @@ export async function recordSourceSuccess(
   controlPlane: ControlPlane,
   storeDir: string,
   sourceId: string,
-  tamperMode: TamperMode = 'warn'
+  tamperMode: TamperMode = 'fail'
 ): Promise<SourceHealth> {
   return withHealthLock(storeDir, async () => {
     ensureKnownSource(controlPlane, sourceId);
@@ -64,7 +64,7 @@ export async function recordSourceFailure(
   storeDir: string,
   sourceId: string,
   reason = 'source failure',
-  tamperMode: TamperMode = 'warn'
+  tamperMode: TamperMode = 'fail'
 ): Promise<SourceHealth> {
   return withHealthLock(storeDir, async () => {
     ensureKnownSource(controlPlane, sourceId);
@@ -119,7 +119,7 @@ export async function getSourceHealth(
   controlPlane: ControlPlane,
   storeDir: string,
   sourceId: string,
-  tamperMode: TamperMode = 'warn'
+  tamperMode: TamperMode = 'fail'
 ): Promise<SourceHealth> {
   ensureKnownSource(controlPlane, sourceId);
   return getHealthFromState(await readHealthState(storeDir, tamperMode), sourceId);
@@ -128,7 +128,7 @@ export async function getSourceHealth(
 export async function listSourceHealth(
   controlPlane: ControlPlane,
   storeDir: string,
-  tamperMode: TamperMode = 'warn'
+  tamperMode: TamperMode = 'fail'
 ): Promise<SourceHealth[]> {
   const state = await readHealthState(storeDir, tamperMode);
   return sourceRefs(controlPlane).map((source) => getHealthFromState(state, source.id));
@@ -138,7 +138,7 @@ export async function isSourceAvailable(
   controlPlane: ControlPlane,
   storeDir: string,
   sourceId: string,
-  tamperMode: TamperMode = 'warn'
+  tamperMode: TamperMode = 'fail'
 ): Promise<boolean> {
   return withHealthLock(storeDir, async () => {
     ensureKnownSource(controlPlane, sourceId);
@@ -177,7 +177,7 @@ export async function getHealthState(
   controlPlane: ControlPlane,
   storeDir: string,
   sourceId: string,
-  tamperMode: TamperMode = 'warn'
+  tamperMode: TamperMode = 'fail'
 ): Promise<HealthGateState> {
   const health = await getSourceHealth(controlPlane, storeDir, sourceId, tamperMode);
   if (health.status === 'down') return 'open';
@@ -189,7 +189,7 @@ export async function resetSourceHealth(
   controlPlane: ControlPlane,
   storeDir: string,
   sourceId: string,
-  tamperMode: TamperMode = 'warn'
+  tamperMode: TamperMode = 'fail'
 ): Promise<SourceHealth> {
   return withHealthLock(storeDir, async () => {
     ensureKnownSource(controlPlane, sourceId);

@@ -1,5 +1,18 @@
 # Changelog
 
+## v3.1.1 - Contract gap patch
+
+### Fixed
+
+- Configured write actions now use exact action-name matching instead of substring matching. Compound read actions such as `research_update` and `send_summary` are no longer blocked merely because they contain `update` or `send`.
+- `preflight()` now defaults its module-level `tamperMode` to `fail`, matching `createAgentCmdb()`.
+- `preflight()` rethrows corrupt health-state errors in fail mode instead of allowing health reads to degrade to an empty health list.
+- `resolveRoute()` failure results now include explicit deny metadata (`allowed: false`, `decision.ruleId: route-resolution-failed`) in addition to the existing empty-route shape.
+
+### Notes
+
+- Multi-process write safety and YAML schema-bomb guards remain documented limitations.
+
 ## v3.1.0 - Contract hardening for enforcement-gate use
 
 ### Breaking

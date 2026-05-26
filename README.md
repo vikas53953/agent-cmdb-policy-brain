@@ -1,7 +1,7 @@
 # agent-cmdb
 
 [![CI](https://github.com/vikas53953/agent-cmdb-policy-brain/actions/workflows/ci.yml/badge.svg)](https://github.com/vikas53953/agent-cmdb-policy-brain/actions/workflows/ci.yml)
-![Tests](https://img.shields.io/badge/tests-217_passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-221_passing-brightgreen)
 
 Opt-in policy checks with hash-chained local audit records for AI agents.
 
@@ -21,7 +21,7 @@ This is a library, not a proxy. Your agent must call `cmdb.policy.preflight()` b
 ## Honest Limitations
 
 - Agent CMDB does not intercept tool calls automatically. You wire it into your agent framework.
-- Action matching for configured write actions uses simple substring checks in V3.1. Keep write action names specific, and avoid using untrusted action names as policy input.
+- Configured write actions use exact action-name matching. Compound read action names such as `research_update` are not treated as write actions just because they contain `update`.
 - Source health monitoring uses windowed failure counting with `up`, `down`, and `half-open` states. It is not a production-grade resilience framework.
 - Preflight analytics measure logged allow and deny decisions. They are decision summaries, not external availability promises or alerts.
 - Cost estimation aggregates values you provide in evidence records and optional per-call source config. It does not auto-instrument LLM or API calls.
@@ -294,4 +294,4 @@ npm run typecheck
 npm run build
 ```
 
-Current verification: 217 tests passing, strict TypeScript clean, clean `dist/` build.
+Current verification: 221 tests passing, strict TypeScript clean, clean `dist/` build.

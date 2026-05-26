@@ -73,7 +73,7 @@ export async function listEvidence(
   await migrateLegacyStore(storeDir, evidenceFile, 'evidence', evidenceFilePattern);
   const normalizedQuery = normalizeEvidenceQuery(query);
   const effectiveDateRange = normalizedQuery.dateRange ?? defaultEvidenceDateRange();
-  const records = await readEvidenceJsonLines(storeDir, { ...normalizedQuery, dateRange: effectiveDateRange }, options.tamperMode ?? 'warn');
+  const records = await readEvidenceJsonLines(storeDir, { ...normalizedQuery, dateRange: effectiveDateRange }, options.tamperMode ?? 'fail');
 
   return records.filter((record) => {
     if (definedFilter(normalizedQuery.profile) && record.profile !== sanitizeScalar(normalizedQuery.profile)) return false;
@@ -119,7 +119,7 @@ export async function listChanges(
   const records = await readRotatedJsonLines<ChangeRecord>(
     storeDir,
     { pattern: changeFilePattern, legacyFile: changesFile, dateRange: effectiveDateRange },
-    options.tamperMode ?? 'warn'
+    options.tamperMode ?? 'fail'
   );
 
   return records.filter((record) => {
@@ -169,7 +169,7 @@ export async function readJsonState<T extends object>(
     : [];
 
   if (storedHash !== expectedHash) {
-    if ((options.tamperMode ?? 'warn') === 'fail') {
+    if ((options.tamperMode ?? 'fail') === 'fail') {
       throw new CorruptStoreError(relativePath, 1, `expected prevHash ${expectedHash}`);
     }
     warnings.push(`JSON state hash warning in ${relativePath}: expected prevHash ${expectedHash}.`);
@@ -296,7 +296,7 @@ async function appendJsonLineUnlocked<T extends Record<string, unknown>>(
 async function readJsonLines<T extends { prevHash?: string; warnings?: string[] }>(
   storeDir: string,
   fileName: string,
-  tamperMode: TamperMode = 'warn'
+  tamperMode: TamperMode = 'fail'
 ): Promise<T[]> {
   const filePath = join(storeDir, fileName);
   const content = await readFileIfExists(filePath);

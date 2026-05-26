@@ -22,7 +22,7 @@ This roadmap uses shipped feature names that match the code. Planned items are e
 | Health-aware routing | Shipped | `preflight()` and `resolveRoute()` skip sources marked down by recorded health and return `skippedSources` |
 | Preflight analytics | Shipped | Reports logged allow/deny counts, rates, top deny rules, and per-action breakdowns |
 | Cost estimation | Shipped | Aggregates `tokenCount` and `estimatedCost` values provided in evidence records |
-| Tamper mode | Shipped | `tamperMode: 'fail'` throws on corrupted JSONL evidence/change stores; default mode warns |
+| Tamper mode | Shipped | `tamperMode` defaults to `fail` and throws on corrupted JSONL evidence/change stores unless callers explicitly opt into `warn` |
 | Daily JSONL rotation | Shipped | Evidence and change records write to dated files while legacy single-file stores remain readable |
 | Local markdown memory | Shipped | Stores human-readable markdown files with a JSON index; no database or embeddings |
 

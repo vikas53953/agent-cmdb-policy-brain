@@ -279,6 +279,17 @@ function emptyRouteResult(profile: string, intent: string, warning: string): Res
     blockOnStale: false,
     staleSourceIds: [],
     freshness: [],
+    allowed: false,
+    decision: {
+      effect: 'deny',
+      ruleId: 'route-resolution-failed',
+      code: 'route_resolution_failed',
+      reason: `Route resolution failed: ${warning}`,
+      profile,
+      action: intent,
+      canEscalate: false,
+      suggestedAlternative: 'Fix the source route for this profile and intent before executing.'
+    },
     warnings: [warning]
-  } as ResolvedSourceRoute & { warnings: string[] };
+  };
 }

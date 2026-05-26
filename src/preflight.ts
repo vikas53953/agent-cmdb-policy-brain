@@ -222,7 +222,7 @@ export async function preflight(
   request: PreflightRequest,
   options: { tamperMode?: TamperMode } = {}
 ): Promise<PreflightResult> {
-  const tamperMode = options.tamperMode ?? 'warn';
+  const tamperMode = options.tamperMode ?? 'fail';
   try {
     const availabilityEntries = await Promise.all(safeSourceRefs(controlPlane).map(async (source) => [
       source.id,
@@ -403,7 +403,8 @@ function safeSourceRefs(controlPlane: ControlPlane) {
 async function safeListSourceHealth(controlPlane: ControlPlane, storeDir: string, tamperMode: TamperMode): Promise<SourceHealth[]> {
   try {
     return await listSourceHealth(controlPlane, storeDir, tamperMode);
-  } catch {
+  } catch (error) {
+    if (tamperMode === 'fail' && error instanceof Error && error.name === 'CorruptStoreError') throw error;
     return [];
   }
 }
@@ -434,11 +435,11 @@ function skippedSourcesIncludeTool(skippedSources: string[], tool: string): bool
 
 function isWriteAction(controlPlane: ControlPlane, route: ResolvedSourceRoute, action: string): boolean {
   const writeActions = routeWriteActions(controlPlane, route);
-  return writeActions.some((writeAction) => action === writeAction || action.includes(writeAction));
+  return writeActions.some((writeAction) => action === writeAction);
 }
 
 function isPolicyWriteAction(controlPlane: ControlPlane, action: string): boolean {
-  return configuredWriteActions(controlPlane).some((writeAction) => action === writeAction || action.includes(writeAction));
+  return configuredWriteActions(controlPlane).some((writeAction) => action === writeAction);
 }
 
 function routeWriteActions(controlPlane: ControlPlane, route: ResolvedSourceRoute): string[] {

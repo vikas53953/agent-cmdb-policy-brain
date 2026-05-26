@@ -214,14 +214,6 @@ describe('Agent CMDB digest', () => {
       trust: 'high',
       capturedAt: '2026-06-05T10:00:00.000Z'
     });
-    await appendChange(storeDir, {
-      target: 'policy.weekly',
-      targetType: 'policy',
-      action: 'verify',
-      actor: 'codex',
-      reason: 'Weekly in-range change.',
-      changedAt: '2026-05-27T10:00:00.000Z'
-    });
     await createEntity(
       brainDir,
       storeDir,
@@ -237,6 +229,14 @@ describe('Agent CMDB digest', () => {
       '# Weekly Topic',
       'research-agent'
     );
+    await appendChange(storeDir, {
+      target: 'policy.weekly',
+      targetType: 'policy',
+      action: 'verify',
+      actor: 'codex',
+      reason: 'Weekly in-range change.',
+      changedAt: '2026-05-27T10:00:00.000Z'
+    });
     const index = await readBrainIndex(brainDir);
     index.entities[0].lastUpdated = '2026-05-28T10:00:00.000Z';
     await writeBrainIndex(brainDir, index);

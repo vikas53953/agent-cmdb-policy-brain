@@ -2,11 +2,13 @@
 
 This file tracks reviewed issues that are deliberately deferred. Do not market these as solved until a release closes them with tests.
 
-## v3.1.x candidates
+## Closed
 
 ### Substring action matching
 
-`preflight.ts` treats configured write actions as substrings of the requested action. This is documented in README as a V3.1 limitation. A future release should replace this with exact matching or explicit action classification.
+Closed in v3.1.1. Configured write actions now use exact action-name matching, with tests for `research_update` and `send_summary`.
+
+## Open
 
 ### Multi-process write safety
 

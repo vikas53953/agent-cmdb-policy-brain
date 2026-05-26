@@ -170,6 +170,24 @@ Pass criteria:
 
 Verdict: PASS / FAIL.
 
+## G8 - Tamper Mode Propagation
+
+Run:
+
+```bash
+npm test -- tests/v311-contract-gaps.test.ts tests/v31-tamper-default.test.ts tests/v31-preflight-error-audit.test.ts
+grep -n "tamperMode: TamperMode = 'warn'\|tamperMode: TamperMode = \"warn\"\|\?\? 'warn'\|\?\? \"warn\"" src/*.ts
+```
+
+Pass criteria:
+
+- Corrupt `health.json` plus factory-default `createAgentCmdb()` plus `preflight()` does not silently allow an action.
+- `preflight()` module-level defaults match the factory default (`fail`).
+- Lower-level store/health/analytics default paths do not silently downgrade to warn unless the caller explicitly passes `tamperMode: 'warn'`.
+- Explicit warn-mode tests still pass only when `tamperMode: 'warn'` is provided.
+
+Verdict: PASS / FAIL.
+
 ## Final Verdict Table
 
 ```markdown
@@ -182,6 +200,7 @@ Verdict: PASS / FAIL.
 | G5 Scale honesty | PASS/FAIL | ... |
 | G6 Test quality | PASS/FAIL | ... |
 | G7 Test durability | PASS/FAIL | ... |
+| G8 Tamper mode propagation | PASS/FAIL | ... |
 ```
 
 Run at the end:

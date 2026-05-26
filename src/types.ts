@@ -138,6 +138,9 @@ export interface ResolvedSourceRoute {
   blockOnStale: boolean;
   staleSourceIds: string[];
   freshness: SourceFreshnessStatus[];
+  allowed?: boolean;
+  decision?: PolicyDecision;
+  warnings?: string[];
 }
 
 export interface ProfileInspection {
