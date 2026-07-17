@@ -63,7 +63,7 @@ function Shell() {
             <PlaylistDetail playlist={openedPlaylist} onBack={() => setOpenedPlaylist(null)} />
           ) : (
             <>
-              {tab === 'home' && <Home onOpenPlaylist={openPlaylist} />}
+              {tab === 'home' && <Home onOpenPlaylist={openPlaylist} onOpenProfile={() => goTab('you')} />}
               {tab === 'search' && <Search />}
               {tab === 'library' && <Library onOpenPlaylist={openPlaylist} />}
               {tab === 'dj' && <DJ />}

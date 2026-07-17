@@ -2,17 +2,23 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import type { Track } from './integrations/types';
 import { createYouTubePlayer, type YouTubePlayer } from './integrations/youtube';
 
+export type RepeatMode = 'off' | 'all' | 'one';
+
 interface PlayerState {
   current: Track | null;
   queue: Track[];
   isPlaying: boolean;
   positionSec: number;
   durationSec: number;
+  shuffle: boolean;
+  repeat: RepeatMode;
   play: (track: Track, queue?: Track[]) => void;
   toggle: () => void;
   next: () => void;
   prev: () => void;
   seek: (sec: number) => void;
+  toggleShuffle: () => void;
+  cycleRepeat: () => void;
 }
 
 const Ctx = createContext<PlayerState | null>(null);
@@ -23,11 +29,40 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const [isPlaying, setIsPlaying] = useState(false);
   const [positionSec, setPositionSec] = useState(0);
   const [durationSec, setDurationSec] = useState(0);
+  const [shuffle, setShuffle] = useState(false);
+  const [repeat, setRepeat] = useState<RepeatMode>('off');
 
   const ytRef = useRef<YouTubePlayer | null>(null);
-  const hostRef = useRef<HTMLDivElement | null>(null);
+  // Refs mirror state so the track-ended callback never sees stale values.
+  const currentRef = useRef(current); currentRef.current = current;
+  const queueRef = useRef(queue); queueRef.current = queue;
+  const shuffleRef = useRef(shuffle); shuffleRef.current = shuffle;
+  const repeatRef = useRef(repeat); repeatRef.current = repeat;
+  const playRef = useRef<(t: Track, q?: Track[]) => void>(() => {});
 
-  // Lazily create the hidden YouTube player on first play.
+  function pickNextIndex(q: Track[], i: number): number | null {
+    if (!q.length) return null;
+    if (shuffleRef.current && q.length > 1) {
+      let n = i;
+      while (n === i) n = Math.floor(Math.random() * q.length);
+      return n;
+    }
+    const n = i + 1;
+    if (n < q.length) return n;
+    return repeatRef.current === 'all' ? 0 : null;
+  }
+
+  const handleEnded = useCallback(() => {
+    const p = ytRef.current;
+    if (repeatRef.current === 'one' && p) { p.seekTo(0); p.resume(); return; }
+    const q = queueRef.current;
+    const cur = currentRef.current;
+    const i = cur ? q.findIndex((t) => t.id === cur.id) : -1;
+    const ni = pickNextIndex(q, i);
+    if (ni === null) { setIsPlaying(false); return; }
+    playRef.current(q[ni], q);
+  }, []);
+
   const ensureYouTube = useCallback(async (): Promise<YouTubePlayer> => {
     if (ytRef.current) return ytRef.current;
     const host = document.createElement('div');
@@ -36,12 +71,12 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     host.style.height = '0';
     host.style.overflow = 'hidden';
     document.body.appendChild(host);
-    hostRef.current = host;
     const p = await createYouTubePlayer(host);
     p.onStateChange((playing) => setIsPlaying(playing));
+    p.onEnded(handleEnded);
     ytRef.current = p;
     return p;
-  }, []);
+  }, [handleEnded]);
 
   const play = useCallback((track: Track, q?: Track[]) => {
     setCurrent(track);
@@ -55,6 +90,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       setIsPlaying(true);
     }
   }, [ensureYouTube]);
+  playRef.current = play;
 
   const toggle = useCallback(() => {
     const p = ytRef.current;
@@ -64,22 +100,29 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     setIsPlaying((v) => !v);
   }, [current, isPlaying]);
 
-  const indexInQueue = useCallback(() => (current ? queue.findIndex((t) => t.id === current.id) : -1), [current, queue]);
-
   const next = useCallback(() => {
-    const i = indexInQueue();
-    if (i >= 0 && i < queue.length - 1) play(queue[i + 1], queue);
-  }, [indexInQueue, queue, play]);
+    const q = queueRef.current;
+    const cur = currentRef.current;
+    const i = cur ? q.findIndex((t) => t.id === cur.id) : -1;
+    const ni = pickNextIndex(q, i);
+    if (ni !== null) play(q[ni], q);
+  }, [play]);
 
   const prev = useCallback(() => {
-    const i = indexInQueue();
-    if (i > 0) play(queue[i - 1], queue);
-  }, [indexInQueue, queue, play]);
+    const q = queueRef.current;
+    const cur = currentRef.current;
+    const i = cur ? q.findIndex((t) => t.id === cur.id) : -1;
+    if (i > 0) play(q[i - 1], q);
+    else if (ytRef.current) { ytRef.current.seekTo(0); }
+  }, [play]);
 
   const seek = useCallback((sec: number) => {
     ytRef.current?.seekTo(sec);
     setPositionSec(sec);
   }, []);
+
+  const toggleShuffle = useCallback(() => setShuffle((v) => !v), []);
+  const cycleRepeat = useCallback(() => setRepeat((r) => (r === 'off' ? 'all' : r === 'all' ? 'one' : 'off')), []);
 
   // Poll position/duration from the active player.
   useEffect(() => {
@@ -94,8 +137,10 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   }, [current, isPlaying]);
 
   const value = useMemo<PlayerState>(() => ({
-    current, queue, isPlaying, positionSec, durationSec, play, toggle, next, prev, seek,
-  }), [current, queue, isPlaying, positionSec, durationSec, play, toggle, next, prev, seek]);
+    current, queue, isPlaying, positionSec, durationSec, shuffle, repeat,
+    play, toggle, next, prev, seek, toggleShuffle, cycleRepeat,
+  }), [current, queue, isPlaying, positionSec, durationSec, shuffle, repeat,
+    play, toggle, next, prev, seek, toggleShuffle, cycleRepeat]);
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

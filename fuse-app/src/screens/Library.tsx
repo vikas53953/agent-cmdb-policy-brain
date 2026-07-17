@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
-import { LIKED, PLAYLISTS, TRACKS, playlistArt } from '../catalog';
+import { PLAYLISTS, TRACKS, playlistArt } from '../catalog';
+import { likedIds, useLikesVersion } from '../likes';
 import { SourceBadge, Art } from '../components/common';
 import { usePlayer } from '../player';
 import type { Playlist } from '../integrations/types';
@@ -12,6 +13,13 @@ export function Library({ onOpenPlaylist }: { onOpenPlaylist: (p: Playlist) => v
   const [creating, setCreating] = useState(false);
   const [name, setName] = useState('');
   const [userPlaylists, setUserPlaylists] = useState<Playlist[]>([]);
+  useLikesVersion(); // re-render when likes change
+  const likedTracks = likedIds().filter((id) => TRACKS.some((t) => t.id === id));
+  const liked: Playlist = {
+    id: 'liked', title: 'Liked Songs',
+    subtitle: likedTracks.length ? `${likedTracks.length} songs` : 'Tap ♡ on any song',
+    sources: [], trackIds: likedTracks,
+  };
 
   const artists = useMemo(() => {
     const map = new Map<string, number>();
@@ -47,7 +55,7 @@ export function Library({ onOpenPlaylist }: { onOpenPlaylist: (p: Playlist) => v
         ))}
       </div>
 
-      {filter === 'Playlists' && [LIKED, ...userPlaylists, ...PLAYLISTS].map((p) => (
+      {filter === 'Playlists' && [liked, ...userPlaylists, ...PLAYLISTS].map((p) => (
         <button className="row" key={p.id} onClick={() => onOpenPlaylist(p)}>
           <Art src={playlistArt(p)} className="th" />
           <span className="rc">

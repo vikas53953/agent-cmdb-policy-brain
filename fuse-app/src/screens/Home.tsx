@@ -11,17 +11,22 @@ function greeting(): string {
   return 'Good evening';
 }
 
-export function Home({ onOpenPlaylist }: { onOpenPlaylist: (p: Playlist) => void }) {
+export function Home({ onOpenPlaylist, onOpenProfile }: {
+  onOpenPlaylist: (p: Playlist) => void; onOpenProfile: () => void;
+}) {
   const { play, current } = usePlayer();
   const [filter, setFilter] = useState('All');
-  const recommended = TRACKS.slice(1, 6);
-  const quick = TRACKS.slice(0, 4);
+  const visible = filter === 'All' ? TRACKS : TRACKS.filter((t) => t.source === filter.toLowerCase());
+  const quick = visible.slice(0, 4);
+  const recommended = visible.slice(4); // disjoint from the quick grid — no duplicates
 
   return (
     <>
       <div className="row-head">
         <div><div className="h-sm">{greeting()}</div><div className="h-lg" style={{ fontSize: 21 }}>Vikas</div></div>
-        <div className="avatar" style={{ width: 36, height: 36 }} />
+        <button className="avatar-btn" aria-label="Open profile" onClick={onOpenProfile}>
+          <span className="avatar" style={{ width: 36, height: 36, display: 'block' }} />
+        </button>
       </div>
       <div className="pills">
         {['All', 'Spotify', 'YouTube'].map((f) => (
@@ -29,14 +34,16 @@ export function Home({ onOpenPlaylist }: { onOpenPlaylist: (p: Playlist) => void
         ))}
       </div>
 
-      <div className="quick-grid">
-        {quick.map((t) => (
-          <button className={`quick${current?.id === t.id ? ' active' : ''}`} key={t.id} onClick={() => play(t, quick)}>
-            <Art src={t.artUrl} className="qart" />
-            <span className="qt">{t.title}</span>
-          </button>
-        ))}
-      </div>
+      {quick.length > 0 && (
+        <div className="quick-grid">
+          {quick.map((t) => (
+            <button className={`quick${current?.id === t.id ? ' active' : ''}`} key={t.id} onClick={() => play(t, visible)}>
+              <Art src={t.artUrl} className="qart" />
+              <span className="qt">{t.title}</span>
+            </button>
+          ))}
+        </div>
+      )}
 
       <div className="sec">Jump back in</div>
       <div className="hscroll">
@@ -49,10 +56,15 @@ export function Home({ onOpenPlaylist }: { onOpenPlaylist: (p: Playlist) => void
         ))}
       </div>
 
-      <div className="sec">Made for you</div>
+      <div className="sec">{filter === 'All' ? 'Made for you' : `Made for you · ${filter}`}</div>
       {recommended.map((t) => (
-        <TrackRow key={t.id} track={t} onPlay={(tt) => play(tt, recommended)} active={current?.id === t.id} />
+        <TrackRow key={t.id} track={t} onPlay={(tt) => play(tt, visible)} active={current?.id === t.id} />
       ))}
+      {!visible.length && (
+        <div className="empty-note">
+          Nothing from {filter} here yet. Connect {filter} in the You tab, then search — results will play from {filter} too.
+        </div>
+      )}
     </>
   );
 }

@@ -4,7 +4,7 @@ import { TrackRow, Art } from '../components/common';
 import type { Playlist } from '../integrations/types';
 
 export function PlaylistDetail({ playlist, onBack }: { playlist: Playlist; onBack: () => void }) {
-  const { play, current } = usePlayer();
+  const { play, current, shuffle, toggleShuffle } = usePlayer();
   const list = playlist.trackIds.map((id) => trackById(id)).filter(Boolean) as NonNullable<ReturnType<typeof trackById>>[];
 
   return (
@@ -23,8 +23,8 @@ export function PlaylistDetail({ playlist, onBack }: { playlist: Playlist; onBac
       </div>
       <div className="d-actions">
         <button className="btn-primary" onClick={() => list[0] && play(list[0], list)}>▶ Play all</button>
-        <button className="icon-btn" aria-label="Shuffle">⤮</button>
-        <button className="icon-btn" aria-label="Download">⤓</button>
+        <button className={`icon-btn${shuffle ? ' on' : ''}`} aria-label="Shuffle play"
+          onClick={() => { if (!list.length) return; if (!shuffle) toggleShuffle(); play(list[Math.floor(Math.random() * list.length)], list); }}>⤴</button>
       </div>
       <div className="d-list">
         {list.map((t) => (

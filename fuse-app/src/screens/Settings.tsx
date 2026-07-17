@@ -61,10 +61,11 @@ export function Settings({ onReplayOnboarding }: { onReplayOnboarding: () => voi
 
   return (
     <>
-      <div className="prof">
+      <div className="prof-card">
         <div className="avatar" />
-        <div style={{ fontSize: 19, fontWeight: 800 }}>Vikas</div>
-        <div className="h-sm">{[yt && 'YouTube', sp && 'Spotify'].filter(Boolean).join(' · ') || 'Demo mode'}</div>
+        <div className="prof-name">Vikas</div>
+        <div className="prof-sub">{[yt && 'YouTube', sp && 'Spotify'].filter(Boolean).join(' · ') || 'Demo mode'}</div>
+        <span className="prof-chip">★ Premium</span>
       </div>
 
       <div className="sec">Connected services</div>
@@ -89,13 +90,25 @@ export function Settings({ onReplayOnboarding }: { onReplayOnboarding: () => voi
       <div className="sec">Settings</div>
       <div className="set-group">
         <button className="set-row" onClick={() => setPage('appearance')}>
-          <span className="set-l"><span className="dot" style={{ background: accent }} />Appearance</span>
+          <span className="set-l"><span className="set-ico" style={{ background: accent }}>◐</span>Appearance</span>
           <span className="v">Accent ›</span>
         </button>
-        <button className="set-row" onClick={() => setPage('quality')}><span className="set-l">Audio quality</span><span className="v">{quality} ›</span></button>
-        <button className="set-row" onClick={() => setPage('source')}><span className="set-l">Default source</span><span className="v">{source} ›</span></button>
-        <button className="set-row" onClick={() => setPage('crossfade')}><span className="set-l">Crossfade</span><span className="v">{crossfade} ›</span></button>
-        <button className="set-row" onClick={onReplayOnboarding}><span className="set-l">Replay onboarding</span><span className="v">›</span></button>
+        <button className="set-row" onClick={() => setPage('quality')}>
+          <span className="set-l"><span className="set-ico" style={{ background: '#e08b2e' }}>♪</span>Audio quality</span>
+          <span className="v">{quality} ›</span>
+        </button>
+        <button className="set-row" onClick={() => setPage('source')}>
+          <span className="set-l"><span className="set-ico" style={{ background: '#1db954' }}>⇄</span>Default source</span>
+          <span className="v">{source} ›</span>
+        </button>
+        <button className="set-row" onClick={() => setPage('crossfade')}>
+          <span className="set-l"><span className="set-ico" style={{ background: '#8a5cf6' }}>∿</span>Crossfade</span>
+          <span className="v">{crossfade} ›</span>
+        </button>
+        <button className="set-row" onClick={onReplayOnboarding}>
+          <span className="set-l"><span className="set-ico" style={{ background: '#4a4a56' }}>↺</span>Replay onboarding</span>
+          <span className="v">›</span>
+        </button>
       </div>
     </>
   );

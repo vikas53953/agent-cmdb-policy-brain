@@ -36,6 +36,7 @@ export interface YouTubePlayer {
   getDuration(): number;
   setVolume(pct: number): void;
   onStateChange(cb: (playing: boolean) => void): void;
+  onEnded(cb: () => void): void;
 }
 
 /** Create a hidden YouTube player mounted into `el`. */
@@ -45,6 +46,7 @@ export async function createYouTubePlayer(el: HTMLElement): Promise<YouTubePlaye
   let ready = false;
   let pending: string | null = null;
   let stateCb: ((playing: boolean) => void) | null = null;
+  let endedCb: (() => void) | null = null;
 
   const player = new YT.Player(el, {
     height: '0',
@@ -61,6 +63,7 @@ export async function createYouTubePlayer(el: HTMLElement): Promise<YouTubePlaye
       onStateChange: (e: any) => {
         // 1 = playing, 2 = paused, 0 = ended
         if (stateCb) stateCb(e.data === 1);
+        if (e.data === 0 && endedCb) endedCb();
       },
     },
   });
@@ -77,6 +80,7 @@ export async function createYouTubePlayer(el: HTMLElement): Promise<YouTubePlaye
     getDuration() { return ready ? player.getDuration() || 0 : 0; },
     setVolume(pct) { if (ready) player.setVolume(pct); },
     onStateChange(cb) { stateCb = cb; },
+    onEnded(cb) { endedCb = cb; },
   };
 }
 

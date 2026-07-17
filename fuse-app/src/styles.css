@@ -280,3 +280,55 @@ span.art-ph.cover { width: 120px; height: 120px; display: block; border-radius: 
 span.art-ph.alb-art { width: 100%; aspect-ratio: 1; display: block; border-radius: 10px; }
 span.art-ph.np-art { display: block; }
 span.art-ph.qart { width: 54px; height: 54px; }
+
+/* interactive control states + menus */
+.np-ctrl .c.on { color: var(--accent); text-shadow: 0 0 12px var(--accent); }
+.rep1 { font-size: 9px; font-weight: 800; margin-left: 1px; }
+.like-btn { background: none; border: 0; font-size: 22px; cursor: pointer; color: rgba(255,255,255,.7); }
+.like-btn.on { color: var(--accent); }
+.icon-btn.on { color: var(--accent); }
+.np-menu { position: absolute; top: 64px; right: 20px; z-index: 5; background: var(--card-2); border-radius: 12px;
+  box-shadow: var(--shadow-lg); padding: 6px; display: flex; flex-direction: column; min-width: 200px; }
+.np-menu.bottom { top: auto; bottom: 64px; right: auto; left: 50%; transform: translateX(-50%); }
+.np-menu button { background: none; border: 0; text-align: left; padding: 12px 14px; font-size: 14px; font-weight: 600;
+  color: var(--ink); cursor: pointer; border-radius: 8px; }
+.np-menu button:active { background: var(--line-2); }
+.menu-title { font-size: 10px; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; color: var(--faint); padding: 8px 14px 2px; }
+.menu-hint { font-size: 11px; color: var(--muted); padding: 4px 14px 8px; max-width: 230px; }
+.empty-note { font-size: 13px; color: var(--muted); background: var(--card); border-radius: 12px; padding: 16px; text-align: center; line-height: 1.5; }
+
+/* premium settings + avatar button + DJ picker */
+.avatar-btn { background: none; border: 0; padding: 0; cursor: pointer; border-radius: 50%; }
+.prof-card { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 22px 16px 18px;
+  border-radius: 18px; background: linear-gradient(160deg, color-mix(in srgb, var(--accent) 32%, var(--card)), var(--card) 70%);
+  box-shadow: var(--shadow); }
+.prof-card .avatar { width: 74px; height: 74px; outline: 3px solid rgba(255,255,255,.25); outline-offset: 3px; }
+.prof-name { font-size: 20px; font-weight: 800; margin-top: 6px; }
+.prof-sub { font-size: 12px; color: var(--muted); }
+.prof-chip { font-size: 11px; font-weight: 800; padding: 5px 12px; border-radius: 100px; margin-top: 4px;
+  background: rgba(255,255,255,.14); color: #ffd76a; letter-spacing: .04em; }
+.set-ico { width: 28px; height: 28px; border-radius: 8px; display: grid; place-items: center; font-size: 14px;
+  color: #fff; flex: none; }
+.set-row { padding: 13px 14px; }
+.set-row:active { background: var(--line-2); }
+
+/* DJ deck header + picker */
+.dtitle-wrap { min-width: 0; flex: 1; }
+.dtrack { display: flex; align-items: center; gap: 9px; margin-top: 3px; min-width: 0; }
+.d-art { width: 34px; height: 34px; border-radius: 6px; flex: none; }
+.dsub { font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.eqs.dim { opacity: .35; }
+.eq-note { font-size: 10.5px; color: var(--muted); text-align: center; }
+.deck-picker { background: var(--bg-2); border-radius: 12px; padding: 6px; box-shadow: var(--shadow-lg); }
+.picker-list { max-height: 250px; overflow-y: auto; display: flex; flex-direction: column; }
+.picker-row { display: flex; align-items: center; gap: 10px; padding: 8px 10px; background: none; border: 0;
+  border-radius: 9px; cursor: pointer; text-align: left; }
+.picker-row:active { background: var(--line-2); }
+.p-art { width: 38px; height: 38px; border-radius: 6px; flex: none; }
+.p-meta { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.p-meta b { font-size: 13px; font-weight: 700; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.p-meta i { font-size: 11px; color: var(--muted); font-style: normal; }
+.p-src { font-size: 9.5px; font-weight: 800; color: var(--muted); background: rgba(255,255,255,.08);
+  padding: 3px 8px; border-radius: 100px; }
+.p-file { width: 38px; height: 38px; border-radius: 6px; background: var(--card-2); display: grid; place-items: center;
+  font-size: 16px; color: var(--accent); flex: none; }
