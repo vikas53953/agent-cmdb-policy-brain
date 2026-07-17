@@ -35,8 +35,157 @@ model User {
   sessions      Session[]
   createdAt     DateTime  @default(now())
 
-  // U3 attaches the owned-data relations here (likes, playlists, plays,
-  // settings). Left off in U2 so the auth foundation stands alone and builds.
+  // U3 owned-data relations. Every one is scoped to the user; deleting the user
+  // cascades to their private data (see onDelete: Cascade on each child). Caches
+  // (SearchCache/LyricsCache) and TrendingSeed are deliberately NOT here — they
+  // are cross-user/global data, not owned by any one account.
+  likes     Like[]
+  playlists Playlist[]
+  plays     Play[]
+  settings  Setting[]
+}
+
+// --- U3: owned data + caches ----------------------------------------------------
+//
+// TRACK IDENTITY is stored source-agnostically on every row that references a
+// song: (source, nativeId, title, artist, artUrl, durationSec). There is NO
+// canonical Track table — songs live in external sources (YouTube video ids,
+// Spotify uris, local-file keys), so each owned row denormalizes the display
+// fields it needs. This keeps a like / playlist entry / play event renderable
+// (real cover art per R5) without a second lookup, and lets one playlist mix
+// tracks from any source (R9).
+//
+//   source   — "youtube" | "spotify" | "local"
+//   nativeId — the id within that source (video id / spotify track uri / local key)
+
+// R8: a user's liked tracks, private to their account, present on any device they
+// sign into (the row is keyed by ownerId, read back after sign-in anywhere).
+model Like {
+  id          String   @id @default(cuid())
+  ownerId     String
+  owner       User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  source      String
+  nativeId    String
+  title       String
+  artist      String?
+  artUrl      String?
+  durationSec Int?
+  createdAt   DateTime @default(now())
+
+  // One like per (user, track) — liking twice is idempotent, and unliking is a
+  // delete keyed on this pair. Scoped by ownerId so it never collides across users.
+  @@unique([ownerId, source, nativeId])
+  @@index([ownerId])
+}
+
+// R9: user-owned playlists that can mix tracks from any source. Rename/reorder/
+// delete all go through the repo keyed on { id, ownerId }.
+model Playlist {
+  id        String          @id @default(cuid())
+  ownerId   String
+  owner     User            @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  name      String
+  tracks    PlaylistTrack[]
+  createdAt DateTime        @default(now())
+  updatedAt DateTime        @updatedAt
+
+  @@index([ownerId])
+}
+
+// Ordered membership of a playlist. `position` is the persisted order (R9 reorder);
+// the repo rewrites positions on reorder. Tenancy is enforced via the parent
+// Playlist (a PlaylistTrack is only reachable through a playlist the user owns);
+// cascade delete removes rows when the playlist or user is deleted.
+model PlaylistTrack {
+  id          String   @id @default(cuid())
+  playlistId  String
+  playlist    Playlist @relation(fields: [playlistId], references: [id], onDelete: Cascade)
+  position    Int
+  source      String
+  nativeId    String
+  title       String
+  artist      String?
+  artUrl      String?
+  durationSec Int?
+
+  @@index([playlistId])
+}
+
+// R11 + KTD-4: play history per user (drives "recently played" and the
+// recommendation affinity) AND the raw material for anonymous trending aggregates
+// (count of plays per track across all users). Recorded from day one so trending
+// has data to graduate into once enough accumulates.
+model Play {
+  id       String   @id @default(cuid())
+  ownerId  String
+  owner    User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  source   String
+  nativeId String
+  title    String
+  artist   String?
+  artUrl   String?
+  playedAt DateTime @default(now())
+
+  // Recently-played reads: newest-first per user.
+  @@index([ownerId, playedAt])
+  // Trending aggregate reads: group by (source, nativeId) across all users.
+  @@index([source, nativeId])
+}
+
+// R16: per-user settings (crossfade length, lyrics on/off, connected sources, …).
+// Stored as key/value strings so a new setting needs no migration; each owning
+// unit reads/writes its own key through the settings repo. Composite PK keeps one
+// row per (user, key) and makes upsert the natural write.
+model Setting {
+  ownerId   String
+  owner     User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  key       String
+  value     String
+  updatedAt DateTime @updatedAt
+
+  @@id([ownerId, key])
+}
+
+// KTD-8: server-side cache of YouTube+Spotify search results keyed by NORMALIZED
+// query, with a TTL, so repeated searches never spend YouTube's expensive
+// search.list quota (100 units) again inside the window. Global (not per-user) —
+// search results are not private data. `results` is the raw merged result payload.
+model SearchCache {
+  queryKey  String   @id
+  results   Json
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([expiresAt])
+}
+
+// KTD-3: cache of LRCLIB lyrics lookups keyed by a normalized track key
+// (title+artist+duration). `found` records a confirmed miss so the honest
+// "no lyrics" state (R7) is served from cache without re-hitting LRCLIB. Global —
+// lyrics for a song are the same for everyone.
+model LyricsCache {
+  trackKey     String    @id
+  found        Boolean
+  syncedLyrics String?
+  plainLyrics  String?
+  expiresAt    DateTime?
+  createdAt    DateTime  @default(now())
+
+  @@index([expiresAt])
+}
+
+// KTD-4: curated trending seed. Home shows this ordered list until enough
+// anonymous play data accumulates for real aggregate trending to graduate in
+// (U12). Global, un-owned; populated by prisma/seed.ts.
+model TrendingSeed {
+  id        String   @id @default(cuid())
+  rank      Int      @unique
+  source    String
+  nativeId  String
+  title     String
+  artist    String?
+  artUrl    String?
+  createdAt DateTime @default(now())
 }
 
 model Account {
