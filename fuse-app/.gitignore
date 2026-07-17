@@ -10,3 +10,4 @@ dist-ssr
 
 # TS build cache
 *.tsbuildinfo
+.env.production

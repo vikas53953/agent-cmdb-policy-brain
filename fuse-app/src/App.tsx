@@ -1,7 +1,8 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import './styles.css';
 import { AccentProvider } from './theme/accent';
 import { PlayerProvider } from './player';
+import { completeSpotifyLogin } from './integrations/spotify';
 import { Nav, type TabId } from './components/Nav';
 import { MiniPlayer } from './components/MiniPlayer';
 import { NowPlaying } from './components/NowPlaying';
@@ -25,9 +26,30 @@ function Shell() {
   const [queueOpen, setQueueOpen] = useState(false);
   const [lyricsOpen, setLyricsOpen] = useState(false);
   const [onboarded, setOnboarded] = useState(() => localStorage.getItem(ONBOARDED_KEY) === '1');
+  const [spotifyConnecting] = useState(() => window.location.pathname === '/callback');
 
   function openPlaylist(p: Playlist) { setPlaylist(p); setDetailOpen(true); }
   function finishOnboarding() { localStorage.setItem(ONBOARDED_KEY, '1'); setOnboarded(true); }
+
+  // Handle the Spotify OAuth redirect: exchange ?code for a token, then return home.
+  useEffect(() => {
+    if (window.location.pathname !== '/callback') return;
+    const code = new URLSearchParams(window.location.search).get('code');
+    if (!code) { window.location.replace('/'); return; }
+    completeSpotifyLogin(code).catch(() => {}).finally(() => window.location.replace('/'));
+  }, []);
+
+  if (spotifyConnecting) {
+    return (
+      <div className="app">
+        <div style={{ margin: 'auto', textAlign: 'center', padding: 24 }}>
+          <div className="onb-logo" style={{ margin: '0 auto 16px' }}>🎧</div>
+          <div className="h-lg">Connecting Spotify…</div>
+          <div className="h-sm" style={{ marginTop: 6 }}>One sec — bringing you back.</div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="app">
