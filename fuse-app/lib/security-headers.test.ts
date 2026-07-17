@@ -14,6 +14,13 @@ describe("buildCsp (KTD-9 minimal deny-all relaxation)", () => {
     expect(imgSrc).toContain("https://i.ytimg.com");
   });
 
+  it("allows the YouTube IFrame Player API script (script-src) — U7 needs it to drive the embed", () => {
+    const csp = buildCsp(false);
+    const scriptSrc = csp.split(";").map((d) => d.trim()).find((d) => d.startsWith("script-src"));
+    expect(scriptSrc).toContain("https://www.youtube.com");
+    expect(scriptSrc).toContain("https://s.ytimg.com");
+  });
+
   it("allows the Spotify Web Playback SDK script and API connections", () => {
     const csp = buildCsp(false);
     expect(csp).toContain("https://sdk.scdn.co");

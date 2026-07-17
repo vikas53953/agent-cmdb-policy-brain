@@ -95,9 +95,15 @@ export class PlayerStore {
       return false;
     }
 
+    // Optimistic focus: reflect the chosen track in state BEFORE we create/start the
+    // underlying player, so a source whose UI surface depends on `current` (the visible
+    // YouTube video, U7/KTD-7) mounts on-screen first and the player is created inside a
+    // visible container rather than a hidden one. `isPlaying` stays honest — it flips to
+    // true only after the adapter has actually acted (R17 at the state layer).
+    this.set({ current: target, isPlaying: false, positionSec: 0 });
     await adapter.load(target);
     await adapter.play();
-    this.set({ current: target, isPlaying: true, positionSec: 0 });
+    this.set({ isPlaying: true });
     return true;
   }
 

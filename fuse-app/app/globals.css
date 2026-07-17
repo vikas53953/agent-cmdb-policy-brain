@@ -195,6 +195,34 @@ body {
   place-items: center;
   color: var(--txt-lo);
 }
+/* When a YouTube track plays, the art slot IS the visible video (KTD-7): the owned
+ * player host and its iframe fill the slot — never a hidden 0x0 player. */
+.mini-art-video,
+.mini-art-cover {
+  padding: 0;
+  overflow: hidden;
+  background: #000;
+}
+.mini-art-cover img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.yt-surface {
+  width: 100%;
+  height: 100%;
+  display: block;
+  line-height: 0;
+}
+.yt-host,
+.yt-host iframe {
+  width: 100%;
+  height: 100%;
+  display: block;
+  border: 0;
+}
+
 .mini-meta {
   flex: 1 1 auto;
   min-width: 0;
@@ -202,7 +230,7 @@ body {
 .mini-title {
   font-size: 0.9rem;
   font-weight: 600;
-  color: var(--txt-mid);
+  color: var(--txt-hi);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;

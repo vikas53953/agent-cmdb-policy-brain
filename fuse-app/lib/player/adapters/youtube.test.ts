@@ -1,0 +1,263 @@
+import { describe, expect, it, vi } from "vitest";
+import {
+  clampPlaybackRate,
+  createYouTubeAdapter,
+  YOUTUBE_CAPABILITIES,
+  youtubeAdapter,
+  type DocumentLike,
+  type PlayerBridge,
+  type Timers,
+  type YtPlayerCallbacks,
+  type YtPlayerHandle,
+} from "@/lib/player/adapters/youtube";
+import { adapterRegistry } from "@/lib/player/adapters";
+import { SOURCE_CAPABILITIES } from "@/lib/player/capabilities";
+import type { TrackRef } from "@/lib/repos/track";
+
+// A YouTube track (search only ever plays YouTube in U7).
+const track = (id: string): TrackRef => ({
+  source: "youtube",
+  nativeId: id,
+  title: `Track ${id}`,
+  artist: "Someone",
+  artUrl: null,
+  durationSec: 200,
+});
+
+// ── A DOM-free fake environment so the adapter runs under the node test env ─────
+
+type FakeEl = {
+  className: string;
+  style: Record<string, string>;
+  parentElement: FakeEl | null;
+  children: FakeEl[];
+  appendChild(child: FakeEl): void;
+  setAttribute(): void;
+};
+
+function fakeEl(): FakeEl {
+  const el: FakeEl = {
+    className: "",
+    style: {},
+    parentElement: null,
+    children: [],
+    appendChild(child) {
+      // Mirror DOM re-parenting: detach from a previous parent first.
+      if (child.parentElement) {
+        child.parentElement.children = child.parentElement.children.filter(
+          (c) => c !== child,
+        );
+      }
+      child.parentElement = el;
+      el.children.push(child);
+    },
+    setAttribute() {},
+  };
+  return el;
+}
+
+function fakeDoc(): DocumentLike {
+  const body = fakeEl();
+  return {
+    createElement: () => fakeEl() as unknown as HTMLElement,
+    body: body as unknown as HTMLElement,
+  };
+}
+
+// A fake YT player handle that records calls and lets the test fire state events.
+function fakePlayer() {
+  const calls: string[] = [];
+  let currentTime = 0;
+  let duration = 0;
+  let cb: YtPlayerCallbacks | null = null;
+  const handle: YtPlayerHandle = {
+    playVideo: () => calls.push("playVideo"),
+    pauseVideo: () => calls.push("pauseVideo"),
+    seekTo: (s) => calls.push(`seekTo:${s}`),
+    setVolume: (v) => calls.push(`setVolume:${v}`),
+    setPlaybackRate: (r) => calls.push(`setPlaybackRate:${r}`),
+    loadVideoById: (id) => calls.push(`loadVideoById:${id}`),
+    cueVideoById: (id) => calls.push(`cueVideoById:${id}`),
+    getCurrentTime: () => currentTime,
+    getDuration: () => duration,
+    destroy: () => calls.push("destroy"),
+  };
+  return {
+    calls,
+    handle,
+    setClock(t: number, d: number) {
+      currentTime = t;
+      duration = d;
+    },
+    fireState(state: number) {
+      cb?.onStateChange(state);
+    },
+    bind(callbacks: YtPlayerCallbacks) {
+      cb = callbacks;
+    },
+  };
+}
+
+// Manual timer control so the polling loop is deterministic in node.
+function manualTimers() {
+  let handler: (() => void) | null = null;
+  const timers: Timers = {
+    setInterval: (fn) => {
+      handler = fn;
+      return 1;
+    },
+    clearInterval: () => {
+      handler = null;
+    },
+  };
+  return {
+    timers,
+    tick() {
+      handler?.();
+    },
+    isRunning() {
+      return handler !== null;
+    },
+  };
+}
+
+function fakeStore() {
+  const positions: Array<{ pos: number; dur?: number }> = [];
+  let nextCalls = 0;
+  const bridge: PlayerBridge = {
+    reportPosition: (pos, dur) => positions.push({ pos, dur }),
+    next: async () => {
+      nextCalls += 1;
+      return true;
+    },
+  };
+  return {
+    bridge,
+    positions,
+    nextCalls: () => nextCalls,
+  };
+}
+
+describe("clampPlaybackRate (U7 — YouTube's real [0.25..2] ceiling)", () => {
+  it("clamps 3x down to the real 2x maximum", () => {
+    expect(clampPlaybackRate(3)).toBe(2);
+  });
+  it("clamps below the floor up to 0.25", () => {
+    expect(clampPlaybackRate(0.1)).toBe(0.25);
+  });
+  it("passes an in-range rate through unchanged", () => {
+    expect(clampPlaybackRate(1.5)).toBe(1.5);
+  });
+  it("falls back to 1x for NaN", () => {
+    expect(clampPlaybackRate(Number.NaN)).toBe(1);
+  });
+});
+
+describe("YouTube capabilities match the matrix", () => {
+  it("is exactly the YouTube column from the capability resolver", () => {
+    expect(YOUTUBE_CAPABILITIES).toBe(SOURCE_CAPABILITIES.youtube);
+    expect(YOUTUBE_CAPABILITIES.eq).toBe(false);
+    expect(YOUTUBE_CAPABILITIES.loops).toBe(false);
+    expect(YOUTUBE_CAPABILITIES.fx).toBe(false);
+    expect(YOUTUBE_CAPABILITIES.scratch).toBe(false);
+    expect(YOUTUBE_CAPABILITIES.singleDeckOnly).toBe(false);
+    expect(YOUTUBE_CAPABILITIES.rateRange).toEqual([0.25, 2]);
+  });
+});
+
+describe("the adapter registers itself so YouTube results become playable (R17)", () => {
+  it("is the registered youtube adapter in the shared registry", () => {
+    expect(adapterRegistry.get("youtube")).toBe(youtubeAdapter);
+    expect(youtubeAdapter.source).toBe("youtube");
+  });
+});
+
+describe("adapter playback behaviour (driven through injected fakes)", () => {
+  function setup() {
+    const player = fakePlayer();
+    const store = fakeStore();
+    const timers = manualTimers();
+    const factory = vi.fn(
+      async (_target: HTMLElement, _videoId: string, cb: YtPlayerCallbacks) => {
+        player.bind(cb);
+        cb.onReady(); // real player fires ready once the API is loaded
+        return player.handle;
+      },
+    );
+    const adapter = createYouTubeAdapter({
+      factory,
+      store: store.bridge,
+      doc: fakeDoc(),
+      timers: timers.timers,
+    });
+    return { adapter, player, store, timers, factory };
+  }
+
+  it("creates ONE player and plays it (visible surface flow: load then play)", async () => {
+    const { adapter, player, factory } = setup();
+    await adapter.load(track("aaa"));
+    await adapter.play();
+    expect(factory).toHaveBeenCalledTimes(1);
+    expect(player.calls).toContain("playVideo");
+  });
+
+  it("reuses the single player for the next track — no teardown, same iframe", async () => {
+    const { adapter, player, factory } = setup();
+    await adapter.load(track("aaa"));
+    await adapter.load(track("bbb"));
+    expect(factory).toHaveBeenCalledTimes(1); // not recreated
+    expect(player.calls).toContain("loadVideoById:bbb");
+    expect(player.calls).not.toContain("destroy");
+  });
+
+  it("clamps a 3x speed request to 2x on the real player", async () => {
+    const { adapter, player } = setup();
+    await adapter.load(track("aaa"));
+    adapter.setRate(3);
+    expect(player.calls).toContain("setPlaybackRate:2");
+  });
+
+  it("maps 0..1 volume onto the player's 0..100 scale", async () => {
+    const { adapter, player } = setup();
+    await adapter.load(track("aaa"));
+    adapter.setVolume(0.5);
+    expect(player.calls).toContain("setVolume:50");
+  });
+
+  it("mirrors the player clock into the store while polling", async () => {
+    const { adapter, player, store, timers } = setup();
+    await adapter.load(track("aaa"));
+    player.setClock(42, 200);
+    timers.tick();
+    expect(store.positions.at(-1)).toEqual({ pos: 42, dur: 200 });
+  });
+
+  it("advances the queue when a track ends", async () => {
+    const { adapter, player, store } = setup();
+    await adapter.load(track("aaa"));
+    player.fireState(0); // YT ENDED
+    expect(store.nextCalls()).toBe(1);
+  });
+
+  it("unload destroys the player and stops polling", async () => {
+    const { adapter, player, timers } = setup();
+    await adapter.load(track("aaa"));
+    expect(timers.isRunning()).toBe(true);
+    adapter.unload();
+    expect(player.calls).toContain("destroy");
+    expect(timers.isRunning()).toBe(false);
+  });
+
+  it("is a no-op without a DOM (SSR / node) rather than pretending to play", async () => {
+    const store = fakeStore();
+    const factory = vi.fn();
+    const adapter = createYouTubeAdapter({
+      factory: factory as never,
+      store: store.bridge,
+      doc: null, // no document
+    });
+    await adapter.load(track("aaa"));
+    await adapter.play();
+    expect(factory).not.toHaveBeenCalled();
+  });
+});

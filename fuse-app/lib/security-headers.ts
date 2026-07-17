@@ -20,6 +20,10 @@
 // hidden) plus its thumbnail CDN.
 const YT_FRAME = "https://www.youtube.com https://www.youtube-nocookie.com";
 const YT_IMG = "https://i.ytimg.com https://*.ytimg.com";
+// The IFrame Player API loader (https://www.youtube.com/iframe_api) and the widget
+// script it injects from s.ytimg.com. Required by the U7 YouTube adapter to drive
+// play/pause/seek/rate on the visible embed. Without these the player cannot load.
+const YT_SCRIPT = "https://www.youtube.com https://s.ytimg.com";
 
 // Spotify: the Web Playback SDK script host, the cover-art CDN, and the API/
 // streaming endpoints the SDK connects to. Wired for real in U15; declared here
@@ -40,9 +44,9 @@ export function buildCsp(isDev: boolean): string {
   return [
     // Same-origin unless a directive below widens it.
     `default-src 'self'`,
-    // Scripts: self + inline (Next injects inline bootstrap) + the Spotify SDK.
-    // 'unsafe-eval' is dev-only (React refresh).
-    `script-src 'self' 'unsafe-inline'${isDev ? " 'unsafe-eval'" : ""} ${SP_SCRIPT}`,
+    // Scripts: self + inline (Next injects inline bootstrap) + the YouTube IFrame
+    // Player API + the Spotify SDK. 'unsafe-eval' is dev-only (React refresh).
+    `script-src 'self' 'unsafe-inline'${isDev ? " 'unsafe-eval'" : ""} ${YT_SCRIPT} ${SP_SCRIPT}`,
     // Styles: self + inline (Tailwind-injected + React style attrs).
     `style-src 'self' 'unsafe-inline'`,
     // Images: self + data/blob + YouTube thumbs + Spotify covers + Google avatars.

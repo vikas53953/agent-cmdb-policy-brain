@@ -74,6 +74,17 @@ export function PlayIcon({ size = 20, className }: IconProps) {
   return svg(<path d="M8 5.5v13l11-6.5-11-6.5Z" fill="currentColor" stroke="none" />, size, className);
 }
 
+export function PauseIcon({ size = 20, className }: IconProps) {
+  return svg(
+    <>
+      <rect x="6.5" y="5" width="3.4" height="14" rx="1" fill="currentColor" stroke="none" />
+      <rect x="14.1" y="5" width="3.4" height="14" rx="1" fill="currentColor" stroke="none" />
+    </>,
+    size,
+    className,
+  );
+}
+
 export function NextIcon({ size = 20, className }: IconProps) {
   return svg(
     <>
