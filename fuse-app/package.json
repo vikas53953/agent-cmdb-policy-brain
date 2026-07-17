@@ -6,7 +6,7 @@
   "description": "Fuse — one player for every music service, plus a Web Audio DJ console.",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
+    "build": "vite build",
     "preview": "vite preview",
     "typecheck": "tsc -b --noEmit"
   },
