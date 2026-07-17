@@ -1,0 +1,74 @@
+// Fuse Prisma schema.
+//
+// U2 BOOTSTRAP SCOPE (this commit): the standard Auth.js (NextAuth v5) adapter
+// tables ONLY — User, Account, Session, VerificationToken. Database-session
+// Google sign-in cannot exist without them, so the auth unit owns the tables it
+// depends on. The wider app schema (Like, Playlist, PlaylistTrack, Play, Setting,
+// SearchCache, LyricsCache) and the repos layer land in U3, which EXTENDS this
+// file rather than replacing it. Do not re-scaffold these auth models in U3.
+//
+// `prisma generate` (run in postinstall) only reads this file — it needs no
+// database connection — so a keyless local/CI install still generates the client
+// and the app typechecks and builds with DATABASE_URL unset.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// --- Auth.js (NextAuth v5) adapter models ---------------------------------------
+// Database session strategy: a Session row is the source of truth for a signed-in
+// user (revocable server-side), unlike a stateless JWT. @auth/prisma-adapter reads
+// and writes exactly these shapes; the field names are fixed by the adapter.
+
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String?   @unique
+  emailVerified DateTime?
+  image         String?
+  accounts      Account[]
+  sessions      Session[]
+  createdAt     DateTime  @default(now())
+
+  // U3 attaches the owned-data relations here (likes, playlists, plays,
+  // settings). Left off in U2 so the auth foundation stands alone and builds.
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+  user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
