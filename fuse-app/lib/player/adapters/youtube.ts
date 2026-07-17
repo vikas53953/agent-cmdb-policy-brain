@@ -27,6 +27,17 @@ import type { SourceAdapter, SourceCapabilities } from "@/lib/player/types";
 import { adapterRegistry } from "@/lib/player/adapters";
 import { SOURCE_CAPABILITIES, YOUTUBE_RATE_RANGE } from "@/lib/player/capabilities";
 import { playerStore } from "@/lib/player/store";
+import { logPlaybackError } from "@/lib/activity-log";
+
+// Plain-English messages for the YouTube IFrame API error codes (R18 — errors say
+// what went wrong). The raw numeric code is not sensitive, so it is logged as-is.
+const YT_ERROR_MESSAGES: Record<number, string> = {
+  2: "YouTube rejected the video request",
+  5: "The YouTube player hit a playback error",
+  100: "This video is unavailable",
+  101: "The video's owner does not allow it to be played here",
+  150: "The video's owner does not allow it to be played here",
+};
 
 // ── Pure helpers (unit-tested without a DOM) ───────────────────────────────────
 
@@ -238,8 +249,12 @@ export function createYouTubeAdapter(deps: YouTubeAdapterDeps = {}): YouTubeAdap
             startPolling();
           },
           onStateChange,
-          onError: () => {
-            // Stall / error UX (retry, then Skip) is built in U8; nothing to fake here.
+          onError: (code) => {
+            // Record the error to the activity log (R18). The stall-detection +
+            // retry-then-Skip UX lives in Now Playing (U8, playback-health.ts).
+            logPlaybackError(YT_ERROR_MESSAGES[code] ?? "YouTube playback error", {
+              code,
+            });
           },
         });
       } else {

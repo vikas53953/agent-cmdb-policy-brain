@@ -127,19 +127,34 @@ export class PlayerStore {
     }
   }
 
-  // Advance to the next queued track (honouring repeat). Returns false when the queue
-  // is exhausted and repeat is off.
+  // Re-issue playback on the active adapter WITHOUT resetting position — the stall
+  // recovery nudge Now Playing's retry path calls (U8, AE1). Honest no-op when
+  // nothing is actively playing, so it never fakes a recovery it cannot perform.
+  async retry(): Promise<void> {
+    if (!this.activeAdapter || !this.state.current) return;
+    await this.activeAdapter.play();
+  }
+
+  // Advance to the next queued track (honouring repeat and shuffle). Returns false
+  // when the queue is exhausted and repeat is off.
   async next(): Promise<boolean> {
     if (this.state.repeat === "one" && this.state.current) {
       return this.play(this.state.current);
     }
-    const [head, ...rest] = this.state.queue;
-    if (!head) {
+    if (this.state.queue.length === 0) {
       if (this.state.repeat === "all" && this.state.current) {
         return this.play(this.state.current);
       }
       return false;
     }
+    // Shuffle picks a random track from the queue instead of the head, so the shuffle
+    // control does something REAL (R17) — not a flag that changes nothing. With
+    // shuffle off it always picks index 0, i.e. plain in-order advance.
+    const pickIndex = this.state.shuffle
+      ? Math.floor(Math.random() * this.state.queue.length)
+      : 0;
+    const head = this.state.queue[pickIndex];
+    const rest = this.state.queue.filter((_, i) => i !== pickIndex);
     // If repeat is "all", the finished current track rejoins the tail of the queue.
     const nextQueue =
       this.state.repeat === "all" && this.state.current

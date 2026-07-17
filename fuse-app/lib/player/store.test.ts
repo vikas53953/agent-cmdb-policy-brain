@@ -146,6 +146,51 @@ describe("queue navigation", () => {
   });
 });
 
+describe("shuffle picks a real track from the queue (U8, R17 — no dead control)", () => {
+  it("advances to some track that was in the queue and shrinks it by one", async () => {
+    const registry = createAdapterRegistry();
+    registry.register(makeFakeAdapter("youtube").adapter);
+    const store = new PlayerStore({ registry });
+
+    await store.play(track("youtube", "a"));
+    store.setQueue([track("youtube", "b"), track("youtube", "c"), track("youtube", "d")]);
+    store.toggleShuffle();
+    expect(store.getState().shuffle).toBe(true);
+
+    const advanced = await store.next();
+    expect(advanced).toBe(true);
+    // Whatever was picked, it came from the queue and the queue is now smaller by one.
+    expect(["b", "c", "d"]).toContain(store.getState().current?.nativeId);
+    expect(store.getState().queue).toHaveLength(2);
+    expect(store.getState().queue.map((t) => t.nativeId)).not.toContain(
+      store.getState().current?.nativeId,
+    );
+  });
+});
+
+describe("retry re-issues playback without resetting position (U8, AE1)", () => {
+  it("nudges the active adapter's play() again and keeps position", async () => {
+    const registry = createAdapterRegistry();
+    const { adapter, calls } = makeFakeAdapter("youtube");
+    registry.register(adapter);
+    const store = new PlayerStore({ registry });
+
+    await store.play(track("youtube", "a"));
+    store.reportPosition(42, 200);
+    calls.length = 0; // ignore the load/play from the initial play()
+
+    await store.retry();
+    expect(calls).toEqual(["play"]); // no load, no unload — same player, same position
+    expect(store.getState().positionSec).toBe(42);
+  });
+
+  it("is an honest no-op when nothing is playing", async () => {
+    const store = new PlayerStore({ registry: createAdapterRegistry() });
+    await expect(store.retry()).resolves.toBeUndefined();
+    expect(store.getState().isPlaying).toBe(false);
+  });
+});
+
 describe("subscriptions and reported position", () => {
   it("notifies subscribers on state change and stops after unsubscribe", async () => {
     const registry = createAdapterRegistry();

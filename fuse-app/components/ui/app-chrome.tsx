@@ -15,6 +15,7 @@ import { usePathname } from "next/navigation";
 import { showsMiniPlayer } from "@/lib/ui/shell";
 import TabBar from "@/components/ui/tab-bar";
 import MiniPlayer from "@/components/player/mini-player";
+import NowPlaying from "@/components/player/now-playing";
 import ProfileSheet from "@/components/settings/profile-sheet";
 
 // The subset of the signed-in user the shell needs. Serializable so it can cross
@@ -38,6 +39,10 @@ export default function AppChrome({
   children: React.ReactNode;
 }) {
   const [sheetOpen, setSheetOpen] = useState(false);
+  // Whether the full Now Playing screen is expanded over the phone frame (R4). Owned
+  // here so the mini-player's expand tap and the overlay stay in sync, and so the mini
+  // can hand the single visible YouTube video up to Now Playing while it is open.
+  const [npOpen, setNpOpen] = useState(false);
   const pathname = usePathname() ?? "/";
   const withMiniPlayer = showsMiniPlayer(pathname);
 
@@ -65,9 +70,13 @@ export default function AppChrome({
       <main className="screen">{children}</main>
 
       <div className="dock">
-        {withMiniPlayer ? <MiniPlayer /> : null}
+        {withMiniPlayer ? (
+          <MiniPlayer npOpen={npOpen} onExpand={() => setNpOpen(true)} />
+        ) : null}
         <TabBar />
       </div>
+
+      <NowPlaying open={npOpen} onClose={() => setNpOpen(false)} />
 
       <ProfileSheet open={sheetOpen} onClose={() => setSheetOpen(false)} user={user} />
     </div>

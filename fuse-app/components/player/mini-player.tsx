@@ -7,6 +7,12 @@
 // its artwork (KTD-7 — never a hidden player) with real, working transport wired to
 // the store. When nothing is playing it keeps the honest empty state; nothing here is
 // enabled unless it actually does something (R17).
+//
+// U8 wires the expand affordance (R4 — the mini-player opens the full Now Playing
+// screen when tapped) and hands the single visible YouTube <iframe> up to Now Playing
+// while it is open: `npOpen` tells the mini to stop hosting the video so the same
+// player node re-parents into the big Now Playing art surface (never two hosts, never
+// a hidden player).
 
 import type { TrackRef } from "@/lib/repos/track";
 import { usePlayerState } from "@/lib/player/use-player";
@@ -20,8 +26,15 @@ const NO_NEXT_REASON = "Nothing queued up next";
 
 // The art box: the live YouTube video for a YouTube track (visible-player rule), the
 // track's real cover art for any other source, or a music glyph when art is missing.
-function MiniArt({ track }: { track: TrackRef }) {
+// While Now Playing is open (`npOpen`) the mini stops hosting the YouTube video so the
+// single iframe re-parents up into the Now Playing art surface — never two hosts.
+function MiniArt({ track, npOpen }: { track: TrackRef; npOpen: boolean }) {
   if (track.source === "youtube") {
+    if (npOpen) {
+      // The video lives in Now Playing right now; keep a placeholder in the (hidden-
+      // behind-the-overlay) mini so we do not mount a second video host.
+      return <div className="mini-art mini-art-video" aria-hidden="true" />;
+    }
     return (
       <div className="mini-art mini-art-video">
         <VideoSurface variant="mini" />
@@ -79,7 +92,13 @@ function EmptyMini() {
   );
 }
 
-export default function MiniPlayer() {
+export default function MiniPlayer({
+  npOpen = false,
+  onExpand,
+}: {
+  npOpen?: boolean;
+  onExpand?: () => void;
+}) {
   const { current, isPlaying, queue } = usePlayerState();
 
   if (!current) return <EmptyMini />;
@@ -91,12 +110,19 @@ export default function MiniPlayer() {
 
   return (
     <div className="mini" aria-label="Mini player">
-      <MiniArt track={current} />
+      <MiniArt track={current} npOpen={npOpen} />
 
-      <div className="mini-meta">
-        <div className="mini-title">{current.title}</div>
-        <div className="mini-sub">{current.artist ?? "Unknown artist"}</div>
-      </div>
+      {/* Tapping the track opens the full Now Playing screen (R4). */}
+      <button
+        type="button"
+        className="mini-meta mini-open"
+        onClick={onExpand}
+        disabled={!onExpand}
+        aria-label={`Open now playing — ${current.title}`}
+      >
+        <span className="mini-title">{current.title}</span>
+        <span className="mini-sub">{current.artist ?? "Unknown artist"}</span>
+      </button>
 
       <div className="mini-controls">
         <button

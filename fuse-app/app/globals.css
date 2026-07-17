@@ -684,6 +684,262 @@ body {
   text-overflow: ellipsis;
 }
 
+/* --- Mini-player: expand-to-Now-Playing button ------------------------------- */
+/* The track meta is a button that opens the full Now Playing screen (U8, R4). It
+ * carries no button chrome — it reads as the plain track label it replaces. */
+.mini-open {
+  display: block;
+  text-align: left;
+  border: none;
+  background: transparent;
+  padding: 0;
+  cursor: pointer;
+  color: inherit;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.mini-open:disabled {
+  cursor: default;
+}
+.mini-open .mini-title,
+.mini-open .mini-sub {
+  display: block;
+}
+.mini-open:focus-visible {
+  outline: 2px solid var(--teal);
+  outline-offset: 2px;
+  border-radius: var(--r-sm);
+}
+
+/* --- Now Playing (U8) --------------------------------------------------------- */
+.np-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 37;
+  background: rgba(3, 5, 8, 0.55);
+  backdrop-filter: blur(2px);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.22s ease;
+}
+.np-overlay.open {
+  opacity: 1;
+  pointer-events: auto;
+}
+.np {
+  position: fixed;
+  left: 50%;
+  bottom: 0;
+  transform: translate(-50%, 100%);
+  width: 100%;
+  max-width: var(--frame-w);
+  height: 100dvh;
+  z-index: 38;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  overflow-y: auto;
+  background:
+    radial-gradient(70% 40% at 20% 0%, var(--ember-soft), transparent 70%),
+    radial-gradient(70% 45% at 100% 10%, var(--teal-soft), transparent 70%),
+    var(--ink-0);
+  padding: 14px 20px calc(env(safe-area-inset-bottom, 0px) + 28px);
+  transition: transform 0.28s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.np.open {
+  transform: translate(-50%, 0);
+}
+
+.np-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 0 0 auto;
+}
+.np-head-label {
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--txt-mid);
+  flex: 1 1 auto;
+  text-align: center;
+}
+
+.np-art {
+  flex: 0 0 auto;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  border-radius: var(--r-lg);
+  overflow: hidden;
+  background: #000;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--line);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5);
+}
+.np-art img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.np-art .yt-surface {
+  width: 100%;
+  height: 100%;
+}
+.np-art-fallback {
+  color: var(--txt-lo);
+  display: grid;
+  place-items: center;
+}
+
+.np-info {
+  flex: 0 0 auto;
+  text-align: center;
+}
+.np-title {
+  font-family: var(--font-display);
+  font-size: 1.35rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  margin: 0;
+  color: var(--txt-hi);
+}
+.np-artist {
+  margin: 4px 0 0;
+  color: var(--txt-mid);
+  font-size: 0.92rem;
+}
+
+/* Honest failure banner (AE1): a stall says so and, when it can't recover, offers
+ * Skip — it never freezes silently. Ember-tinted so it reads as an alert. */
+.np-stall {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 10px 14px;
+  border-radius: var(--r-md);
+  border: 1px solid rgba(255, 122, 77, 0.45);
+  background: var(--ember-soft);
+  color: #ffb59c;
+  font-size: 0.86rem;
+  font-weight: 600;
+}
+.np-stall-skip {
+  flex: 0 0 auto;
+  padding: 6px 16px;
+  border-radius: var(--r-pill);
+  border: 1px solid rgba(255, 122, 77, 0.6);
+  background: rgba(255, 122, 77, 0.22);
+  color: #ffd0bf;
+  font-weight: 700;
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+.np-stall-skip:hover:not(:disabled) {
+  background: rgba(255, 122, 77, 0.34);
+}
+.np-stall-skip:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.np-stall-skip:focus-visible {
+  outline: 2px solid var(--ember);
+  outline-offset: 2px;
+}
+
+/* --- Scrub bar --------------------------------------------------------------- */
+.scrub {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.scrub-range {
+  width: 100%;
+  height: 6px;
+  -webkit-appearance: none;
+  appearance: none;
+  border-radius: var(--r-pill);
+  /* Filled portion (ember→teal) up to the current position, track behind it. */
+  background: linear-gradient(
+    to right,
+    var(--ember) 0%,
+    var(--teal) var(--scrub-pct, 0%),
+    var(--ink-3) var(--scrub-pct, 0%)
+  );
+  cursor: pointer;
+}
+.scrub-range:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+  background: var(--ink-3);
+}
+.scrub-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: var(--r-pill);
+  background: var(--txt-hi);
+  border: 2px solid var(--ink-0);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
+}
+.scrub-range::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  border-radius: var(--r-pill);
+  background: var(--txt-hi);
+  border: 2px solid var(--ink-0);
+}
+.scrub-range:focus-visible {
+  outline: 2px solid var(--teal);
+  outline-offset: 4px;
+}
+.scrub-times {
+  display: flex;
+  justify-content: space-between;
+  font-family: var(--font-mono);
+  font-size: 0.74rem;
+  color: var(--txt-mid);
+}
+
+/* --- Transport --------------------------------------------------------------- */
+.transport {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  padding: 4px 0 8px;
+}
+.transport .icon-btn.toggle {
+  color: var(--txt-mid);
+}
+.transport .icon-btn.toggle.on {
+  color: var(--teal);
+  background: var(--teal-soft);
+}
+.transport .np-play {
+  width: 60px;
+  height: 60px;
+}
+.transport .icon-btn.toggle {
+  position: relative;
+}
+.repeat-one {
+  position: absolute;
+  right: 3px;
+  bottom: 2px;
+  font-size: 0.6rem;
+  font-weight: 800;
+  font-family: var(--font-mono);
+  line-height: 1;
+}
+
 /* --- Reduced motion: collapse every transition/animation to near-instant ----- */
 @media (prefers-reduced-motion: reduce) {
   *,

@@ -96,6 +96,48 @@ export function NextIcon({ size = 20, className }: IconProps) {
   );
 }
 
+export function PrevIcon({ size = 20, className }: IconProps) {
+  return svg(
+    <>
+      <path d="M18 5.5v13l-9-6.5 9-6.5Z" fill="currentColor" stroke="none" />
+      <path d="M6 5v14" />
+    </>,
+    size,
+    className,
+  );
+}
+
+export function ShuffleIcon({ size = 20, className }: IconProps) {
+  return svg(
+    <>
+      <path d="M4 7h4l8 10h4" />
+      <path d="M16.5 4 20 7l-3.5 3" />
+      <path d="M4 17h4l2-2.6" />
+      <path d="M14 9.2 16 7h4" />
+      <path d="M16.5 14 20 17l-3.5 3" />
+    </>,
+    size,
+    className,
+  );
+}
+
+export function RepeatIcon({ size = 20, className }: IconProps) {
+  return svg(
+    <>
+      <path d="M17 3l3 3-3 3" />
+      <path d="M20 6H9a4 4 0 0 0-4 4v1" />
+      <path d="M7 21l-3-3 3-3" />
+      <path d="M4 18h11a4 4 0 0 0 4-4v-1" />
+    </>,
+    size,
+    className,
+  );
+}
+
+export function ChevronDownIcon({ size = 22, className }: IconProps) {
+  return svg(<path d="m6 9 6 6 6-6" />, size, className);
+}
+
 export function MusicIcon({ size = 20, className }: IconProps) {
   return svg(
     <>
