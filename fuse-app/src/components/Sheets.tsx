@@ -1,5 +1,5 @@
 import { usePlayer } from '../player';
-import { SourceBadge } from './common';
+import { SourceBadge, Art } from './common';
 
 export function QueueSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { current, queue } = usePlayer();
@@ -12,7 +12,7 @@ export function QueueSheet({ open, onClose }: { open: boolean; onClose: () => vo
         <>
           <div className="h-sm" style={{ padding: '2px 18px 8px' }}>Now playing</div>
           <div className="q-now">
-            <span className="th a" />
+            <Art src={current.artUrl} className="th" />
             <span className="rc"><span className="t">{current.title}</span>
               <span className="s"><SourceBadge source={current.source} />{current.artist}</span></span>
             <span className="eq-mini"><i /><i /><i /></span>
@@ -25,7 +25,7 @@ export function QueueSheet({ open, onClose }: { open: boolean; onClose: () => vo
         {upNext.map((t) => (
           <div className="q-item" key={t.id}>
             <span className="grip">⠿</span>
-            <span className="th" />
+            <Art src={t.artUrl} className="th" />
             <span className="rc"><span className="t">{t.title}</span>
               <span className="s"><SourceBadge source={t.source} />{t.artist}</span></span>
           </div>

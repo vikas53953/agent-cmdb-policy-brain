@@ -13,6 +13,8 @@ export interface Track {
   /** Provider-native id used to actually play (YouTube videoId, Spotify uri, …). */
   nativeId: string;
   quality?: string; // e.g. "320 kbps", "4K", "Lossless"
+  /** Cover art URL (YouTube thumbnail, Spotify album art, …). */
+  artUrl?: string;
 }
 
 export interface Playlist {

@@ -1,6 +1,6 @@
-import { trackById } from '../catalog';
+import { trackById, playlistArt } from '../catalog';
 import { usePlayer } from '../player';
-import { TrackRow } from '../components/common';
+import { TrackRow, Art } from '../components/common';
 import type { Playlist } from '../integrations/types';
 
 export function PlaylistDetail({ playlist, onBack }: { playlist: Playlist; onBack: () => void }) {
@@ -14,7 +14,7 @@ export function PlaylistDetail({ playlist, onBack }: { playlist: Playlist; onBac
         <span className="sub-ttl">Playlist</span>
       </div>
       <div className="d-hero">
-        <div className="cover" />
+        <Art src={playlistArt(playlist)} className="cover" />
         <div>
           <div className="h-sm">{playlist.subtitle}</div>
           <div className="d-title">{playlist.title}</div>

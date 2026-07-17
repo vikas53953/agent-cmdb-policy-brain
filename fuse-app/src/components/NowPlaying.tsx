@@ -1,12 +1,11 @@
 import { useRef, useState } from 'react';
 import { usePlayer, fmtTime } from '../player';
-import { SourceBadge } from './common';
+import { SourceBadge, Art } from './common';
 
 export function NowPlaying({ open, onClose, onQueue, onLyrics }: {
   open: boolean; onClose: () => void; onQueue: () => void; onLyrics: () => void;
 }) {
   const { current, isPlaying, toggle, next, prev, positionSec, durationSec, seek } = usePlayer();
-  const panelRef = useRef<HTMLDivElement | null>(null);
   const drag = useRef({ active: false, startY: 0, dy: 0 });
   const [dragY, setDragY] = useState(0);
 
@@ -38,8 +37,11 @@ export function NowPlaying({ open, onClose, onQueue, onLyrics }: {
   }
 
   return (
-    <div className={`panel np${open ? ' open' : ''}`} ref={panelRef}
+    <div className={`panel np${open ? ' open' : ''}`}
       style={dragY ? { transform: `translateY(${dragY}px)`, transition: 'none' } : undefined}>
+      {current?.artUrl && (
+        <div className="np-bg" style={{ backgroundImage: `url(${current.artUrl})` }} />
+      )}
       <div className="np-inner">
         <div className="np-grab" onPointerDown={onPointerDown} onPointerMove={onPointerMove}
           onPointerUp={onPointerUp} onPointerCancel={onPointerUp}>
@@ -50,13 +52,13 @@ export function NowPlaying({ open, onClose, onQueue, onLyrics }: {
           <span className="ctx">Now playing</span>
           <span>⋯</span>
         </div>
-        <div className="np-art" />
+        <Art src={current?.artUrl} className="np-art" />
         <div className="np-meta">
           <div>
             <div className="t">{current?.title ?? '—'}</div>
             <div className="s">{current?.artist ?? ''}</div>
           </div>
-          <div style={{ fontSize: 18, color: 'var(--muted)' }}>♡</div>
+          <div style={{ fontSize: 18, opacity: .7 }}>♡</div>
         </div>
         <div style={{ marginTop: 10 }}>{current && <SourceBadge source={current.source} />}</div>
         <div className="prog" onClick={onSeek}>

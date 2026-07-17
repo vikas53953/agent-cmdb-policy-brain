@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
-import { LIKED, PLAYLISTS, TRACKS } from '../catalog';
-import { SourceBadge } from '../components/common';
+import { LIKED, PLAYLISTS, TRACKS, playlistArt } from '../catalog';
+import { SourceBadge, Art } from '../components/common';
 import { usePlayer } from '../player';
 import type { Playlist } from '../integrations/types';
 
@@ -49,7 +49,7 @@ export function Library({ onOpenPlaylist }: { onOpenPlaylist: (p: Playlist) => v
 
       {filter === 'Playlists' && [LIKED, ...userPlaylists, ...PLAYLISTS].map((p) => (
         <button className="row" key={p.id} onClick={() => onOpenPlaylist(p)}>
-          <span className="th art" />
+          <Art src={playlistArt(p)} className="th" />
           <span className="rc">
             <span className="t">{p.title}</span>
             <span className="s">{p.sources.map((s) => <SourceBadge key={s} source={s} />)}{p.subtitle}</span>
@@ -60,7 +60,7 @@ export function Library({ onOpenPlaylist }: { onOpenPlaylist: (p: Playlist) => v
 
       {filter === 'Artists' && artists.map((a) => (
         <button className="row" key={a.artist} onClick={() => play(TRACKS.find((t) => t.artist === a.artist)!, TRACKS)}>
-          <span className="th art round" />
+          <Art src={TRACKS.find((t) => t.artist === a.artist)?.artUrl} className="th round" />
           <span className="rc"><span className="t">{a.artist}</span><span className="s">Artist · {a.count} songs</span></span>
           <span className="dur">▶</span>
         </button>
@@ -70,7 +70,7 @@ export function Library({ onOpenPlaylist }: { onOpenPlaylist: (p: Playlist) => v
         <div className="album-grid">
           {PLAYLISTS.map((p) => (
             <button className="album-card" key={p.id} onClick={() => onOpenPlaylist(p)}>
-              <span className="art" />
+              <Art src={playlistArt(p)} className="alb-art" />
               <span className="t">{p.title}</span>
               <span className="s">{p.subtitle.split('·').pop()?.trim()}</span>
             </button>

@@ -97,6 +97,7 @@ export const spotifyAdapter: SourceAdapter = {
       artist: (it.artists ?? []).map((a: any) => a.name).join(', '),
       durationSec: Math.round((it.duration_ms ?? 0) / 1000),
       quality: 'Spotify',
+      artUrl: it.album?.images?.[0]?.url,
     }));
   },
 };

@@ -5,7 +5,19 @@
 import type { Playlist, Track } from './integrations/types';
 
 function yt(nativeId: string, title: string, artist: string, durationSec: number, quality = 'YouTube'): Track {
-  return { id: `youtube:${nativeId}`, source: 'youtube', nativeId, title, artist, durationSec, quality };
+  return {
+    id: `youtube:${nativeId}`, source: 'youtube', nativeId, title, artist, durationSec, quality,
+    artUrl: `https://i.ytimg.com/vi/${nativeId}/hqdefault.jpg`,
+  };
+}
+
+/** Cover for a playlist = art of its first resolvable track. */
+export function playlistArt(p: Playlist): string | undefined {
+  for (const id of p.trackIds) {
+    const t = TRACKS.find((x) => x.id === id);
+    if (t?.artUrl) return t.artUrl;
+  }
+  return undefined;
 }
 
 export const TRACKS: Track[] = [

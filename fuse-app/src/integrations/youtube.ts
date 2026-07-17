@@ -101,6 +101,7 @@ export const youtubeAdapter: SourceAdapter = {
       title: item.snippet.title,
       artist: item.snippet.channelTitle,
       quality: 'YouTube',
+      artUrl: item.snippet.thumbnails?.high?.url ?? `https://i.ytimg.com/vi/${item.id.videoId}/hqdefault.jpg`,
     }));
   },
 };
