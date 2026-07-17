@@ -28,6 +28,7 @@ import {
 import VideoSurface from "@/components/player/video-surface";
 import Scrub from "@/components/player/scrub";
 import Lyrics from "@/components/player/lyrics";
+import MeltPanel from "@/components/player/melt-panel";
 import LikeButton from "@/components/player/like-button";
 import {
   PlayIcon,
@@ -176,6 +177,10 @@ export default function NowPlaying({
             <div className="np-actions">
               <LikeButton track={current} />
             </div>
+
+            {/* Auto-crossfade visual (U11, R3/F2): shown only while a blend is truly
+                under way — the incoming track melting in with a progress bar. */}
+            <MeltPanel />
 
             {/* Real synced lyrics (U9). Hidden entirely when the user turns lyrics
                 off; honest "no lyrics" message when LRCLIB has none. */}

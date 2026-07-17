@@ -13,7 +13,8 @@
 
 import { useEffect, useRef, useState } from "react";
 import { PENDING_CONTROLS } from "@/lib/ui/shell";
-import { signOutAction, setLyricsEnabledAction } from "@/lib/actions";
+import { signOutAction, setLyricsEnabledAction, setCrossfadeSecAction } from "@/lib/actions";
+import { CROSSFADE_MIN_SEC, CROSSFADE_MAX_SEC } from "@/lib/repos/settings";
 import type { ShellUser } from "@/components/ui/app-chrome";
 
 type Props = {
@@ -24,6 +25,10 @@ type Props = {
   // and the Now Playing panel stay in sync (U9, R16).
   lyricsEnabled: boolean;
   onLyricsChange: (enabled: boolean) => void;
+  // The current crossfade length (seconds) and a setter, owned by the shell so the
+  // slider, the live blend engine, and the persisted value stay in sync (U11, R3/R16).
+  crossfadeSec: number;
+  onCrossfadeChange: (seconds: number) => void;
 };
 
 function initialOf(user: ShellUser | null): string {
@@ -53,6 +58,8 @@ export default function ProfileSheet({
   user,
   lyricsEnabled,
   onLyricsChange,
+  crossfadeSec,
+  onCrossfadeChange,
 }: Props) {
   const closeRef = useRef<HTMLButtonElement>(null);
   // While a persist is in flight the toggle is disabled so a rapid double-tap can't
@@ -72,6 +79,25 @@ export default function ProfileSheet({
     } finally {
       setSaving(false);
     }
+  }
+
+  // Dragging the slider updates the live blend length instantly (real, audible effect
+  // on the very next transition — R17); the value is persisted only on release so a
+  // drag does not spam the server. The server clamps to 3..15s and returns the stored
+  // value, which we reconcile back into shell state.
+  function slideCrossfade(seconds: number) {
+    onCrossfadeChange(seconds);
+  }
+
+  function commitCrossfade() {
+    void setCrossfadeSecAction(crossfadeSec)
+      .then((stored) => {
+        if (stored !== crossfadeSec) onCrossfadeChange(stored);
+      })
+      .catch(() => {
+        // Persist failed: keep the live value; the next sign-in reload reconciles from
+        // the stored setting. Never claim a save that did not happen.
+      });
   }
 
   // Close on Escape; move focus into the sheet when it opens (accessibility).
@@ -136,9 +162,34 @@ export default function ProfileSheet({
           </form>
         </section>
 
-        {/* Playback — crossfade length (wired in U11). */}
+        {/* Playback — crossfade length. A REAL control (U11): the slider sets how long
+            one song melts into the next, takes effect on the very next transition, and
+            persists across reloads. */}
         <section className="sheet-group">
           <h3 className="sheet-group-title">Playback</h3>
+          <div className="setting-row setting-row-stack">
+            <div className="setting-main">
+              <div className="setting-label">Crossfade length</div>
+              <div className="setting-reason">
+                Songs melt into each other over{" "}
+                <strong>{crossfadeSec}s</strong>
+              </div>
+            </div>
+            <input
+              type="range"
+              className="cf-range"
+              min={CROSSFADE_MIN_SEC}
+              max={CROSSFADE_MAX_SEC}
+              step={1}
+              value={crossfadeSec}
+              onChange={(e) => slideCrossfade(Number(e.target.value))}
+              onPointerUp={commitCrossfade}
+              onKeyUp={commitCrossfade}
+              onBlur={commitCrossfade}
+              aria-label="Crossfade length in seconds"
+              aria-valuetext={`${crossfadeSec} seconds`}
+            />
+          </div>
           {pendingFor("Playback").map((c) => (
             <PendingRow key={c.id} label={c.label} reason={c.reason} />
           ))}

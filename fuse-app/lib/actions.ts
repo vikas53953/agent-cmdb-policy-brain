@@ -6,7 +6,7 @@
 
 import { signOut } from "@/lib/auth";
 import { requireUser } from "@/lib/auth-session";
-import { setLyricsEnabled } from "@/lib/repos/settings";
+import { setLyricsEnabled, setCrossfadeSec, getCrossfadeSec } from "@/lib/repos/settings";
 
 // Sign the current user out and land them back on the sign-in page. This is a REAL,
 // working control (the one live control in the U4 profile sheet). It calls Auth.js's
@@ -26,4 +26,16 @@ export async function setLyricsEnabledAction(enabled: boolean): Promise<boolean>
   const user = await requireUser();
   await setLyricsEnabled(user.id, enabled);
   return enabled;
+}
+
+// Persist the crossfade length (seconds) for the signed-in user (U11, R3/R16/R17).
+// This is a REAL control — the profile-sheet slider calls it and the blend engine
+// reads the value, so the transition length genuinely changes and survives reload.
+// The repo clamps to the honest 3..15s window; we return the STORED value so the
+// client can reconcile its optimistic UI with what was actually saved. requireUser
+// scopes the write to the caller's own settings row; a keyless build never invokes it.
+export async function setCrossfadeSecAction(seconds: number): Promise<number> {
+  const user = await requireUser();
+  await setCrossfadeSec(user.id, seconds);
+  return getCrossfadeSec(user.id);
 }

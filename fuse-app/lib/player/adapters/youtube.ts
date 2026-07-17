@@ -109,14 +109,35 @@ export type Timers = {
 };
 
 // A YouTube adapter is a SourceAdapter PLUS the mount/unmount surface the visible
-// video component (video-surface.tsx) uses to hand it the on-screen container.
+// video component (video-surface.tsx) uses to hand it the on-screen container, PLUS
+// the two-player blend surface the auto-crossfade engine (U11) drives.
 export type YouTubeAdapter = SourceAdapter & {
-  // Re-parent the owned player host into a visible container (KTD-7). Called by the
-  // video surface on mount.
+  // Re-parent the owned PRIMARY player host into a visible container (KTD-7). Called
+  // by the video surface on mount; also remembers the container so a blend promotion
+  // can move the newly-primary player back into the same on-screen slot.
   mount(container: HTMLElement): void;
   // Detach from a container without destroying the player, parking the host so React
   // unmounting the surface never tears down live playback.
   unmount(container: HTMLElement): void;
+
+  // ── Auto-crossfade blend surface (U11) ──────────────────────────────────────
+  // Warm a SECOND, visible iframe on the incoming track and start it playing. This
+  // is the real overlap: the primary keeps playing the outgoing track while this
+  // incoming player plays too, so the two genuinely cross-ramp (never a hidden
+  // player — the incoming lives in the melt panel via mountIncoming, KTD-7).
+  beginBlend(track: TrackRef): Promise<void>;
+  // Set the two players' volumes during the ramp (0..1 each) — the equal-power
+  // crossfade the blend engine computes.
+  setBlendVolumes(outgoing01: number, incoming01: number): void;
+  // Promote the incoming player to primary with NO reload (the audio the user hears
+  // continues seamlessly), retire the old primary, and move the new primary back into
+  // the on-screen primary container.
+  completeBlend(): void;
+  // Abandon an in-flight blend: destroy the incoming player, leaving the primary as-is.
+  cancelBlend(): void;
+  // Mount / release the INCOMING player's host in the melt panel's visible surface.
+  mountIncoming(container: HTMLElement): void;
+  unmountIncoming(container: HTMLElement): void;
 };
 
 export type YouTubeAdapterDeps = {
@@ -145,6 +166,17 @@ export function createYouTubeAdapter(deps: YouTubeAdapterDeps = {}): YouTubeAdap
   let ready = false;
   let readyResolvers: Array<() => void> = [];
   let pollId: number | null = null;
+
+  // The on-screen container the PRIMARY player currently lives in (mini-player art or
+  // Now Playing art). Remembered so a blend promotion can move the newly-primary
+  // player back into it without the visible surface having to re-mount.
+  let primaryContainer: HTMLElement | null = null;
+
+  // The SECOND player used only during an auto-crossfade (U11). It plays the incoming
+  // track while the primary still plays the outgoing one — the real overlap. Null
+  // whenever no blend is in flight.
+  let incoming: { player: YtPlayerHandle; host: HTMLElement } | null = null;
+  let incomingContainer: HTMLElement | null = null;
 
   function ensureHost(): HTMLElement | null {
     if (!doc) return null;
@@ -216,6 +248,8 @@ export function createYouTubeAdapter(deps: YouTubeAdapterDeps = {}): YouTubeAdap
     mount(container: HTMLElement): void {
       const h = ensureHost();
       if (!h) return;
+      // Remember where the primary lives so a blend promotion re-homes there.
+      primaryContainer = container;
       // Moving the host (and its iframe child) does not reload the video.
       container.appendChild(h);
     },
@@ -225,6 +259,90 @@ export function createYouTubeAdapter(deps: YouTubeAdapterDeps = {}): YouTubeAdap
         const p = ensurePark();
         if (p) p.appendChild(host);
       }
+      if (primaryContainer === container) primaryContainer = null;
+    },
+
+    // ── Auto-crossfade blend surface (U11) ──────────────────────────────────────
+
+    async beginBlend(track: TrackRef): Promise<void> {
+      if (!doc) return; // no DOM: honestly cannot overlap, caller falls back
+      // A stale incoming from an abandoned blend is torn down first.
+      if (incoming) {
+        incoming.player.destroy();
+        incoming = null;
+      }
+      const ihost = doc.createElement("div");
+      ihost.className = "yt-host";
+      // Give the incoming host a home immediately: the melt panel's visible surface
+      // if it has already mounted (KTD-7 — the incoming video is on screen), else the
+      // park until mountIncoming hands us one.
+      if (incomingContainer) incomingContainer.appendChild(ihost);
+      else ensurePark()?.appendChild(ihost);
+
+      const target = doc.createElement("div");
+      ihost.appendChild(target);
+      const iplayer = await factory(target, track.nativeId, {
+        // The incoming becomes primary before it could end, so its ENDED is a no-op;
+        // errors are still logged so a bad incoming is diagnosable (R18).
+        onReady: () => {},
+        onStateChange: () => {},
+        onError: (code) => {
+          logPlaybackError(YT_ERROR_MESSAGES[code] ?? "YouTube playback error", {
+            code,
+          });
+        },
+      });
+      incoming = { player: iplayer, host: ihost };
+      // The real factory resolves only after the player is ready, so it is safe to
+      // start playback now. It begins silent (setBlendVolumes(…, 0) precedes this).
+      iplayer.playVideo();
+    },
+
+    setBlendVolumes(outgoing01: number, incoming01: number): void {
+      const outC = Math.max(0, Math.min(1, outgoing01));
+      const inC = Math.max(0, Math.min(1, incoming01));
+      player?.setVolume(outC * 100);
+      incoming?.player.setVolume(inC * 100);
+    },
+
+    completeBlend(): void {
+      if (!incoming) return;
+      // Retire the outgoing (old primary) and stop its poll.
+      stopPolling();
+      if (player) player.destroy();
+      if (host) ensurePark()?.appendChild(host); // park the now-empty old host
+      // Promote the incoming player to primary — NO reload, so its audio continues.
+      player = incoming.player;
+      host = incoming.host;
+      ready = true;
+      readyResolvers = [];
+      // Move the new primary back onto the on-screen primary surface, or park it if no
+      // surface is mounted right now (its poll still feeds the store either way).
+      if (primaryContainer) primaryContainer.appendChild(host);
+      else ensurePark()?.appendChild(host);
+      incoming = null;
+      incomingContainer = null;
+      startPolling();
+    },
+
+    cancelBlend(): void {
+      if (!incoming) return;
+      incoming.player.destroy();
+      if (incoming.host) ensurePark()?.appendChild(incoming.host);
+      incoming = null;
+      incomingContainer = null;
+    },
+
+    mountIncoming(container: HTMLElement): void {
+      incomingContainer = container;
+      if (incoming?.host) container.appendChild(incoming.host);
+    },
+
+    unmountIncoming(container: HTMLElement): void {
+      if (incoming?.host && incoming.host.parentElement === container) {
+        ensurePark()?.appendChild(incoming.host);
+      }
+      if (incomingContainer === container) incomingContainer = null;
     },
 
     async load(track: TrackRef): Promise<void> {

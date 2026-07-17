@@ -261,3 +261,87 @@ describe("adapter playback behaviour (driven through injected fakes)", () => {
     expect(factory).not.toHaveBeenCalled();
   });
 });
+
+// The auto-crossfade blend surface (U11): a SECOND visible player overlaps the primary
+// so two YouTube tracks truly cross-ramp, then the incoming is promoted with no reload.
+describe("two-player blend surface (U11 — real overlap, seamless promotion)", () => {
+  // A setup that returns a FRESH player per factory call, so we can tell the primary
+  // (players[0]) from the incoming (players[1]) apart.
+  function setup() {
+    const players: Array<{ p: ReturnType<typeof fakePlayer>; videoId: string }> = [];
+    const store = fakeStore();
+    const timers = manualTimers();
+    const factory = vi.fn(
+      async (_target: HTMLElement, videoId: string, cb: YtPlayerCallbacks) => {
+        const p = fakePlayer();
+        p.bind(cb);
+        cb.onReady();
+        players.push({ p, videoId });
+        return p.handle;
+      },
+    );
+    const adapter = createYouTubeAdapter({
+      factory,
+      store: store.bridge,
+      doc: fakeDoc(),
+      timers: timers.timers,
+    });
+    return { adapter, players, factory };
+  }
+
+  it("beginBlend warms a SECOND player and plays it while the primary keeps playing", async () => {
+    const { adapter, players, factory } = setup();
+    await adapter.load(track("aaa"));
+    await adapter.beginBlend(track("bbb"));
+    expect(factory).toHaveBeenCalledTimes(2); // primary + incoming
+    expect(players[1].videoId).toBe("bbb");
+    expect(players[1].p.calls).toContain("playVideo");
+    // The outgoing was never destroyed — both are live (a real overlap).
+    expect(players[0].p.calls).not.toContain("destroy");
+  });
+
+  it("setBlendVolumes cross-ramps both players on the 0..100 scale", async () => {
+    const { adapter, players } = setup();
+    await adapter.load(track("aaa"));
+    await adapter.beginBlend(track("bbb"));
+    adapter.setBlendVolumes(0.25, 0.75);
+    expect(players[0].p.calls).toContain("setVolume:25");
+    expect(players[1].p.calls).toContain("setVolume:75");
+  });
+
+  it("completeBlend retires the old primary and promotes the incoming with NO reload", async () => {
+    const { adapter, players } = setup();
+    await adapter.load(track("aaa"));
+    await adapter.beginBlend(track("bbb"));
+    adapter.completeBlend();
+    expect(players[0].p.calls).toContain("destroy"); // old primary gone
+    expect(players[1].p.calls).not.toContain("destroy"); // incoming continues, no reload
+    expect(players[1].p.calls).not.toContain("loadVideoById:bbb");
+    // Primary controls now route to the promoted incoming player.
+    adapter.setVolume(0.5);
+    expect(players[1].p.calls).toContain("setVolume:50");
+  });
+
+  it("cancelBlend tears down only the incoming and leaves the primary playing", async () => {
+    const { adapter, players } = setup();
+    await adapter.load(track("aaa"));
+    await adapter.beginBlend(track("bbb"));
+    adapter.cancelBlend();
+    expect(players[1].p.calls).toContain("destroy");
+    adapter.setVolume(0.5);
+    expect(players[0].p.calls).toContain("setVolume:50"); // primary still active
+    expect(players[0].p.calls).not.toContain("destroy");
+  });
+
+  it("beginBlend is a no-op without a DOM rather than pretending to overlap", async () => {
+    const store = fakeStore();
+    const factory = vi.fn();
+    const adapter = createYouTubeAdapter({
+      factory: factory as never,
+      store: store.bridge,
+      doc: null,
+    });
+    await adapter.beginBlend(track("bbb"));
+    expect(factory).not.toHaveBeenCalled();
+  });
+});

@@ -204,6 +204,23 @@ export class PlayerStore {
     });
   }
 
+  // Adopt an already-playing incoming track as the current one at the END of an
+  // auto-crossfade (U11). The blend engine warmed and ramped the incoming up on a
+  // second player and the adapter has just promoted it to primary WITHOUT a reload;
+  // this reflects that in the single truth — it makes the incoming `current`, drops
+  // it from the head of the queue, and keeps `isPlaying` true. It deliberately does
+  // NOT touch the active adapter (the source is unchanged — two YouTube players
+  // swapped inside the one adapter) and does NOT re-issue playback (no restart), so
+  // the audio the user already hears simply continues.
+  promoteBlended(track: TrackRef): void {
+    const idx = this.state.queue.findIndex(
+      (t) => t.source === track.source && t.nativeId === track.nativeId,
+    );
+    const queue =
+      idx >= 0 ? this.state.queue.filter((_, i) => i !== idx) : [...this.state.queue];
+    this.set({ current: track, queue, isPlaying: true, positionSec: 0 });
+  }
+
   toggleShuffle(): void {
     this.set({ shuffle: !this.state.shuffle });
   }

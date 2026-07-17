@@ -10,9 +10,10 @@
 // slotted into the scrolling area, so this client boundary does not pull page data
 // into the client bundle.
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import { showsMiniPlayer } from "@/lib/ui/shell";
+import { blendController, setLiveCrossfadeSec } from "@/lib/player/blend-controller";
 import TabBar from "@/components/ui/tab-bar";
 import MiniPlayer from "@/components/player/mini-player";
 import NowPlaying from "@/components/player/now-playing";
@@ -34,6 +35,7 @@ function initialOf(user: ShellUser | null): string {
 export default function AppChrome({
   user,
   lyricsEnabled: initialLyricsEnabled,
+  crossfadeSec: initialCrossfadeSec,
   children,
 }: {
   user: ShellUser | null;
@@ -41,6 +43,9 @@ export default function AppChrome({
   // profile-sheet toggle and the Now Playing lyrics panel stay in sync instantly,
   // while the toggle also persists to the user's settings for the next session.
   lyricsEnabled: boolean;
+  // The persisted crossfade length in seconds (U11, R3/R16). Owned here so the slider
+  // updates the live blend engine instantly while also persisting for next session.
+  crossfadeSec: number;
   children: React.ReactNode;
 }) {
   const [sheetOpen, setSheetOpen] = useState(false);
@@ -49,8 +54,23 @@ export default function AppChrome({
   // can hand the single visible YouTube video up to Now Playing while it is open.
   const [npOpen, setNpOpen] = useState(false);
   const [lyricsEnabled, setLyricsEnabled] = useState(initialLyricsEnabled);
+  const [crossfadeSec, setCrossfadeSec] = useState(initialCrossfadeSec);
   const pathname = usePathname() ?? "/";
   const withMiniPlayer = showsMiniPlayer(pathname);
+
+  // Seed the live blend length from the persisted value and start the auto-crossfade
+  // engine watching the player. The engine is a singleton and start() is idempotent,
+  // so this is safe across re-renders; it is torn down if the shell ever unmounts.
+  useEffect(() => {
+    setLiveCrossfadeSec(initialCrossfadeSec);
+    return blendController.start();
+  }, [initialCrossfadeSec]);
+
+  // Keep the live blend length in step with the slider between renders.
+  function changeCrossfade(seconds: number) {
+    setCrossfadeSec(seconds);
+    setLiveCrossfadeSec(seconds);
+  }
 
   return (
     <div className="app-frame">
@@ -94,6 +114,8 @@ export default function AppChrome({
         user={user}
         lyricsEnabled={lyricsEnabled}
         onLyricsChange={setLyricsEnabled}
+        crossfadeSec={crossfadeSec}
+        onCrossfadeChange={changeCrossfade}
       />
     </div>
   );

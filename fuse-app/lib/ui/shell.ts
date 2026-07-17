@@ -52,13 +52,8 @@ export type PendingControl = {
 // reason a non-technical owner can read. (Audio-quality is deliberately absent —
 // it was dropped from v1 per R16, so it is not a pending control, it is gone.)
 export const PENDING_CONTROLS: readonly PendingControl[] = [
-  {
-    id: "crossfade",
-    group: "Playback",
-    label: "Crossfade length",
-    reason: "Turns on when blending arrives",
-    wiredIn: "U11",
-  },
+  // Crossfade length graduated to a REAL control in U11 (the profile-sheet slider
+  // persists it and the blend engine reads it), so it is no longer pending.
   {
     id: "spotify",
     group: "Sources",

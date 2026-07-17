@@ -2,7 +2,7 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import AppChrome, { type ShellUser } from "@/components/ui/app-chrome";
 import { getUser } from "@/lib/auth-session";
-import { getLyricsEnabled } from "@/lib/repos/settings";
+import { getLyricsEnabled, getCrossfadeSec, CROSSFADE_DEFAULT_SEC } from "@/lib/repos/settings";
 
 // U4 ships the real app shell: the phone-frame layout, the top bar (brand + profile
 // avatar), the fixed bottom dock (persistent mini-player scaffold + bottom tabs), and
@@ -48,6 +48,20 @@ async function resolveLyricsEnabled(user: ShellUser | null): Promise<boolean> {
   }
 }
 
+// Read the user's crossfade length (R3/R16) so the blend engine and the profile-sheet
+// slider start from the persisted value. Guarded like the lyrics read: a signed-out /
+// keyless / no-DATABASE_URL environment degrades to the default length, never throws.
+async function resolveCrossfadeSec(user: ShellUser | null): Promise<number> {
+  if (!user) return CROSSFADE_DEFAULT_SEC;
+  try {
+    const session = await getUser();
+    if (!session) return CROSSFADE_DEFAULT_SEC;
+    return await getCrossfadeSec(session.id);
+  } catch {
+    return CROSSFADE_DEFAULT_SEC;
+  }
+}
+
 export default async function RootLayout({
   children,
 }: Readonly<{
@@ -55,11 +69,16 @@ export default async function RootLayout({
 }>) {
   const user = await resolveShellUser();
   const lyricsEnabled = await resolveLyricsEnabled(user);
+  const crossfadeSec = await resolveCrossfadeSec(user);
 
   return (
     <html lang="en">
       <body>
-        <AppChrome user={user} lyricsEnabled={lyricsEnabled}>
+        <AppChrome
+          user={user}
+          lyricsEnabled={lyricsEnabled}
+          crossfadeSec={crossfadeSec}
+        >
           {children}
         </AppChrome>
       </body>
