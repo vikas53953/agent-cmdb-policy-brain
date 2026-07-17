@@ -1,9 +1,16 @@
 import { useEffect, useRef, useState } from 'react';
 import { DJEngine, type EqBand } from '../dj/DJEngine';
 
-const BARS = [30, 60, 44, 80, 52, 70, 38, 64, 40, 76, 50, 30, 66, 44, 58, 42];
+// A fuller waveform: many bars with a plausible envelope.
+const BARS = Array.from({ length: 64 }, (_, i) => {
+  const env = Math.sin((i / 64) * Math.PI * 3) * 0.4 + 0.55;
+  const jitter = ((i * 73) % 17) / 17 * 0.4;
+  return Math.round((Math.min(1, Math.max(0.15, env + jitter - 0.2))) * 100);
+});
 
-function Deck({ engine, side }: { engine: DJEngine; side: 'a' | 'b' }) {
+function Deck({ engine, side, bpm, synced, onSync }: {
+  engine: DJEngine; side: 'a' | 'b'; bpm: number; synced: boolean; onSync: () => void;
+}) {
   const deck = side === 'a' ? engine.a : engine.b;
   const [playing, setPlaying] = useState(false);
   const [pads, setPads] = useState<boolean[]>([true, false, false, false]);
@@ -17,29 +24,27 @@ function Deck({ engine, side }: { engine: DJEngine; side: 'a' | 'b' }) {
     return () => cancelAnimationFrame(raf.current);
   }, [deck]);
 
-  async function togglePlay() {
-    await engine.resume();
-    setPlaying(deck.toggle());
-  }
-  function setEq(band: EqBand, v: number) { deck.setEq(band, v); }
+  async function togglePlay() { await engine.resume(); setPlaying(deck.toggle()); }
   function togglePad(i: number) { setPads((p) => p.map((on, j) => (j === i ? !on : on))); }
   async function onFile(e: React.ChangeEvent<HTMLInputElement>) {
     const f = e.target.files?.[0];
-    if (f) { await engine.resume(); await deck.loadFile(f); }
+    if (f) { await engine.resume(); await deck.loadFile(f); if (!playing) { setPlaying(deck.toggle()); } }
   }
 
-  const label = side === 'a' ? 'Deck A' : 'Deck B';
   const padNames = side === 'a' ? ['CUE 1', 'CUE 2', 'LOOP', 'FX'] : ['CUE 1', 'CUE 2', 'LOOP 4', 'FX'];
 
   return (
     <div className="djdeck">
       <div className="dtop">
-        <div><div className="dname">{label}</div><div className="dtitle">{side === 'a' ? 'Deck A loop' : 'Deck B loop'}</div></div>
-        <div className="bpm">123<small> BPM</small></div>
+        <div>
+          <div className="dname">Deck {side.toUpperCase()}</div>
+          <div className="dtitle">{side === 'a' ? 'Deck A loop' : 'Deck B loop'}</div>
+        </div>
+        <div className="bpm">{bpm.toFixed(1)}<small>{synced ? ' SYNC' : ' BPM'}</small></div>
       </div>
-      <div className="wave">
-        {BARS.map((h, i) => <span key={i} className={i > 6 ? 'q' : ''} style={{ height: `${h}%` }} />)}
-        <span className="sweep" style={{ left: `${6 + pos * 90}%`, opacity: playing ? 1 : 0 }} />
+      <div className="wave-lg">
+        {BARS.map((h, i) => <span key={i} className={i / 64 > pos ? 'q' : ''} style={{ height: `${h}%` }} />)}
+        <span className="sweep" style={{ left: `${pos * 100}%`, opacity: playing ? 1 : 0 }} />
       </div>
       <div className="dpads">
         {padNames.map((n, i) => (
@@ -49,7 +54,7 @@ function Deck({ engine, side }: { engine: DJEngine; side: 'a' | 'b' }) {
       <div className="eqs">
         {(['high', 'mid', 'low'] as EqBand[]).map((band) => (
           <label className="eqk" key={band}>
-            <input type="range" min={-24} max={12} defaultValue={0} onChange={(e) => setEq(band, Number(e.target.value))} />
+            <input type="range" min={-24} max={12} defaultValue={0} onChange={(e) => deck.setEq(band, Number(e.target.value))} />
             <small>{band.toUpperCase()}</small>
           </label>
         ))}
@@ -57,7 +62,7 @@ function Deck({ engine, side }: { engine: DJEngine; side: 'a' | 'b' }) {
       <div className="dtrans">
         <button className="db" onClick={() => fileRef.current?.click()}>LOAD</button>
         <button className="db play" onClick={togglePlay}>{playing ? '❚❚ PAUSE' : '▶ PLAY'}</button>
-        <button className="db">SYNC</button>
+        <button className={`db${synced ? ' on' : ''}`} onClick={onSync}>SYNC</button>
         <input ref={fileRef} type="file" accept="audio/*" hidden onChange={onFile} />
       </div>
     </div>
@@ -69,21 +74,23 @@ export function DJ() {
   if (!engineRef.current) engineRef.current = new DJEngine();
   const engine = engineRef.current;
   const [xf, setXf] = useState(0.5);
+  const [bSynced, setBSynced] = useState(false);
+  const bBpm = bSynced ? 123.0 : 126.0;
 
   return (
     <>
-      <div className="h-lg">DJ Mode</div>
-      <Deck engine={engine} side="a" />
-      <div className="xfwrap">
-        <b>A</b>
+      <div className="row-head"><div className="h-lg">DJ Mode</div></div>
+      <Deck engine={engine} side="a" bpm={123.0} synced={false} onSync={() => {}} />
+      <div className="xfwrap"><b>A</b>
         <input type="range" min={0} max={1} step={0.01} value={xf}
           onChange={(e) => { const v = Number(e.target.value); setXf(v); engine.setCrossfade(v); }} />
         <b>B</b>
       </div>
-      <Deck engine={engine} side="b" />
-      <div className="h-sm" style={{ textAlign: 'center' }}>
-        Real Web Audio engine. Hit ▶ to hear each deck, drag the crossfader to blend,
-        move the EQ sliders live, or LOAD your own audio file. DJ-licensed streaming plugs in here.
+      <Deck engine={engine} side="b" bpm={bBpm} synced={bSynced} onSync={() => setBSynced((v) => !v)} />
+      <div className="dj-note">
+        Real Web Audio engine — ▶ plays each deck, the crossfader blends them, EQ sliders and SYNC are live.
+        Load your own track with LOAD. (Spotify/YouTube can't be mixed on a deck — their DRM blocks raw audio —
+        so decks use your files or DJ-licensed sources, like every real DJ app.)
       </div>
     </>
   );

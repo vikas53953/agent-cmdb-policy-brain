@@ -1,11 +1,12 @@
 import { useState } from 'react';
 import { SOURCE_META, type SourceId } from '../integrations/types';
+import { BrandLogo } from '../components/logos';
 
-const SERVICES: { id: SourceId; desc: string; glyph: string }[] = [
-  { id: 'spotify', desc: 'Search, library & playback', glyph: 'S' },
-  { id: 'youtube', desc: 'Videos, live sets, remixes', glyph: '▶' },
-  { id: 'soundcloud', desc: 'Underground & DJ edits', glyph: '☁' },
-  { id: 'apple', desc: 'Lossless catalogue', glyph: '♪' },
+const SERVICES: { id: SourceId; desc: string }[] = [
+  { id: 'spotify', desc: 'Search, library & playback' },
+  { id: 'youtube', desc: 'Videos, live sets, remixes' },
+  { id: 'soundcloud', desc: 'Underground & DJ edits' },
+  { id: 'apple', desc: 'Lossless catalogue' },
 ];
 
 export function Onboarding({ onDone }: { onDone: () => void }) {
@@ -50,7 +51,7 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
           const m = SOURCE_META[svc.id];
           return (
             <div className="connect" key={svc.id}>
-              <div className="lg" style={{ background: m.color }}>{svc.glyph}</div>
+              <div className="lg"><BrandLogo source={svc.id} size={40} /></div>
               <div className="cn"><div className="n">{m.label}</div><div className="s">{svc.desc}</div></div>
               <button className={`toggle${on ? ' on' : ''}`} aria-label={`Connect ${m.label}`}
                 onClick={() => toggle(svc.id)}><span className="k" /></button>

@@ -15,7 +15,7 @@ export function QueueSheet({ open, onClose }: { open: boolean; onClose: () => vo
             <span className="th a" />
             <span className="rc"><span className="t">{current.title}</span>
               <span className="s"><SourceBadge source={current.source} />{current.artist}</span></span>
-            <span className="dur">▮▮▮</span>
+            <span className="eq-mini"><i /><i /><i /></span>
           </div>
         </>
       )}
@@ -27,7 +27,7 @@ export function QueueSheet({ open, onClose }: { open: boolean; onClose: () => vo
             <span className="grip">⠿</span>
             <span className="th" />
             <span className="rc"><span className="t">{t.title}</span>
-              <span className="s"><SourceBadge source={t.source} short />{t.artist}</span></span>
+              <span className="s"><SourceBadge source={t.source} />{t.artist}</span></span>
           </div>
         ))}
       </div>

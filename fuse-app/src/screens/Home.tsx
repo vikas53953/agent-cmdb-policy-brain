@@ -5,8 +5,8 @@ import { TrackRow } from '../components/common';
 import type { Playlist } from '../integrations/types';
 
 export function Home({ onOpenPlaylist }: { onOpenPlaylist: (p: Playlist) => void }) {
-  const { play } = usePlayer();
-  const [filter] = useState('All');
+  const { play, current } = usePlayer();
+  const [filter, setFilter] = useState('All');
   const recommended = TRACKS.slice(1, 5);
 
   return (
@@ -17,7 +17,7 @@ export function Home({ onOpenPlaylist }: { onOpenPlaylist: (p: Playlist) => void
       </div>
       <div className="pills">
         {['All', 'Spotify', 'YouTube'].map((f) => (
-          <button key={f} className={`pl${filter === f ? ' on' : ''}`}>{f}</button>
+          <button key={f} className={`pl${filter === f ? ' on' : ''}`} onClick={() => setFilter(f)}>{f}</button>
         ))}
       </div>
 
@@ -35,7 +35,7 @@ export function Home({ onOpenPlaylist }: { onOpenPlaylist: (p: Playlist) => void
       <div className="sec">Made for you · across sources</div>
       {recommended.map((id) => {
         const t = trackById(id.id) ?? id;
-        return <TrackRow key={t.id} track={t} onPlay={(tt) => play(tt, recommended)} />;
+        return <TrackRow key={t.id} track={t} onPlay={(tt) => play(tt, recommended)} active={current?.id === t.id} />;
       })}
     </>
   );

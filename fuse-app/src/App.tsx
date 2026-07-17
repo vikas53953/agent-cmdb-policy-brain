@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import './styles.css';
 import { AccentProvider } from './theme/accent';
-import { PlayerProvider } from './player';
+import { PlayerProvider, usePlayer } from './player';
 import { completeSpotifyLogin } from './integrations/spotify';
 import { Nav, type TabId } from './components/Nav';
 import { MiniPlayer } from './components/MiniPlayer';
@@ -20,18 +20,19 @@ const ONBOARDED_KEY = 'fuse.onboarded';
 
 function Shell() {
   const [tab, setTab] = useState<TabId>('home');
-  const [playlist, setPlaylist] = useState<Playlist | null>(null);
-  const [detailOpen, setDetailOpen] = useState(false);
+  const [openedPlaylist, setOpenedPlaylist] = useState<Playlist | null>(null);
   const [npOpen, setNpOpen] = useState(false);
   const [queueOpen, setQueueOpen] = useState(false);
   const [lyricsOpen, setLyricsOpen] = useState(false);
   const [onboarded, setOnboarded] = useState(() => localStorage.getItem(ONBOARDED_KEY) === '1');
   const [spotifyConnecting] = useState(() => window.location.pathname === '/callback');
+  const { current } = usePlayer();
 
-  function openPlaylist(p: Playlist) { setPlaylist(p); setDetailOpen(true); }
+  function openPlaylist(p: Playlist) { setOpenedPlaylist(p); }
+  function goTab(t: TabId) { setOpenedPlaylist(null); setTab(t); }
   function finishOnboarding() { localStorage.setItem(ONBOARDED_KEY, '1'); setOnboarded(true); }
 
-  // Handle the Spotify OAuth redirect: exchange ?code for a token, then return home.
+  // Spotify OAuth redirect handler.
   useEffect(() => {
     if (window.location.pathname !== '/callback') return;
     const code = new URLSearchParams(window.location.search).get('code');
@@ -51,22 +52,30 @@ function Shell() {
     );
   }
 
+  // The playlist page renders in place of the tab content, but the player + nav stay put.
+  const screenKey = openedPlaylist ? `pl-${openedPlaylist.id}` : tab;
+
   return (
     <div className="app">
       <div className="screens">
-        <div className="screen enter" key={tab}>
-          {tab === 'home' && <Home onOpenPlaylist={openPlaylist} />}
-          {tab === 'search' && <Search />}
-          {tab === 'library' && <Library onOpenPlaylist={openPlaylist} />}
-          {tab === 'dj' && <DJ />}
-          {tab === 'you' && <Settings onReplayOnboarding={() => setOnboarded(false)} />}
+        <div className="screen enter" key={screenKey}>
+          {openedPlaylist ? (
+            <PlaylistDetail playlist={openedPlaylist} onBack={() => setOpenedPlaylist(null)} />
+          ) : (
+            <>
+              {tab === 'home' && <Home onOpenPlaylist={openPlaylist} />}
+              {tab === 'search' && <Search />}
+              {tab === 'library' && <Library onOpenPlaylist={openPlaylist} />}
+              {tab === 'dj' && <DJ />}
+              {tab === 'you' && <Settings onReplayOnboarding={() => setOnboarded(false)} />}
+            </>
+          )}
         </div>
       </div>
 
-      <MiniPlayer onOpen={() => setNpOpen(true)} />
-      <Nav tab={tab} onChange={setTab} />
+      {current && <MiniPlayer onOpen={() => setNpOpen(true)} />}
+      <Nav tab={tab} onChange={goTab} />
 
-      <PlaylistDetail playlist={playlist} open={detailOpen} onClose={() => setDetailOpen(false)} />
       <NowPlaying open={npOpen} onClose={() => setNpOpen(false)}
         onQueue={() => setQueueOpen(true)} onLyrics={() => setLyricsOpen(true)} />
       <QueueSheet open={queueOpen} onClose={() => setQueueOpen(false)} />
