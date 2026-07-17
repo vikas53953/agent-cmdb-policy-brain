@@ -1,24 +1,57 @@
 @import "tailwindcss";
 
-/* --- Fuse tokens (scaffold subset) -------------------------------------------
- * The FULL prototype theme (all ink levels, font stacks, radii, component
- * classes) is ported in U4. U1 defines only the handful of tokens the
- * placeholder home needs so the scaffold already reads as Fuse — dark base with
- * the ember + teal duotone that always meet in the `--fuse` gradient. */
+/* --- Fuse theme (U4) ----------------------------------------------------------
+ * The full prototype theme, ported into tokens + a small set of component classes.
+ * Design north star (Product Contract): dark premium base where a warm EMBER
+ * orange and a cool TEAL always meet in blends — the `--fuse` gradient is the one
+ * place the two hues appear, and it marks every "fusion" moment (active tab, brand
+ * wordmark, the blend strip). Phone-frame app layout, bottom dock (mini-player +
+ * tabs), profile sheet that slides up from the avatar.
+ *
+ * Everything here is static CSS (no JS): the shell reads as Fuse before a single
+ * feature is wired. Interactive controls that are not yet real are rendered
+ * DISABLED with a plain reason (R17) by the components, not faked in CSS. */
 :root {
+  /* Ink neutrals — app base up through elevated surfaces. */
   --ink-0: #0b0e12; /* app base */
-  --ink-1: #111620; /* surface */
-  --ink-2: #171d29; /* elevated */
-  --line: #26303f;
+  --ink-1: #111620; /* surface / cards */
+  --ink-2: #171d29; /* elevated (dock, sheet) */
+  --ink-3: #1e2634; /* hover / pressed */
+  --line: #26303f; /* hairline borders */
+  --line-soft: #1b2330;
 
+  /* Text ramp. */
   --txt-hi: #f3f5f8;
   --txt-mid: #9aa6b4;
   --txt-lo: #5c6675;
 
+  /* The two signature hues. They only ever appear TOGETHER (via --fuse). */
   --ember: #ff7a4d;
   --teal: #34e4c6;
-  /* The two hues only ever appear together. */
+  --ember-soft: rgba(255, 122, 77, 0.16);
+  --teal-soft: rgba(52, 228, 198, 0.16);
+
+  /* The fusion gradient — ember melting into teal. Used for the brand wordmark,
+   * the active tab, and any "blend" surface. */
   --fuse: linear-gradient(105deg, #ff7a4d 0%, #ff9a6a 22%, #b9d69a 52%, #34e4c6 82%, #22c9b4 100%);
+  --fuse-dim: linear-gradient(105deg, rgba(255, 122, 77, 0.9) 0%, rgba(52, 228, 198, 0.9) 100%);
+
+  /* Radii. */
+  --r-sm: 10px;
+  --r-md: 14px;
+  --r-lg: 20px;
+  --r-pill: 999px;
+
+  /* Font stacks. Kept to system fonts on purpose: the CSP font-src is 'self' only,
+   * so the shell pulls no webfont over the network. */
+  --font-display: "Segoe UI", system-ui, -apple-system, "Helvetica Neue", sans-serif;
+  --font-body: system-ui, -apple-system, "Segoe UI", "Helvetica Neue", sans-serif;
+  --font-mono: ui-monospace, "SFMono-Regular", "Cascadia Code", Menlo, Consolas, monospace;
+
+  /* App-frame + dock geometry (the phone-frame column). */
+  --frame-w: 480px;
+  --dock-h: 128px; /* mini-player row + tab bar */
+  --tabbar-h: 64px;
 }
 
 html,
@@ -27,13 +60,474 @@ body {
 }
 
 body {
+  margin: 0;
   background: var(--ink-0);
   color: var(--txt-hi);
-  font-family: "Segoe UI", system-ui, -apple-system, "Helvetica Neue", sans-serif;
+  font-family: var(--font-body);
   -webkit-font-smoothing: antialiased;
+  /* A subtle ember/teal aura behind the app frame so the dark base is not flat. */
+  background-image:
+    radial-gradient(60% 40% at 15% 0%, var(--ember-soft), transparent 70%),
+    radial-gradient(60% 45% at 100% 15%, var(--teal-soft), transparent 70%);
+  background-attachment: fixed;
+  /* Never let the page scroll sideways — the phone frame owns width. */
+  overflow-x: hidden;
 }
 
-/* Respect the owner's reduced-motion preference everywhere from the start. */
+* {
+  box-sizing: border-box;
+}
+
+/* --- Phone-frame column ------------------------------------------------------- */
+.app-frame {
+  position: relative;
+  width: 100%;
+  max-width: var(--frame-w);
+  min-height: 100dvh;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  background: linear-gradient(180deg, rgba(17, 22, 32, 0.6), rgba(11, 14, 18, 0.9));
+  /* Hairline frame edges on wide screens read as an app window. */
+  border-left: 1px solid var(--line-soft);
+  border-right: 1px solid var(--line-soft);
+}
+
+/* --- Top bar: brand wordmark + profile avatar -------------------------------- */
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 18px;
+  background: color-mix(in srgb, var(--ink-0) 78%, transparent);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.brand {
+  font-family: var(--font-display);
+  font-size: 1.5rem;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  background-image: var(--fuse);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  line-height: 1;
+}
+
+.avatar {
+  width: 38px;
+  height: 38px;
+  border-radius: var(--r-pill);
+  border: 1.5px solid transparent;
+  background:
+    linear-gradient(var(--ink-2), var(--ink-2)) padding-box,
+    var(--fuse) border-box;
+  color: var(--txt-hi);
+  font-weight: 600;
+  font-size: 0.95rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+.avatar:hover {
+  box-shadow: 0 0 0 3px var(--ember-soft);
+}
+.avatar:active {
+  transform: scale(0.96);
+}
+.avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.avatar:focus-visible {
+  outline: 2px solid var(--teal);
+  outline-offset: 2px;
+}
+
+/* --- Screen (scrolling content area) ----------------------------------------- */
+.screen {
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 18px 18px calc(var(--dock-h) + 20px);
+}
+
+/* --- Dock: persistent mini-player + bottom tab bar ---------------------------- */
+.dock {
+  position: fixed;
+  left: 50%;
+  bottom: 0;
+  transform: translateX(-50%);
+  width: 100%;
+  max-width: var(--frame-w);
+  z-index: 30;
+  background: color-mix(in srgb, var(--ink-2) 92%, transparent);
+  backdrop-filter: blur(16px);
+  border-top: 1px solid var(--line);
+}
+
+/* --- Mini-player (scaffold; no playback yet in U4) --------------------------- */
+.mini {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  min-height: calc(var(--dock-h) - var(--tabbar-h));
+  border-bottom: 1px solid var(--line-soft);
+}
+.mini-art {
+  width: 44px;
+  height: 44px;
+  flex: 0 0 auto;
+  border-radius: var(--r-sm);
+  background: var(--ink-3);
+  display: grid;
+  place-items: center;
+  color: var(--txt-lo);
+}
+.mini-meta {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.mini-title {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--txt-mid);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.mini-sub {
+  font-size: 0.75rem;
+  color: var(--txt-lo);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.mini-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+}
+
+/* --- Icon buttons ------------------------------------------------------------- */
+.icon-btn {
+  width: 38px;
+  height: 38px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: var(--r-pill);
+  background: transparent;
+  color: var(--txt-hi);
+  cursor: pointer;
+  transition: background 0.15s ease, transform 0.1s ease;
+}
+.icon-btn:hover:not(:disabled) {
+  background: var(--ink-3);
+}
+.icon-btn:active:not(:disabled) {
+  transform: scale(0.94);
+}
+.icon-btn:focus-visible {
+  outline: 2px solid var(--teal);
+  outline-offset: 2px;
+}
+.icon-btn:disabled {
+  color: var(--txt-lo);
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+.icon-btn.primary:not(:disabled) {
+  background: var(--fuse);
+  color: #0b0e12;
+}
+
+/* --- Tab bar ------------------------------------------------------------------ */
+.tabbar {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  height: var(--tabbar-h);
+}
+.tab {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  border: none;
+  background: transparent;
+  color: var(--txt-lo);
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  text-decoration: none;
+  cursor: pointer;
+  transition: color 0.15s ease;
+}
+.tab:hover {
+  color: var(--txt-mid);
+}
+.tab:focus-visible {
+  outline: 2px solid var(--teal);
+  outline-offset: -2px;
+}
+.tab.active {
+  color: var(--txt-hi);
+}
+/* The active tab is a fusion moment — icon + label carry the ember→teal gradient. */
+.tab.active .tab-label {
+  background-image: var(--fuse);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+.tab.active .tab-icon {
+  color: var(--ember);
+}
+
+/* --- Source badges (YouTube / Spotify / local files) ------------------------- */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: var(--r-pill);
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  border: 1px solid var(--line);
+  color: var(--txt-mid);
+}
+.badge.yt {
+  color: #ff8a7a;
+  border-color: rgba(255, 122, 77, 0.4);
+  background: var(--ember-soft);
+}
+.badge.sp {
+  color: #6ee7c8;
+  border-color: rgba(52, 228, 198, 0.4);
+  background: var(--teal-soft);
+}
+.badge.mp3 {
+  color: var(--txt-mid);
+}
+
+/* --- Bottom sheet (profile / settings) --------------------------------------- */
+.sheet-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  background: rgba(3, 5, 8, 0.6);
+  backdrop-filter: blur(2px);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.22s ease;
+}
+.sheet-overlay.open {
+  opacity: 1;
+  pointer-events: auto;
+}
+.sheet {
+  position: fixed;
+  left: 50%;
+  bottom: 0;
+  transform: translate(-50%, 100%);
+  width: 100%;
+  max-width: var(--frame-w);
+  max-height: 88dvh;
+  overflow-y: auto;
+  z-index: 41;
+  background: var(--ink-1);
+  border-top-left-radius: var(--r-lg);
+  border-top-right-radius: var(--r-lg);
+  border-top: 1px solid var(--line);
+  box-shadow: 0 -20px 60px rgba(0, 0, 0, 0.5);
+  transition: transform 0.28s cubic-bezier(0.22, 1, 0.36, 1);
+  padding: 8px 18px calc(env(safe-area-inset-bottom, 0px) + 24px);
+}
+.sheet.open {
+  transform: translate(-50%, 0);
+}
+.sheet-handle {
+  width: 42px;
+  height: 4px;
+  border-radius: var(--r-pill);
+  background: var(--line);
+  margin: 8px auto 14px;
+}
+.sheet-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 4px 0 16px;
+  border-bottom: 1px solid var(--line-soft);
+  margin-bottom: 12px;
+}
+.sheet-head .avatar {
+  width: 48px;
+  height: 48px;
+  cursor: default;
+}
+.sheet-id {
+  min-width: 0;
+}
+.sheet-name {
+  font-weight: 600;
+  font-size: 1rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sheet-email {
+  font-size: 0.8rem;
+  color: var(--txt-mid);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sheet-group {
+  margin: 18px 0;
+}
+.sheet-group-title {
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--txt-lo);
+  margin: 0 0 8px 2px;
+}
+
+.setting-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: var(--r-md);
+  background: var(--ink-2);
+  border: 1px solid var(--line-soft);
+  margin-bottom: 8px;
+}
+.setting-main {
+  min-width: 0;
+}
+.setting-label {
+  font-size: 0.92rem;
+  font-weight: 600;
+}
+.setting-reason {
+  font-size: 0.76rem;
+  color: var(--txt-lo);
+  margin-top: 2px;
+}
+.setting-row.disabled .setting-label {
+  color: var(--txt-mid);
+}
+/* A "coming later" tag on controls that are honestly not wired yet (R17). */
+.soon-tag {
+  flex: 0 0 auto;
+  font-size: 0.66rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--txt-lo);
+  border: 1px dashed var(--line);
+  border-radius: var(--r-pill);
+  padding: 3px 9px;
+}
+
+.signout-btn {
+  width: 100%;
+  padding: 12px 14px;
+  border-radius: var(--r-md);
+  border: 1px solid rgba(255, 122, 77, 0.4);
+  background: var(--ember-soft);
+  color: #ffb59c;
+  font-weight: 600;
+  font-size: 0.92rem;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+.signout-btn:hover {
+  background: rgba(255, 122, 77, 0.24);
+}
+.signout-btn:focus-visible {
+  outline: 2px solid var(--ember);
+  outline-offset: 2px;
+}
+
+.about-line {
+  font-size: 0.82rem;
+  color: var(--txt-mid);
+  line-height: 1.5;
+  padding: 0 2px;
+}
+
+/* --- Stage placeholder (honest "not built yet" panel) ------------------------ */
+.stage {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: 12px;
+  min-height: 52dvh;
+  padding: 24px;
+}
+.stage-badge {
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--teal);
+  border: 1px solid rgba(52, 228, 198, 0.4);
+  border-radius: var(--r-pill);
+  padding: 4px 12px;
+}
+.stage-title {
+  font-family: var(--font-display);
+  font-size: 1.6rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  margin: 0;
+}
+.stage-body {
+  color: var(--txt-mid);
+  max-width: 30ch;
+  line-height: 1.55;
+  margin: 0;
+  font-size: 0.9rem;
+}
+
+.hero-wordmark {
+  font-family: var(--font-display);
+  font-size: clamp(3rem, 16vw, 5rem);
+  font-weight: 700;
+  letter-spacing: -0.04em;
+  line-height: 1;
+  margin: 0;
+  background-image: var(--fuse);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/* --- Reduced motion: collapse every transition/animation to near-instant ----- */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
@@ -41,5 +535,6 @@ body {
     animation-duration: 0.001ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
   }
 }
