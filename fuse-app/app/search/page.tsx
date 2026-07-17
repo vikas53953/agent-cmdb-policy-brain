@@ -1,14 +1,14 @@
-import StagePlaceholder from "@/components/ui/stage-placeholder";
+import SearchBar from "@/components/search/searchbar";
 
-// Search route (U4 shell). The real as-you-type search across YouTube and Spotify
-// with cached results lands in U6. This placeholder keeps the Search tab a real,
-// working navigation target in the meantime.
+// Search route (U6). As-you-type search across YouTube and Spotify with real cover
+// art and source badges, backed by a server-side cache that protects the YouTube
+// quota (KTD-8). YouTube results become playable once U7's adapter lands; Spotify
+// results stay honestly disabled until U15 — the row itself decides (R17).
 export default function SearchPage() {
   return (
-    <StagePlaceholder
-      stage="Stage B"
-      title="Search is on the way"
-      body="Soon you'll type here and see songs from YouTube and Spotify with their real covers, then tap one to play instantly."
-    />
+    <div className="search-page">
+      <h1 className="search-heading">Search</h1>
+      <SearchBar />
+    </div>
   );
 }

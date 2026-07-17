@@ -527,6 +527,135 @@ body {
   color: transparent;
 }
 
+/* --- Search screen (U6) ------------------------------------------------------- */
+.search-page {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.search-heading {
+  font-family: var(--font-display);
+  font-size: 1.6rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  margin: 4px 2px 0;
+}
+.search {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.searchbar {
+  position: sticky;
+  top: 66px; /* below the sticky topbar */
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  background: var(--ink-1);
+  border: 1px solid var(--line);
+  border-radius: var(--r-pill);
+  padding: 2px 6px;
+}
+.searchbar:focus-within {
+  border-color: rgba(52, 228, 198, 0.5);
+  box-shadow: 0 0 0 3px var(--teal-soft);
+}
+.searchbar-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--txt-hi);
+  font-size: 0.95rem;
+  padding: 12px 12px;
+}
+.searchbar-input::placeholder {
+  color: var(--txt-lo);
+}
+
+.search-hint {
+  color: var(--txt-mid);
+  font-size: 0.86rem;
+  padding: 4px 2px;
+  margin: 0;
+}
+/* Honest source-level notice (R17): why a source contributed nothing. */
+.search-notice {
+  color: var(--txt-mid);
+  font-size: 0.82rem;
+  padding: 10px 12px;
+  margin: 0;
+  border: 1px dashed var(--line);
+  border-radius: var(--r-md);
+  background: var(--ink-1);
+}
+
+.sresult-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.sresult {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 10px;
+  border-radius: var(--r-md);
+  background: var(--ink-1);
+  border: 1px solid var(--line-soft);
+}
+.sresult-art {
+  width: 52px;
+  height: 52px;
+  flex: 0 0 auto;
+  border-radius: var(--r-sm);
+  overflow: hidden;
+  background: var(--ink-3);
+  display: grid;
+  place-items: center;
+}
+.sresult-art img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.sresult-art-fallback {
+  color: var(--txt-lo);
+  display: grid;
+  place-items: center;
+}
+.sresult-meta {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.sresult-title {
+  font-size: 0.92rem;
+  font-weight: 600;
+  color: var(--txt-hi);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sresult-sub {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 3px;
+  min-width: 0;
+}
+.sresult-artist {
+  font-size: 0.78rem;
+  color: var(--txt-mid);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 /* --- Reduced motion: collapse every transition/animation to near-instant ----- */
 @media (prefers-reduced-motion: reduce) {
   *,
