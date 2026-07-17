@@ -1,13 +1,26 @@
+# dependencies
 node_modules
-dist
-dist-ssr
-*.local
+
+# next.js
+.next
+out
+build
+next-env.d.ts
+
+# testing
+coverage
+/test-results
+/playwright-report
+/e2e/.auth
+
+# secrets — never commit
 .env
 .env.local
 .env.*.local
+.env.production
+
+# misc
 .DS_Store
 *.log
-
-# TS build cache
 *.tsbuildinfo
-.env.production
+*.local

@@ -1,0 +1,45 @@
+@import "tailwindcss";
+
+/* --- Fuse tokens (scaffold subset) -------------------------------------------
+ * The FULL prototype theme (all ink levels, font stacks, radii, component
+ * classes) is ported in U4. U1 defines only the handful of tokens the
+ * placeholder home needs so the scaffold already reads as Fuse — dark base with
+ * the ember + teal duotone that always meet in the `--fuse` gradient. */
+:root {
+  --ink-0: #0b0e12; /* app base */
+  --ink-1: #111620; /* surface */
+  --ink-2: #171d29; /* elevated */
+  --line: #26303f;
+
+  --txt-hi: #f3f5f8;
+  --txt-mid: #9aa6b4;
+  --txt-lo: #5c6675;
+
+  --ember: #ff7a4d;
+  --teal: #34e4c6;
+  /* The two hues only ever appear together. */
+  --fuse: linear-gradient(105deg, #ff7a4d 0%, #ff9a6a 22%, #b9d69a 52%, #34e4c6 82%, #22c9b4 100%);
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  background: var(--ink-0);
+  color: var(--txt-hi);
+  font-family: "Segoe UI", system-ui, -apple-system, "Helvetica Neue", sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Respect the owner's reduced-motion preference everywhere from the start. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}

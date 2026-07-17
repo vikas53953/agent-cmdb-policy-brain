@@ -1,0 +1,30 @@
+name: Fuse CI
+
+# CI gate for the Fuse rebuild (fuse-app/). Mirrors the plan's Verification
+# Contract: tsc --noEmit && eslint . && vitest run && next build. Playwright e2e
+# joins this gate from U16.
+on:
+  push:
+    paths: ["fuse-app/**", ".github/workflows/fuse-ci.yml"]
+  pull_request:
+    paths: ["fuse-app/**", ".github/workflows/fuse-ci.yml"]
+
+defaults:
+  run:
+    working-directory: fuse-app
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: fuse-app/package-lock.json
+      - run: npm ci
+      - run: npx tsc --noEmit
+      - run: npx eslint .
+      - run: npx vitest run
+      - run: npx next build
