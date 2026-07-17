@@ -28,6 +28,7 @@ import {
 import VideoSurface from "@/components/player/video-surface";
 import Scrub from "@/components/player/scrub";
 import Lyrics from "@/components/player/lyrics";
+import LikeButton from "@/components/player/like-button";
 import {
   PlayIcon,
   PauseIcon,
@@ -168,6 +169,12 @@ export default function NowPlaying({
             <div className="np-info">
               <h2 className="np-title">{current.title}</h2>
               <p className="np-artist">{current.artist ?? "Unknown artist"}</p>
+            </div>
+
+            {/* Like the current track (U10, R8). A real, persisted control — the
+                heart reflects the true saved state and drives the Library. */}
+            <div className="np-actions">
+              <LikeButton track={current} />
             </div>
 
             {/* Real synced lyrics (U9). Hidden entirely when the user turns lyrics

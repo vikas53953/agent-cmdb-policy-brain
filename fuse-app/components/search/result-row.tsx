@@ -14,6 +14,7 @@ import type { TrackRef } from "@/lib/repos/track";
 import { SOURCE_BADGES } from "@/lib/ui/shell";
 import { resultPlayability } from "@/lib/search/playability";
 import { playerStore } from "@/lib/player/store";
+import AddToPlaylist from "@/components/library/add-to-playlist";
 import { PlayIcon, MusicIcon } from "@/components/ui/icons";
 
 export default function ResultRow({
@@ -64,17 +65,23 @@ export default function ResultRow({
         </div>
       </div>
 
-      <button
-        type="button"
-        className="icon-btn primary"
-        onClick={playable ? handlePlay : undefined}
-        disabled={!playable}
-        aria-disabled={!playable}
-        title={playable ? `Play ${result.title}` : (reason ?? undefined)}
-        aria-label={playable ? `Play ${result.title}` : `Play ${result.title} — ${reason}`}
-      >
-        <PlayIcon />
-      </button>
+      <div className="sresult-actions">
+        {/* Add to a playlist (U10, R9). Works for any source — adding a Spotify or
+            YouTube track to a playlist is real even before Spotify playback lands. */}
+        <AddToPlaylist track={result} />
+
+        <button
+          type="button"
+          className="icon-btn primary"
+          onClick={playable ? handlePlay : undefined}
+          disabled={!playable}
+          aria-disabled={!playable}
+          title={playable ? `Play ${result.title}` : (reason ?? undefined)}
+          aria-label={playable ? `Play ${result.title}` : `Play ${result.title} — ${reason}`}
+        >
+          <PlayIcon />
+        </button>
+      </div>
     </div>
   );
 }

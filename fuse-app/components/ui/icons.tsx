@@ -150,6 +150,76 @@ export function MusicIcon({ size = 20, className }: IconProps) {
   );
 }
 
+// Heart — the like control (U10, R8). `filled` renders the liked (solid) state so
+// the same icon carries both states from one prop, driven by CSS colour.
+export function HeartIcon({ size = 20, className, filled = false }: IconProps & { filled?: boolean }) {
+  return svg(
+    <path
+      d="M12 20.5 4.5 13a4.5 4.5 0 0 1 6.4-6.3l1.1 1.1 1.1-1.1A4.5 4.5 0 0 1 19.5 13Z"
+      fill={filled ? "currentColor" : "none"}
+    />,
+    size,
+    className,
+  );
+}
+
+export function PlusIcon({ size = 20, className }: IconProps) {
+  return svg(
+    <>
+      <path d="M12 5v14" />
+      <path d="M5 12h14" />
+    </>,
+    size,
+    className,
+  );
+}
+
+export function TrashIcon({ size = 20, className }: IconProps) {
+  return svg(
+    <>
+      <path d="M4 7h16" />
+      <path d="M9 7V4.5h6V7" />
+      <path d="M6 7v13.5h12V7" />
+      <path d="M10 11v6M14 11v6" />
+    </>,
+    size,
+    className,
+  );
+}
+
+export function PencilIcon({ size = 20, className }: IconProps) {
+  return svg(
+    <>
+      <path d="M4 20h4L18.5 9.5a2 2 0 0 0-2.8-2.8L5 17.5Z" />
+      <path d="M14 6.5 17.5 10" />
+    </>,
+    size,
+    className,
+  );
+}
+
+export function ArrowUpIcon({ size = 20, className }: IconProps) {
+  return svg(
+    <>
+      <path d="M12 19V5" />
+      <path d="m6 11 6-6 6 6" />
+    </>,
+    size,
+    className,
+  );
+}
+
+export function ArrowDownIcon({ size = 20, className }: IconProps) {
+  return svg(
+    <>
+      <path d="M12 5v14" />
+      <path d="m6 13 6 6 6-6" />
+    </>,
+    size,
+    className,
+  );
+}
+
 const ICONS = {
   home: HomeIcon,
   search: SearchIcon,
