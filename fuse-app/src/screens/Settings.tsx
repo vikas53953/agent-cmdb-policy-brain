@@ -25,7 +25,7 @@ export function Settings({ onReplayOnboarding }: { onReplayOnboarding: () => voi
       {!sp && (
         <button className="loadbtn" style={{ textAlign: 'left' }}
           onClick={() => beginSpotifyLogin().catch((e) => alert(e.message))}>
-          + Connect Spotify (needs API keys)
+          + Connect Spotify
         </button>
       )}
 
