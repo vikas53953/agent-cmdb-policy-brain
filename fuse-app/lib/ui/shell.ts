@@ -60,13 +60,6 @@ export const PENDING_CONTROLS: readonly PendingControl[] = [
     wiredIn: "U11",
   },
   {
-    id: "lyrics",
-    group: "Lyrics",
-    label: "Show lyrics",
-    reason: "Turns on when synced lyrics arrive",
-    wiredIn: "U9",
-  },
-  {
     id: "spotify",
     group: "Sources",
     label: "Connect Spotify",

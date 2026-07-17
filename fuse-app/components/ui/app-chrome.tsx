@@ -33,9 +33,14 @@ function initialOf(user: ShellUser | null): string {
 
 export default function AppChrome({
   user,
+  lyricsEnabled: initialLyricsEnabled,
   children,
 }: {
   user: ShellUser | null;
+  // The persisted Lyrics on/off setting (U9, R16). Owned here as shell state so the
+  // profile-sheet toggle and the Now Playing lyrics panel stay in sync instantly,
+  // while the toggle also persists to the user's settings for the next session.
+  lyricsEnabled: boolean;
   children: React.ReactNode;
 }) {
   const [sheetOpen, setSheetOpen] = useState(false);
@@ -43,6 +48,7 @@ export default function AppChrome({
   // here so the mini-player's expand tap and the overlay stay in sync, and so the mini
   // can hand the single visible YouTube video up to Now Playing while it is open.
   const [npOpen, setNpOpen] = useState(false);
+  const [lyricsEnabled, setLyricsEnabled] = useState(initialLyricsEnabled);
   const pathname = usePathname() ?? "/";
   const withMiniPlayer = showsMiniPlayer(pathname);
 
@@ -76,9 +82,19 @@ export default function AppChrome({
         <TabBar />
       </div>
 
-      <NowPlaying open={npOpen} onClose={() => setNpOpen(false)} />
+      <NowPlaying
+        open={npOpen}
+        onClose={() => setNpOpen(false)}
+        lyricsEnabled={lyricsEnabled}
+      />
 
-      <ProfileSheet open={sheetOpen} onClose={() => setSheetOpen(false)} user={user} />
+      <ProfileSheet
+        open={sheetOpen}
+        onClose={() => setSheetOpen(false)}
+        user={user}
+        lyricsEnabled={lyricsEnabled}
+        onLyricsChange={setLyricsEnabled}
+      />
     </div>
   );
 }

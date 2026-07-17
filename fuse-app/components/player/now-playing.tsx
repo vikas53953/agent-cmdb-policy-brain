@@ -27,6 +27,7 @@ import {
 } from "@/lib/player/playback-health";
 import VideoSurface from "@/components/player/video-surface";
 import Scrub from "@/components/player/scrub";
+import Lyrics from "@/components/player/lyrics";
 import {
   PlayIcon,
   PauseIcon,
@@ -50,9 +51,13 @@ const NO_SKIP_REASON = "Nothing queued to skip to";
 export default function NowPlaying({
   open,
   onClose,
+  lyricsEnabled,
 }: {
   open: boolean;
   onClose: () => void;
+  // Lyrics on/off setting (U9, R16). Threaded from the shell so the toggle in the
+  // profile sheet shows/hides this screen's lyrics panel instantly.
+  lyricsEnabled: boolean;
 }) {
   const { current, isPlaying, queue, positionSec, durationSec, shuffle, repeat } =
     usePlayerState();
@@ -164,6 +169,10 @@ export default function NowPlaying({
               <h2 className="np-title">{current.title}</h2>
               <p className="np-artist">{current.artist ?? "Unknown artist"}</p>
             </div>
+
+            {/* Real synced lyrics (U9). Hidden entirely when the user turns lyrics
+                off; honest "no lyrics" message when LRCLIB has none. */}
+            <Lyrics enabled={lyricsEnabled} active={showOpen} />
 
             {stalled ? (
               <div className="np-stall" role="status" aria-live="polite">

@@ -1,25 +1,29 @@
 "use client";
 
-// Profile sheet — SCAFFOLD (U4). Slides up from the avatar and holds all of the
-// app's settings groups (R16): Account, Playback, Sources, Lyrics, About. There is
-// deliberately NO audio-quality control (dropped from v1 per R16).
+// Profile sheet (U4 scaffold, extended in U9). Slides up from the avatar and holds
+// all of the app's settings groups (R16): Account, Playback, Sources, Lyrics, About.
+// There is deliberately NO audio-quality control (dropped from v1 per R16).
 //
-// HONESTY (R17): the only control here that works today is Sign out — it is a real
-// server action. Every other control is not yet wired (crossfade → U11, lyrics →
-// U9, Spotify connect → U15), so each renders DISABLED with a plain-English reason
-// and a "soon" tag. They are read from PENDING_CONTROLS so the honesty list has one
-// source of truth; when an owning unit wires a control it drops out of that list and
-// this sheet renders it live instead.
+// HONESTY (R17): a control renders LIVE only when it does something real. Today that
+// is Sign out (real server action) and Lyrics on/off (U9 — persists to the user's
+// settings and shows/hides the Now Playing lyrics panel). Controls not yet wired
+// (crossfade → U11, Spotify connect → U15) render DISABLED with a plain-English
+// reason and a "soon" tag, read from PENDING_CONTROLS so the honesty list has one
+// source of truth; when its owning unit wires a control it drops out of that list.
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { PENDING_CONTROLS } from "@/lib/ui/shell";
-import { signOutAction } from "@/lib/actions";
+import { signOutAction, setLyricsEnabledAction } from "@/lib/actions";
 import type { ShellUser } from "@/components/ui/app-chrome";
 
 type Props = {
   open: boolean;
   onClose: () => void;
   user: ShellUser | null;
+  // The current Lyrics on/off value and a setter, owned by the shell so this toggle
+  // and the Now Playing panel stay in sync (U9, R16).
+  lyricsEnabled: boolean;
+  onLyricsChange: (enabled: boolean) => void;
 };
 
 function initialOf(user: ShellUser | null): string {
@@ -43,8 +47,32 @@ function PendingRow({ label, reason }: { label: string; reason: string }) {
   );
 }
 
-export default function ProfileSheet({ open, onClose, user }: Props) {
+export default function ProfileSheet({
+  open,
+  onClose,
+  user,
+  lyricsEnabled,
+  onLyricsChange,
+}: Props) {
   const closeRef = useRef<HTMLButtonElement>(null);
+  // While a persist is in flight the toggle is disabled so a rapid double-tap can't
+  // race two writes. Optimistic: the UI flips immediately; if the server write fails
+  // we revert so the control never lies about what was saved.
+  const [saving, setSaving] = useState(false);
+
+  async function toggleLyrics() {
+    if (saving) return;
+    const next = !lyricsEnabled;
+    setSaving(true);
+    onLyricsChange(next); // optimistic — the panel shows/hides instantly
+    try {
+      await setLyricsEnabledAction(next);
+    } catch {
+      onLyricsChange(!next); // revert on failure — honest state
+    } finally {
+      setSaving(false);
+    }
+  }
 
   // Close on Escape; move focus into the sheet when it opens (accessibility).
   useEffect(() => {
@@ -132,12 +160,31 @@ export default function ProfileSheet({ open, onClose, user }: Props) {
           ))}
         </section>
 
-        {/* Lyrics — on/off (wired in U9). */}
+        {/* Lyrics — on/off. A REAL control (U9): it persists and shows/hides the
+            Now Playing lyrics panel. */}
         <section className="sheet-group">
           <h3 className="sheet-group-title">Lyrics</h3>
-          {pendingFor("Lyrics").map((c) => (
-            <PendingRow key={c.id} label={c.label} reason={c.reason} />
-          ))}
+          <div className="setting-row">
+            <div className="setting-main">
+              <div className="setting-label">Show lyrics</div>
+              <div className="setting-reason">
+                {lyricsEnabled
+                  ? "Scrolling lyrics show on Now Playing"
+                  : "Lyrics are hidden on Now Playing"}
+              </div>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={lyricsEnabled}
+              aria-label="Show lyrics"
+              className={lyricsEnabled ? "switch on" : "switch"}
+              onClick={toggleLyrics}
+              disabled={saving}
+            >
+              <span className="switch-knob" aria-hidden="true" />
+            </button>
+          </div>
         </section>
 
         {/* About — informational, not a control. */}

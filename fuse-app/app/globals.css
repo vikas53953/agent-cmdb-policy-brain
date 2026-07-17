@@ -940,6 +940,97 @@ body {
   line-height: 1;
 }
 
+/* --- Settings toggle switch (U9) — a real on/off control ---------------------- */
+.switch {
+  flex: 0 0 auto;
+  position: relative;
+  width: 44px;
+  height: 26px;
+  border-radius: var(--r-pill);
+  border: 1px solid var(--line);
+  background: var(--ink-3);
+  cursor: pointer;
+  padding: 0;
+  transition: background 0.18s ease;
+}
+.switch.on {
+  background: var(--fuse-dim);
+  border-color: transparent;
+}
+.switch:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+.switch:focus-visible {
+  outline: 2px solid var(--teal);
+  outline-offset: 2px;
+}
+.switch-knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--txt-hi);
+  transition: transform 0.18s ease;
+}
+.switch.on .switch-knob {
+  transform: translateX(18px);
+}
+
+/* --- Synced lyrics panel (U9, R6/R7) ----------------------------------------- */
+.lyrics {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  width: 100%;
+  padding: 8px 6px;
+  text-align: center;
+  -webkit-mask-image: linear-gradient(180deg, transparent, #000 12%, #000 88%, transparent);
+  mask-image: linear-gradient(180deg, transparent, #000 12%, #000 88%, transparent);
+}
+.lyric {
+  margin: 0 0 12px;
+  font-size: 1.02rem;
+  font-weight: 600;
+  line-height: 1.35;
+  color: var(--txt-lo);
+  transition: color 0.2s ease, opacity 0.2s ease;
+}
+/* The active line lights up with the fuse gradient (the "blend" moment). */
+.lyric.active {
+  color: transparent;
+  background: var(--fuse);
+  -webkit-background-clip: text;
+  background-clip: text;
+  font-weight: 800;
+}
+/* Honest empty state (R7/AE2) — never a blank or faked panel. */
+.lyrics-empty {
+  margin: 24px 0;
+  color: var(--txt-mid);
+  font-size: 0.92rem;
+}
+.lyrics-status {
+  margin: 24px 0;
+  color: var(--txt-lo);
+  font-size: 0.88rem;
+}
+.lyrics-note {
+  margin: 0 0 10px;
+  color: var(--txt-lo);
+  font-size: 0.74rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.lyrics-plain {
+  color: var(--txt-mid);
+  font-size: 0.94rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
 /* --- Reduced motion: collapse every transition/animation to near-instant ----- */
 @media (prefers-reduced-motion: reduce) {
   *,
