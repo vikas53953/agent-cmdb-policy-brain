@@ -1752,6 +1752,413 @@ body {
   text-align: center;
 }
 
+/* --- DJ console (U13, R12/R13/R17) -------------------------------------------
+ * Two decks (A ember, B teal) and a crossfader. Every control is real; powers a
+ * source can't do are greyed with a plain reason (never a fake knob). The video
+ * surface is a real visible box (KTD-7 — never hidden). */
+.dj {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.dj-head {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.dj-heading {
+  font-family: var(--font-display);
+  font-size: 1.6rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  margin: 4px 2px 0;
+}
+.dj-note {
+  margin: 0 2px;
+  font-size: 0.82rem;
+  color: var(--txt-mid);
+  line-height: 1.5;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background:
+    linear-gradient(90deg, var(--ember-soft), transparent 45%),
+    linear-gradient(270deg, var(--teal-soft), transparent 45%),
+    var(--ink-1);
+}
+
+/* --- Deck -------------------------------------------------------------------- */
+.deck {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px;
+  border-radius: var(--r-lg);
+  background: var(--ink-1);
+  border: 1px solid var(--line-soft);
+}
+/* Each deck carries one signature hue as a top accent rule (A ember, B teal). */
+.deck-a {
+  border-top: 2px solid var(--ember);
+}
+.deck-b {
+  border-top: 2px solid var(--teal);
+}
+.deck-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.deck-title {
+  font-family: var(--font-display);
+  font-size: 1.05rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+.deck-a .deck-title {
+  color: var(--ember);
+}
+.deck-b .deck-title {
+  color: var(--teal);
+}
+
+/* --- Source picker (prototype .source-pick / .spick) ------------------------- */
+.source-pick {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+  background: var(--ink-0);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--r-md);
+  padding: 5px;
+}
+.spick {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  border: 1px solid transparent;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--txt-mid);
+  font-size: 0.82rem;
+  font-weight: 600;
+  padding: 9px 6px;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.spick:hover:not(:disabled) {
+  background: var(--ink-2);
+  color: var(--txt-hi);
+}
+.spick:focus-visible {
+  outline: 2px solid var(--teal);
+  outline-offset: 2px;
+}
+.spick.active {
+  background: var(--ink-3);
+  color: var(--txt-hi);
+  border-color: var(--line);
+}
+.deck-a .spick.active {
+  box-shadow: inset 0 -2px 0 var(--ember);
+}
+.deck-b .spick.active {
+  box-shadow: inset 0 -2px 0 var(--teal);
+}
+/* A locked / not-yet-wired source: visibly disabled, its reason shown small (R17). */
+.spick.locked,
+.spick:disabled {
+  cursor: not-allowed;
+  color: var(--txt-lo);
+  opacity: 0.8;
+}
+.spick-reason {
+  font-size: 0.6rem;
+  font-weight: 600;
+  line-height: 1.15;
+  color: var(--txt-lo);
+  text-align: center;
+}
+
+.deck-hint {
+  margin: 0;
+  font-size: 0.84rem;
+  color: var(--txt-mid);
+  padding: 12px;
+  border: 1px dashed var(--line);
+  border-radius: var(--r-md);
+  text-align: center;
+}
+
+/* --- Deck video (visible player, KTD-7) -------------------------------------- */
+.deck-video {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  min-height: 200px;
+  border-radius: var(--r-md);
+  overflow: hidden;
+  background: #000;
+  border: 1px solid var(--line);
+}
+.deck-video .yt-host,
+.deck-video .yt-host iframe {
+  width: 100%;
+  height: 100%;
+  display: block;
+  border: 0;
+}
+
+/* --- Deck load row ----------------------------------------------------------- */
+.deck-load {
+  display: flex;
+  gap: 8px;
+}
+.deck-link {
+  flex: 1 1 auto;
+  min-width: 0;
+  background: var(--ink-0);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  color: var(--txt-hi);
+  font-size: 0.85rem;
+  padding: 9px 11px;
+  outline: none;
+}
+.deck-link:focus {
+  border-color: rgba(52, 228, 198, 0.5);
+  box-shadow: 0 0 0 3px var(--teal-soft);
+}
+.deck-loadbtn {
+  flex: 0 0 auto;
+  border: none;
+  border-radius: var(--r-sm);
+  background: var(--fuse);
+  color: #0b0e12;
+  font-size: 0.82rem;
+  font-weight: 700;
+  padding: 9px 14px;
+  cursor: pointer;
+}
+.deck-loadbtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  filter: grayscale(0.4);
+}
+.deck-loadbtn:focus-visible {
+  outline: 2px solid var(--teal);
+  outline-offset: 2px;
+}
+.deck-error {
+  margin: 0;
+  font-size: 0.78rem;
+  color: #ffb59c;
+}
+
+/* --- Deck transport (play + speed) ------------------------------------------- */
+.deck-transport {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.deck-play {
+  flex: 0 0 auto;
+  width: 46px;
+  height: 46px;
+}
+.deck-speed {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.deck-speed-label {
+  font-size: 0.74rem;
+  color: var(--txt-mid);
+  font-weight: 600;
+}
+.deck-speed-val {
+  font-family: var(--font-mono);
+  color: var(--txt-hi);
+}
+.deck-speed-range {
+  width: 100%;
+  height: 6px;
+  -webkit-appearance: none;
+  appearance: none;
+  border-radius: var(--r-pill);
+  background: var(--fuse-dim);
+  cursor: pointer;
+}
+.deck-speed-range:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+  background: var(--ink-3);
+}
+.deck-speed-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--txt-hi);
+  border: 2px solid var(--ink-0);
+}
+.deck-speed-range::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--txt-hi);
+  border: 2px solid var(--ink-0);
+}
+.deck-speed-range:focus-visible {
+  outline: 2px solid var(--teal);
+  outline-offset: 4px;
+}
+.deck-speed-reason {
+  font-size: 0.7rem;
+  color: var(--txt-lo);
+}
+
+/* Honest notice for a source that can occupy a deck but can't play yet (Spotify). */
+.deck-notice {
+  margin: 0;
+  font-size: 0.82rem;
+  color: var(--txt-mid);
+  padding: 12px;
+  border: 1px dashed var(--line);
+  border-radius: var(--r-md);
+  background: var(--ink-0);
+}
+
+/* --- Capability chips (EQ / Loops / FX / Scratch) — honest indicators -------- */
+.caps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 6px;
+}
+.cap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: var(--r-sm);
+  background: var(--ink-0);
+  border: 1px solid var(--line-soft);
+  min-width: 0;
+}
+.cap-dot {
+  flex: 0 0 auto;
+  width: 8px;
+  height: 8px;
+  border-radius: var(--r-pill);
+  background: var(--txt-lo);
+}
+.cap.on .cap-dot {
+  background-image: var(--fuse);
+  box-shadow: 0 0 8px rgba(52, 228, 198, 0.6);
+}
+.cap-label {
+  flex: 0 0 auto;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--txt-mid);
+}
+.cap.on .cap-label {
+  color: var(--txt-hi);
+}
+.cap-state {
+  margin-left: auto;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--teal);
+}
+.cap-hint {
+  margin-left: auto;
+  font-size: 0.64rem;
+  line-height: 1.15;
+  color: var(--txt-lo);
+  text-align: right;
+  min-width: 0;
+}
+
+/* --- Crossfader -------------------------------------------------------------- */
+.xfader {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 14px;
+  border-radius: var(--r-lg);
+  background: var(--ink-2);
+  border: 1px solid var(--line);
+}
+.xfader-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.xfader-title {
+  font-size: 0.74rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--txt-mid);
+}
+.xfader-cap {
+  font-family: var(--font-display);
+  font-size: 0.95rem;
+  font-weight: 800;
+}
+.xfader-cap-a {
+  color: var(--ember);
+}
+.xfader-cap-b {
+  color: var(--teal);
+}
+.xfader-range {
+  width: 100%;
+  height: 8px;
+  -webkit-appearance: none;
+  appearance: none;
+  border-radius: var(--r-pill);
+  /* Ember (A) on the left melting into teal (B) on the right. */
+  background: linear-gradient(90deg, var(--ember), var(--teal));
+  cursor: pointer;
+}
+.xfader-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--txt-hi);
+  border: 3px solid var(--ink-0);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.5);
+}
+.xfader-range::-moz-range-thumb {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--txt-hi);
+  border: 3px solid var(--ink-0);
+}
+.xfader-range:focus-visible {
+  outline: 2px solid var(--teal);
+  outline-offset: 4px;
+}
+.xfader-readout {
+  display: flex;
+  justify-content: space-between;
+  font-family: var(--font-mono);
+  font-size: 0.74rem;
+  color: var(--txt-mid);
+}
+
 /* --- Reduced motion: collapse every transition/animation to near-instant ----- */
 @media (prefers-reduced-motion: reduce) {
   *,

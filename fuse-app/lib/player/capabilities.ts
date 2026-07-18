@@ -34,6 +34,13 @@ export const REASONS = {
   spNotAvailable: "Not available for Spotify tracks",
   spNoSpeed: "Speed control isn't available for Spotify tracks",
   spOneDeck: "Spotify allows one deck at a time",
+  // Engine-readiness reasons (U13): a source whose DJ engine is not wired in this
+  // commit. The capability matrix would allow the control, but the engine behind it
+  // does not exist yet, so the DJ console renders it disabled with these words until
+  // its owning unit lands (My Files → U14, Spotify playback → U15). This is the
+  // second honesty axis on top of the matrix (R17).
+  localEngineSoon: "Full DJ engine arrives with local-file support",
+  spPlaybackSoon: "Spotify playback arrives with Spotify support",
 } as const;
 
 // YouTube's IFrame player clamps playback rate to this window (setPlaybackRate).
