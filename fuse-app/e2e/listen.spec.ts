@@ -151,7 +151,11 @@ test.describe("listen — the heart moment", () => {
       await expect(lyricsToggle).toHaveAttribute("aria-checked", "true", { timeout: 10_000 });
     }
     await page.keyboard.press("Escape"); // close the profile sheet
-    await expect(page.getByTestId("profile-sheet")).toBeHidden({ timeout: 10_000 });
+    // The sheet slides off-screen via a CSS transform (so Playwright still counts it
+    // "visible"); its closed state is honestly marked by aria-hidden="true".
+    await expect(page.getByTestId("profile-sheet")).toHaveAttribute("aria-hidden", "true", {
+      timeout: 10_000,
+    });
 
     const firstYt = await searchAndFirstYouTube(page);
     await firstYt.getByTestId("result-play").click();
