@@ -226,6 +226,7 @@ export default function ProfileSheet({
         aria-modal="true"
         aria-label="Settings"
         aria-hidden={!open}
+        data-testid="profile-sheet"
       >
         <div className="sheet-handle" aria-hidden="true" />
 
@@ -280,6 +281,7 @@ export default function ProfileSheet({
             <input
               type="range"
               className="cf-range"
+              data-testid="crossfade-range"
               min={CROSSFADE_MIN_SEC}
               max={CROSSFADE_MAX_SEC}
               step={1}
@@ -332,6 +334,7 @@ export default function ProfileSheet({
               role="switch"
               aria-checked={lyricsEnabled}
               aria-label="Show lyrics"
+              data-testid="lyrics-toggle"
               className={lyricsEnabled ? "switch on" : "switch"}
               onClick={toggleLyrics}
               disabled={saving}

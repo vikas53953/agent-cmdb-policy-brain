@@ -30,6 +30,7 @@ export default function Crossfader({
       <input
         type="range"
         className="xfader-range"
+        data-testid="crossfader"
         min={0}
         max={1}
         step={0.01}

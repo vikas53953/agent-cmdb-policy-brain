@@ -95,6 +95,7 @@ export default function AppChrome({
         <button
           type="button"
           className="avatar"
+          data-testid="open-settings"
           onClick={() => setSheetOpen(true)}
           aria-label="Open settings"
           aria-haspopup="dialog"

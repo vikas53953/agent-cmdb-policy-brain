@@ -63,6 +63,7 @@ export default function PlaylistsPane({ initial }: { initial: PlaylistDTO[] }) {
         <input
           type="text"
           className="pl-create-input"
+          data-testid="playlist-name"
           placeholder="New playlist name"
           value={newName}
           onChange={(e) => setNewName(e.target.value)}
@@ -74,6 +75,7 @@ export default function PlaylistsPane({ initial }: { initial: PlaylistDTO[] }) {
         <button
           type="button"
           className="pl-create-btn"
+          data-testid="playlist-create"
           onClick={() => void create()}
           disabled={creating || newName.trim() === ""}
           title={newName.trim() === "" ? "Type a name first" : "Create playlist"}
@@ -90,7 +92,7 @@ export default function PlaylistsPane({ initial }: { initial: PlaylistDTO[] }) {
           list — mix YouTube and Spotify freely.
         </p>
       ) : (
-        <ul className="pl-list" aria-label="Your playlists">
+        <ul className="pl-list" aria-label="Your playlists" data-testid="playlist-list">
           {playlists.map((p) => (
             <li key={p.id}>
               <PlaylistCard playlist={p} onReplace={replace} onDelete={drop} />
@@ -186,7 +188,7 @@ function PlaylistCard({
   const count = playlist.tracks.length;
 
   return (
-    <div className="pl-card">
+    <div className="pl-card" data-testid="playlist-card" data-playlist-name={playlist.name} data-track-count={count}>
       <div className="pl-card-head">
         <button
           type="button"
@@ -217,9 +219,9 @@ function PlaylistCard({
             disabled={busy}
           />
         ) : (
-          <button type="button" className="pl-name" onClick={() => setOpen((v) => !v)}>
+          <button type="button" className="pl-name" data-testid="playlist-open" onClick={() => setOpen((v) => !v)}>
             <span className="pl-name-text">{playlist.name}</span>
-            <span className="pl-name-count">
+            <span className="pl-name-count" data-testid="playlist-count">
               {count} {count === 1 ? "song" : "songs"}
             </span>
           </button>

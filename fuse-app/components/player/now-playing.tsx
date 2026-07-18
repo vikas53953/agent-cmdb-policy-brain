@@ -137,6 +137,8 @@ export default function NowPlaying({
         aria-modal="true"
         aria-label="Now playing"
         aria-hidden={!showOpen}
+        data-testid="now-playing"
+        data-np-open={showOpen ? "true" : "false"}
       >
         {current && badge ? (
           <>
@@ -220,10 +222,11 @@ export default function NowPlaying({
 
             <Scrub positionSec={positionSec} durationSec={durationSec} />
 
-            <div className="transport">
+            <div className="transport" data-testid="np-transport">
               <button
                 type="button"
                 className={shuffle ? "icon-btn toggle on" : "icon-btn toggle"}
+                data-testid="np-shuffle"
                 onClick={() => playerStore.toggleShuffle()}
                 aria-pressed={shuffle}
                 title={shuffle ? "Shuffle on" : "Shuffle off"}
@@ -247,6 +250,7 @@ export default function NowPlaying({
               <button
                 type="button"
                 className="icon-btn primary np-play"
+                data-testid="np-play"
                 onClick={hasEngine ? () => void playerStore.toggle() : undefined}
                 disabled={!hasEngine}
                 aria-disabled={!hasEngine}
@@ -265,6 +269,7 @@ export default function NowPlaying({
               <button
                 type="button"
                 className="icon-btn"
+                data-testid="np-next"
                 onClick={canAdvance ? () => void playerStore.next() : undefined}
                 disabled={!canAdvance}
                 aria-disabled={!canAdvance}

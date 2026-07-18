@@ -122,6 +122,7 @@ function makeFakeStore(initial: Partial<PlayerState> = {}) {
     shuffle: false,
     repeat: "off",
     notice: null,
+    status: "idle",
     ...initial,
   };
   const listeners = new Set<() => void>();

@@ -42,7 +42,7 @@ export default async function LoginPage() {
   }
 
   return (
-    <main className="login-screen">
+    <main className="login-screen" data-testid="login-screen">
       <div className="login-card">
         <div className="login-brand">
           <span className="login-wordmark">Fuse</span>

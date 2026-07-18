@@ -39,13 +39,14 @@ export default function ResultRow({
   const showArt = result.artUrl && !artFailed;
 
   return (
-    <div className="sresult">
+    <div className="sresult" data-testid="search-result" data-source={result.source}>
       <div className="sresult-art">
         {showArt ? (
           // eslint-disable-next-line @next/next/no-img-element -- external source CDN (i.ytimg.com / i.scdn.co); allowed by CSP img-src, next/image remote config is out of U6 scope
           <img
             src={result.artUrl ?? undefined}
             alt=""
+            data-testid="result-cover"
             loading="lazy"
             referrerPolicy="no-referrer"
             onError={() => setArtFailed(true)}
@@ -73,6 +74,7 @@ export default function ResultRow({
         <button
           type="button"
           className="icon-btn primary"
+          data-testid="result-play"
           onClick={playable ? handlePlay : undefined}
           disabled={!playable}
           aria-disabled={!playable}

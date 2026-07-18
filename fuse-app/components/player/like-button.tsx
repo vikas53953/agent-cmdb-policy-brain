@@ -66,6 +66,8 @@ export default function LikeButton({ track }: { track: TrackRef }) {
     <button
       type="button"
       className={isLiked ? "icon-btn liked on" : "icon-btn liked"}
+      data-testid="like-button"
+      data-liked={isLiked ? "true" : "false"}
       onClick={() => void toggle()}
       disabled={!known || saving}
       aria-pressed={isLiked}

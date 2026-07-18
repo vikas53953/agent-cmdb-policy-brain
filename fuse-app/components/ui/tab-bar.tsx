@@ -23,6 +23,7 @@ export default function TabBar() {
             href={tab.href}
             className={active ? "tab active" : "tab"}
             aria-current={active ? "page" : undefined}
+            data-testid={`tab-${tab.icon}`}
           >
             <TabIcon icon={tab.icon} className="tab-icon" />
             <span className="tab-label">{tab.label}</span>

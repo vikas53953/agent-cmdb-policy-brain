@@ -29,6 +29,7 @@ const INITIAL_STATE: PlayerState = {
   shuffle: false,
   repeat: "off",
   notice: null,
+  status: "idle",
 };
 
 export type PlayerStoreOptions = {
@@ -104,6 +105,7 @@ export class PlayerStore {
           isPlaying: false,
           positionSec: 0,
           notice: resolution.reason,
+          status: "error",
         });
         return false;
       }
@@ -124,7 +126,7 @@ export class PlayerStore {
 
     if (!adapter) {
       // No engine for this source yet: focus the track but do not fake playback.
-      this.set({ current: target, isPlaying: false, positionSec: 0, notice });
+      this.set({ current: target, isPlaying: false, positionSec: 0, notice, status: "idle" });
       return false;
     }
 
@@ -133,17 +135,25 @@ export class PlayerStore {
     // YouTube video, U7/KTD-7) mounts on-screen first and the player is created inside a
     // visible container rather than a hidden one. `isPlaying` stays honest — it flips to
     // true only after the adapter has actually acted (R17 at the state layer).
-    this.set({ current: target, isPlaying: false, positionSec: 0, notice });
-    await adapter.load(target);
-    await adapter.play();
-    this.set({ isPlaying: true });
+    this.set({ current: target, isPlaying: false, positionSec: 0, notice, status: "loading" });
+    try {
+      await adapter.load(target);
+      await adapter.play();
+    } catch {
+      // The engine could not start: honest error state, never a silent stuck "loading".
+      this.set({ isPlaying: false, status: "error" });
+      return false;
+    }
+    this.set({ isPlaying: true, status: "playing" });
     return true;
   }
 
   // Pause the active adapter. No-op (but still reflects intent) when nothing plays.
+  // Paused maps to the "idle" machine phase (the surfaced vocabulary has no separate
+  // "paused"); isPlaying stays the fine-grained truth for the UI.
   pause(): void {
     this.activeAdapter?.pause();
-    this.set({ isPlaying: false });
+    this.set({ isPlaying: false, status: "idle" });
   }
 
   // Resume the current track. Convenience alias over play() with no argument.
@@ -251,7 +261,7 @@ export class PlayerStore {
     );
     const queue =
       idx >= 0 ? this.state.queue.filter((_, i) => i !== idx) : [...this.state.queue];
-    this.set({ current: track, queue, isPlaying: true, positionSec: 0 });
+    this.set({ current: track, queue, isPlaying: true, positionSec: 0, status: "playing" });
   }
 
   toggleShuffle(): void {

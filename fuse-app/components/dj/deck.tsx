@@ -38,13 +38,10 @@ import {
 import CapabilityBadges from "@/components/dj/capability-badges";
 import { PlayIcon, PauseIcon } from "@/components/ui/icons";
 
-// Deck-local player adapters must NOT drive the global player store (that is the
-// main mini-player's truth). This inert bridge lets a deck reuse the real, tested
-// YouTube adapter while keeping its clock to itself.
-const INERT_BRIDGE = {
-  reportPosition: () => {},
-  next: async () => false,
-};
+// Deck-local player adapters must NOT drive the global player store (that is the main
+// mini-player's truth). Each deck instead gets its OWN bridge (built below) so the deck
+// keeps its clock to itself — the reported position drives only this deck's machine-
+// readable surface (data-deck-position), never the global store.
 
 const [RATE_MIN, RATE_MAX] = LOCAL_RATE_RANGE;
 const [EQ_MIN, EQ_MAX] = EQ_GAIN_RANGE;
@@ -78,6 +75,16 @@ export default function Deck({
   const engineRef = useRef<DjDeckEngine | null>(null);
   const hostRef = useRef<HTMLDivElement>(null);
 
+  // This deck's playback clock (seconds), surfaced as data-deck-position so the robot
+  // tester can assert a DJ deck is really advancing — the same honesty the mini-player
+  // gives for the main player. Fed by the deck-private bridge below; never touches the
+  // global store.
+  const [deckPos, setDeckPos] = useState(0);
+  const bridgeRef = useRef({
+    reportPosition: (positionSec: number) => setDeckPos(positionSec > 0 ? positionSec : 0),
+    next: async () => false,
+  });
+
   const [linkInput, setLinkInput] = useState("");
   const [loadedId, setLoadedId] = useState<string | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -99,7 +106,7 @@ export default function Deck({
   // Spin up (and tear down) a private YouTube player when this deck is on YouTube.
   useEffect(() => {
     if (source !== "youtube") return;
-    const adapter = createYouTubeAdapter({ store: INERT_BRIDGE });
+    const adapter = createYouTubeAdapter({ store: bridgeRef.current });
     adapterRef.current = adapter;
     const host = hostRef.current;
     if (host) adapter.mount(host);
@@ -137,6 +144,7 @@ export default function Deck({
     setIsPlaying(false);
     setLoadError(null);
     setRate(1);
+    setDeckPos(0);
     setLocalName(null);
     setLocalLoaded(false);
     setEq(FLAT_EQ);
@@ -282,8 +290,25 @@ export default function Deck({
           ? "Load a file to change speed"
           : null;
 
+  // Machine-readable deck lifecycle for the robot tester (mirrors the mini-player's
+  // surface): error if a load failed, loading while a load is in flight, playing when
+  // real audio is running, else idle.
+  const deckState = loadError
+    ? "error"
+    : loading
+      ? "loading"
+      : isPlaying
+        ? "playing"
+        : "idle";
+
   return (
-    <section className={`deck deck-${accent}`} aria-label={`Deck ${deckId}`}>
+    <section
+      className={`deck deck-${accent}`}
+      aria-label={`Deck ${deckId}`}
+      data-testid={`deck-${deckId}`}
+      data-deck-state={deckState}
+      data-deck-position={deckPos.toFixed(2)}
+    >
       <div className="deck-head">
         <span className="deck-title">Deck {deckId}</span>
         {badge ? <span className={`badge ${badge.className}`}>{badge.label}</span> : null}
@@ -299,6 +324,7 @@ export default function Deck({
               key={opt.source}
               type="button"
               className={`spick${active ? " active" : ""}${opt.selectable ? "" : " locked"}`}
+              data-testid={`deck-${deckId}-source-${opt.source}`}
               onClick={() => selectSource(opt.source)}
               disabled={!opt.selectable}
               aria-pressed={active}
@@ -317,11 +343,12 @@ export default function Deck({
 
       {source === "youtube" ? (
         <>
-          <div className="deck-video" ref={hostRef} aria-label="Deck video" />
+          <div className="deck-video" ref={hostRef} aria-label="Deck video" data-testid={`deck-${deckId}-video`} />
           <div className="deck-load">
             <input
               type="text"
               className="deck-link"
+              data-testid={`deck-${deckId}-link`}
               placeholder="Paste a YouTube link or video id"
               value={linkInput}
               onChange={(e) => setLinkInput(e.target.value)}
@@ -330,6 +357,7 @@ export default function Deck({
             <button
               type="button"
               className="deck-loadbtn"
+              data-testid={`deck-${deckId}-load`}
               onClick={loadYouTube}
               disabled={loading || linkInput.trim() === ""}
             >
@@ -342,6 +370,7 @@ export default function Deck({
             <button
               type="button"
               className="icon-btn primary deck-play"
+              data-testid={`deck-${deckId}-play`}
               onClick={togglePlay}
               disabled={!loadedId}
               aria-label={isPlaying ? "Pause deck" : "Play deck"}
@@ -407,6 +436,7 @@ export default function Deck({
                 <button
                   type="button"
                   className="icon-btn primary deck-play"
+                  data-testid={`deck-${deckId}-play`}
                   onClick={toggleLocalPlay}
                   disabled={!localLoaded}
                   aria-label={isPlaying ? "Pause deck" : "Play deck"}

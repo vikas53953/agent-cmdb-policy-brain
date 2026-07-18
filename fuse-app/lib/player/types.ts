@@ -16,6 +16,17 @@ import type { TrackRef, TrackSource } from "@/lib/repos/track";
 // whole queue; "off" stops after the last track.
 export type RepeatMode = "off" | "one" | "all";
 
+// The machine-readable playback lifecycle, exposed on the mini-player root as
+// data-player-state for the robot tester (and any diagnostics). "stalled" is NOT a
+// store field — it is derived by watching whether position advances while playing
+// (playback-health.ts) — but it is part of the surfaced vocabulary the UI emits.
+//   • idle    — nothing loaded, or paused.
+//   • loading — play() called; the adapter is preparing/starting (not yet producing).
+//   • playing — an adapter has actually started; sound is being produced.
+//   • error   — playback could not start (no playable resolution, or the engine threw).
+// The store owns idle/loading/playing/error; the mini-player layers "stalled" on top.
+export type PlayerStatus = "idle" | "loading" | "playing" | "error";
+
 // The single source of playback truth. Nothing outside the store mutates this; the
 // store's actions are the only writers, and UI reads a read-only snapshot.
 export type PlayerState = {
@@ -40,6 +51,11 @@ export type PlayerState = {
   // (KTD-2, AE5): "Spotify needs Premium — playing the YouTube version". It is cleared
   // on every fresh play so it never lingers past the moment it describes (R17).
   notice: string | null;
+  // The machine-readable lifecycle phase (see PlayerStatus). Surfaced on the
+  // mini-player root as data-player-state so the robot tester can assert real playback
+  // (e.g. that it reaches "playing") rather than guessing from the DOM. isPlaying and
+  // status stay consistent: status === "playing" exactly when isPlaying is true.
+  status: PlayerStatus;
 };
 
 // The DJ/player powers whose availability differs by source and context. These are

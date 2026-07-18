@@ -97,6 +97,7 @@ export default function SearchBar() {
         <input
           type="search"
           className="searchbar-input"
+          data-testid="search-input"
           placeholder="Search songs, artists…"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
@@ -134,7 +135,7 @@ export default function SearchBar() {
       ) : null}
 
       {results.length > 0 ? (
-        <ul className="sresult-list" aria-label="Search results">
+        <ul className="sresult-list" aria-label="Search results" data-testid="search-results">
           {results.map((result, i) => (
             <li key={`${result.source}:${result.nativeId}`}>
               <ResultRow

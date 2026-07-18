@@ -16,6 +16,7 @@
 
 import type { TrackRef } from "@/lib/repos/track";
 import { usePlayerState } from "@/lib/player/use-player";
+import { usePlayerPhase } from "@/lib/player/use-player-phase";
 import { playerStore } from "@/lib/player/store";
 import { adapterRegistry } from "@/lib/player/adapters";
 import VideoSurface from "@/components/player/video-surface";
@@ -58,7 +59,13 @@ function MiniArt({ track, npOpen }: { track: TrackRef; npOpen: boolean }) {
 
 function EmptyMini() {
   return (
-    <div className="mini" aria-label="Mini player">
+    <div
+      className="mini"
+      aria-label="Mini player"
+      data-testid="mini-player"
+      data-player-state="idle"
+      data-player-position="0"
+    >
       <div className="mini-art" aria-hidden="true">
         <MusicIcon size={20} />
       </div>
@@ -100,6 +107,11 @@ export default function MiniPlayer({
   onExpand?: () => void;
 }) {
   const { current, isPlaying, queue, notice } = usePlayerState();
+  // The machine-readable playback surface for the robot tester (data-player-state /
+  // data-player-position on the mini root). Derived from the store's status plus a live
+  // "is position advancing?" check (stall detection), reusing the same pure health core
+  // the Now Playing banner uses — so the attribute and the banner never disagree.
+  const { phase, positionSec } = usePlayerPhase();
 
   if (!current) return <EmptyMini />;
 
@@ -118,13 +130,20 @@ export default function MiniPlayer({
           {notice}
         </p>
       ) : null}
-      <div className="mini" aria-label="Mini player">
+      <div
+        className="mini"
+        aria-label="Mini player"
+        data-testid="mini-player"
+        data-player-state={phase}
+        data-player-position={positionSec.toFixed(2)}
+      >
         <MiniArt track={current} npOpen={npOpen} />
 
       {/* Tapping the track opens the full Now Playing screen (R4). */}
       <button
         type="button"
         className="mini-meta mini-open"
+        data-testid="mini-open"
         onClick={onExpand}
         disabled={!onExpand}
         aria-label={`Open now playing — ${current.title}`}
@@ -137,6 +156,7 @@ export default function MiniPlayer({
         <button
           type="button"
           className="icon-btn primary"
+          data-testid="mini-play"
           onClick={hasEngine ? () => void playerStore.toggle() : undefined}
           disabled={!hasEngine}
           aria-disabled={!hasEngine}
@@ -154,6 +174,7 @@ export default function MiniPlayer({
         <button
           type="button"
           className="icon-btn"
+          data-testid="mini-next"
           onClick={canAdvance ? () => void playerStore.next() : undefined}
           disabled={!canAdvance}
           aria-disabled={!canAdvance}

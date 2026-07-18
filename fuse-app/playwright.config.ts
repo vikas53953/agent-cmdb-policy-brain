@@ -1,53 +1,73 @@
 import { defineConfig, devices } from "@playwright/test";
-import { E2E_READY } from "./e2e/fixtures";
 
-// Playwright was WIRED at the scaffold (U1); the e2e suite (heart moment, honesty rules,
-// stall/retry) lands here in U16. `playwright test` joins the CI gate from U16 (see the
-// plan's Verification Contract; the U1..U15 gate is `tsc --noEmit && eslint . &&
-// vitest run && next build`).
+// Playwright config for the Robot Tester.
 //
-// The specs GATE on E2E_READY: running them end-to-end needs a provisioned environment
-// (a signed-in storage state + the app's runtime secrets, none of which live on the
-// build machine or in the repo). With `E2E_READY=1` the setup project runs and the
-// specs execute against a signed-in browser; otherwise every spec skips with a clear
-// reason instead of failing a bare run.
+// TWO PROJECTS, selected with --project:
+//   • local — boots the dev server on this machine (E2E_TEST_SECRET provided to it so
+//     the Robot Test Door exists) and runs every spec against it. This is the release
+//     gate's project (CI).
+//   • live  — runs the SAME specs against a deployed URL (BASE_URL) using the door
+//     secret from the environment. This is the watchman's project. No dev server.
+//
+// Which mode we are in is decided by BASE_URL: set it → live (no webServer, baseURL is
+// the deployment); unset → local (webServer on localhost). You run ONE project at a
+// time, so only the matching one is exercised.
 //
 // Browser binaries are NOT installed by `npm install`; run
-// `npx playwright install chromium` once before the first e2e run.
+// `npx playwright install chromium` once before the first run.
 
+const LIVE_URL = process.env.BASE_URL;
 const PORT = Number(process.env.E2E_PORT ?? 3300);
-const BASE_URL = `http://localhost:${PORT}`;
+const LOCAL_URL = `http://localhost:${PORT}`;
+
+// Chromium flags so autoplay works headlessly (no user-gesture requirement) and no
+// sound actually plays on the runner.
+const CHROMIUM_ARGS = [
+  "--autoplay-policy=no-user-gesture-required",
+  "--mute-audio",
+];
 
 export default defineConfig({
   testDir: "./e2e",
   timeout: 120_000,
+  expect: { timeout: 15_000 },
   fullyParallel: false,
   forbidOnly: !!process.env.CI,
-  retries: process.env.CI ? 1 : 0,
+  // YouTube embeds can be flaky in CI, so retry once per spec (the specs also build in
+  // resilient waits up to 30s for a playing state).
+  retries: 1,
   workers: 1,
-  reporter: [["list"]],
+  reporter: process.env.CI ? [["list"], ["html", { open: "never" }]] : [["list"]],
   use: {
-    baseURL: BASE_URL,
-    trace: "on-first-retry",
+    // Evidence on failure only (keeps green runs cheap): full trace, screenshot, video.
+    trace: "retain-on-failure",
     screenshot: "only-on-failure",
+    video: "retain-on-failure",
+    launchOptions: { args: CHROMIUM_ARGS },
   },
   projects: [
-    // Validates the injected signed-in session before the specs run (skips when the
-    // suite isn't provisioned). Only wired as a dependency once E2E_READY is set, so a
-    // bare run doesn't try to authenticate against nothing.
-    { name: "setup", testMatch: /auth\.setup\.ts/ },
     {
-      name: "chromium",
-      use: { ...devices["Desktop Chrome"] },
-      // The signed-in state is applied per-spec via test.use(storageState); the file is
-      // only required when the suite is actually running.
-      dependencies: E2E_READY ? ["setup"] : [],
+      name: "local",
+      use: { ...devices["Desktop Chrome"], baseURL: LOCAL_URL },
+    },
+    {
+      name: "live",
+      use: { ...devices["Desktop Chrome"], baseURL: LIVE_URL },
     },
   ],
-  webServer: {
-    command: `npm run dev -- -p ${PORT}`,
-    url: BASE_URL,
-    timeout: 120_000,
-    reuseExistingServer: !process.env.CI,
-  },
+  // Local mode boots the dev server and hands it the door secret so the robot can sign
+  // in; live mode targets a deployment that already has the door, so no server here.
+  webServer: LIVE_URL
+    ? undefined
+    : {
+        command: `npm run dev -- -p ${PORT}`,
+        url: LOCAL_URL,
+        timeout: 120_000,
+        reuseExistingServer: !process.env.CI,
+        env: {
+          // The door secret the local app needs to open the door. Inherited from the
+          // process env (a GitHub secret in CI, the shell locally). Never committed.
+          E2E_TEST_SECRET: process.env.E2E_TEST_SECRET ?? "",
+        },
+      },
 });
