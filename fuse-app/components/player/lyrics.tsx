@@ -27,6 +27,10 @@ type LyricsData =
 
 const EMPTY_MSG = "No lyrics available for this song";
 
+// Bound the lyrics fetch so a hung LRCLIB never leaves the panel spinning (it must
+// settle to the honest empty state well inside the robot tester's 25s lyrics window).
+const LYRICS_FETCH_TIMEOUT_MS = 12_000;
+
 function prefersReducedMotion(): boolean {
   return (
     typeof window !== "undefined" &&
@@ -70,7 +74,13 @@ export default function Lyrics({
       setLoaded({ key: trackKey, data });
     };
 
-    fetch(`/api/lyrics?${params.toString()}`)
+    // A slow or unreachable LRCLIB (seen from datacenter IPs) must never leave the panel
+    // spinning forever — an unresolved fetch is exactly the silent hang this app kills.
+    // Abort after a bounded wait so we always settle to the honest "no lyrics" state.
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), LYRICS_FETCH_TIMEOUT_MS);
+
+    fetch(`/api/lyrics?${params.toString()}`, { signal: controller.signal })
       .then((r) => r.json())
       .then((payload: { found: boolean; synced: LrcLine[] | null; plain: string | null }) => {
         if (!payload.found) return settle({ status: "none" });
@@ -81,13 +91,16 @@ export default function Lyrics({
         return settle({ status: "none" });
       })
       .catch(() => {
-        // A fetch failure is honest, not fatal: show the plain empty message rather
-        // than a spinner that never resolves.
+        // A fetch failure OR a timeout abort is honest, not fatal: show the plain empty
+        // message rather than a spinner that never resolves.
         settle({ status: "none" });
-      });
+      })
+      .finally(() => window.clearTimeout(timeout));
 
     return () => {
       cancelled = true;
+      window.clearTimeout(timeout);
+      controller.abort();
     };
   }, [enabled, active, current, trackKey]);
 

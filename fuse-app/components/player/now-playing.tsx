@@ -14,17 +14,11 @@
 // live only when a working adapter backs the source, Next only when something is
 // queued, Skip only when there is a track to skip to.
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect } from "react";
 import { usePlayerState } from "@/lib/player/use-player";
 import { playerStore } from "@/lib/player/store";
 import { adapterRegistry } from "@/lib/player/adapters";
 import { SOURCE_BADGES } from "@/lib/ui/shell";
-import { logActivity } from "@/lib/activity-log";
-import {
-  initHealth,
-  stepHealth,
-  type HealthState,
-} from "@/lib/player/playback-health";
 import VideoSurface from "@/components/player/video-surface";
 import Scrub from "@/components/player/scrub";
 import Lyrics from "@/components/player/lyrics";
@@ -40,9 +34,6 @@ import {
   ChevronDownIcon,
   MusicIcon,
 } from "@/components/ui/icons";
-
-// How often Now Playing samples the player to judge playback health.
-const HEALTH_TICK_MS = 1000;
 
 const STALL_MSG = "Playback stalled — retrying";
 const STILL_STUCK_MSG = "Still stuck — this track won't play right now";
@@ -61,11 +52,17 @@ export default function NowPlaying({
   // profile sheet shows/hides this screen's lyrics panel instantly.
   lyricsEnabled: boolean;
 }) {
-  const { current, isPlaying, queue, positionSec, durationSec, shuffle, repeat, notice } =
-    usePlayerState();
-
-  const [health, setHealth] = useState<HealthState>(() => initHealth(0));
-  const healthRef = useRef<HealthState>(initHealth(0));
+  const {
+    current,
+    isPlaying,
+    queue,
+    positionSec,
+    durationSec,
+    shuffle,
+    repeat,
+    notice,
+    recovery,
+  } = usePlayerState();
 
   // Close on Escape while open (accessibility parity with the profile sheet).
   useEffect(() => {
@@ -77,44 +74,9 @@ export default function NowPlaying({
     return () => window.removeEventListener("keydown", onKey);
   }, [open, onClose]);
 
-  // Playback-health monitor. Runs whenever a track is loaded (independent of the
-  // overlay being open, so stalls are caught and logged app-wide). Each tick feeds
-  // the current player snapshot to the pure state machine; a returned retry flag
-  // re-issues playback, and phase/skipOffered drive the banner + Skip control.
-  const currentKey = current ? `${current.source}:${current.nativeId}` : null;
-  useEffect(() => {
-    // Reset the health baseline for the newly-loaded track (a ref write, not state —
-    // the visible banner clears on the first tick below, within a second).
-    healthRef.current = initHealth(Date.now());
-    if (!currentKey) return;
-
-    const id = window.setInterval(() => {
-      const s = playerStore.getState();
-      const outcome = stepHealth(healthRef.current, {
-        isPlaying: s.isPlaying,
-        positionSec: s.positionSec,
-        nowMs: Date.now(),
-      });
-      healthRef.current = outcome.state;
-      // Only re-render when something user-visible changed, to avoid a needless
-      // render every second while playback is healthy.
-      setHealth((prev) =>
-        prev.phase === outcome.state.phase &&
-        prev.skipOffered === outcome.state.skipOffered
-          ? prev
-          : outcome.state,
-      );
-      if (outcome.retry) {
-        logActivity({ level: "info", type: "stall-retry", message: STALL_MSG });
-        void playerStore.retry();
-      }
-    }, HEALTH_TICK_MS);
-    return () => window.clearInterval(id);
-    // currentKey changes exactly when a new track is loaded — the monitor resets per
-    // track. positionSec/isPlaying are read live from the store inside the interval,
-    // so they intentionally are not dependencies.
-  }, [currentKey]);
-
+  // The recovery ladder is driven app-wide by the single monitor in the shell
+  // (use-playback-recovery.ts). This screen only RENDERS its honest phase from the store
+  // truth — so the banner and the mini-player's data-player-state can never disagree.
   const showOpen = open && !!current;
   const hasEngine = current ? adapterRegistry.get(current.source) !== undefined : false;
   const canAdvance = queue.length > 0;
@@ -122,7 +84,9 @@ export default function NowPlaying({
     ? SOURCE_BADGES[current.source] ?? { className: "mp3", label: current.source }
     : null;
 
-  const stalled = health.phase === "stalled";
+  // Show the honest banner whenever the ladder is not "ok": "retrying" while it works,
+  // then the terminal "won't play" + Skip once it gives up.
+  const stalled = recovery.phase !== "ok";
 
   return (
     <>
@@ -196,13 +160,16 @@ export default function NowPlaying({
             <Lyrics enabled={lyricsEnabled} active={showOpen} />
 
             {stalled ? (
-              <div className="np-stall" role="status" aria-live="polite">
-                {health.skipOffered ? (
+              <div className="np-stall" role="status" aria-live="polite" data-testid="np-stall">
+                {recovery.phase === "error" ? (
+                  // The ladder gave up: honest terminal + a working Skip. Never a silent
+                  // freeze and never an endless "retrying" (AE1).
                   <>
                     <span className="np-stall-msg">{STILL_STUCK_MSG}</span>
                     <button
                       type="button"
                       className="np-stall-skip"
+                      data-testid="np-skip"
                       onClick={canAdvance ? () => void playerStore.next() : undefined}
                       disabled={!canAdvance}
                       aria-disabled={!canAdvance}

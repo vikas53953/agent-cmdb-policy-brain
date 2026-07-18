@@ -27,6 +27,22 @@ export type RepeatMode = "off" | "one" | "all";
 // The store owns idle/loading/playing/error; the mini-player layers "stalled" on top.
 export type PlayerStatus = "idle" | "loading" | "playing" | "error";
 
+// The honest health of playback layered on top of PlayerStatus by the recovery ladder
+// (playback-health.ts, driven app-wide by use-playback-recovery.ts):
+//   • "ok"      — nothing wrong (idle, loading, or genuinely advancing).
+//   • "stalled" — position stopped advancing; the bounded recovery ladder is working it.
+//   • "error"   — the ladder is exhausted; this track will not play. Skip is offered.
+// This is a store field (single source of truth) so every surface — the mini-player's
+// data-player-state, the Now Playing banner, the robot tester — reads ONE truth and can
+// never disagree about whether playback is healthy, recovering, or honestly failed.
+export type RecoveryPhase = "ok" | "stalled" | "error";
+
+export type RecoveryState = {
+  phase: RecoveryPhase;
+  // True once automatic recovery gave up and the user should Skip. Never a silent freeze.
+  skipOffered: boolean;
+};
+
 // The single source of playback truth. Nothing outside the store mutates this; the
 // store's actions are the only writers, and UI reads a read-only snapshot.
 export type PlayerState = {
@@ -56,6 +72,9 @@ export type PlayerState = {
   // (e.g. that it reaches "playing") rather than guessing from the DOM. isPlaying and
   // status stay consistent: status === "playing" exactly when isPlaying is true.
   status: PlayerStatus;
+  // The recovery-ladder health of the current track (single source of truth). The
+  // app-wide recovery monitor writes it; every surface renders the honest phase from it.
+  recovery: RecoveryState;
 };
 
 // The DJ/player powers whose availability differs by source and context. These are

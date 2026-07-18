@@ -39,6 +39,15 @@ const YT_ERROR_MESSAGES: Record<number, string> = {
   150: "The video's owner does not allow it to be played here",
 };
 
+// Classify a YT IFrame error for the recovery ladder. 100/101/150 are FATAL for THIS
+// video (unavailable, or embedding refused — retrying the same id can never help), so
+// the ladder should advance to an alternate. 2/5 are possibly transient (bad request /
+// HTML5 hiccup) — worth a recreate before giving up. Also treated as fatal-for-here is
+// the datacenter/bot-gated refusal, which surfaces as 150/101 in practice.
+function classifyYtError(code: number): "soft" | "fatal" {
+  return code === 100 || code === 101 || code === 150 ? "fatal" : "soft";
+}
+
 // ── Pure helpers (unit-tested without a DOM) ───────────────────────────────────
 
 // YouTube's setPlaybackRate accepts roughly [0.25 .. 2]; anything outside is ignored
@@ -95,6 +104,9 @@ export type YtPlayerFactory = (
 export type PlayerBridge = {
   reportPosition(positionSec: number, durationSec?: number): void;
   next(): Promise<boolean>;
+  // Report a hard engine error for the current track so the store's recovery ladder can
+  // escalate honestly (advance to an alternate / offer Skip) instead of a silent freeze.
+  reportError(info: { message: string; kind: "soft" | "fatal"; code?: number }): void;
 };
 
 // The DOM operations the adapter needs — injectable so node tests supply fakes.
@@ -368,9 +380,12 @@ export function createYouTubeAdapter(deps: YouTubeAdapterDeps = {}): YouTubeAdap
           },
           onStateChange,
           onError: (code) => {
-            // Record the error to the activity log (R18). The stall-detection +
-            // retry-then-Skip UX lives in Now Playing (U8, playback-health.ts).
-            logPlaybackError(YT_ERROR_MESSAGES[code] ?? "YouTube playback error", {
+            // Propagate the error into the store so the recovery ladder can act (R18,
+            // AE1): a fatal embed refusal advances to an alternate; a soft error tries a
+            // recreate first. reportError also records it to the activity log.
+            store.reportError({
+              message: YT_ERROR_MESSAGES[code] ?? "YouTube playback error",
+              kind: classifyYtError(code),
               code,
             });
           },

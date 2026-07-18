@@ -303,3 +303,92 @@ describe("switching source stops the previous adapter", () => {
     expect(local.calls).toEqual(["load", "play"]);
   });
 });
+
+describe("recovery ladder honesty (AE1 — the playback-stall class fix)", () => {
+  it("a fresh play starts with a clean recovery state and no engine error", async () => {
+    const registry = createAdapterRegistry();
+    const { adapter } = makeFakeAdapter("youtube");
+    registry.register(adapter);
+    const store = new PlayerStore({ registry });
+
+    await store.play(track("youtube", "abc"));
+    expect(store.getState().recovery).toEqual({ phase: "ok", skipOffered: false });
+    expect(store.currentErrorKind()).toBe("none");
+  });
+
+  it("records an engine error kind without lying that playback is still healthy", async () => {
+    const registry = createAdapterRegistry();
+    const { adapter } = makeFakeAdapter("youtube");
+    registry.register(adapter);
+    const store = new PlayerStore({ registry });
+
+    await store.play(track("youtube", "abc"));
+    store.reportError({ message: "The video's owner does not allow it", kind: "fatal", code: 150 });
+    // The error is remembered for the recovery monitor to act on…
+    expect(store.currentErrorKind()).toBe("fatal");
+    // …and it is honest: the store must not still be claiming a clean "ok" recovery.
+    // (The app-wide monitor turns this into stalled→error; here we assert the flag.)
+    expect(store.currentErrorKind()).not.toBe("none");
+  });
+
+  it("clears the engine error once real position progress resumes (self-recovery)", async () => {
+    const registry = createAdapterRegistry();
+    const { adapter } = makeFakeAdapter("youtube");
+    registry.register(adapter);
+    const store = new PlayerStore({ registry });
+
+    await store.play(track("youtube", "abc"));
+    store.reportError({ message: "hiccup", kind: "soft", code: 5 });
+    expect(store.currentErrorKind()).toBe("soft");
+
+    store.reportPosition(3); // the player started advancing after all
+    expect(store.currentErrorKind()).toBe("none");
+  });
+
+  it("recreate rebuilds the underlying player (unload → load → play) on the same track", async () => {
+    const registry = createAdapterRegistry();
+    const { adapter, calls } = makeFakeAdapter("youtube");
+    registry.register(adapter);
+    const store = new PlayerStore({ registry });
+
+    await store.play(track("youtube", "abc"));
+    calls.length = 0;
+    const ok = await store.recreate();
+    expect(ok).toBe(true);
+    expect(calls).toEqual(["unload", "load", "play"]);
+    expect(store.getState().current?.nativeId).toBe("abc"); // same track
+  });
+
+  it("failStalled surfaces an honest error + Skip and stops claiming to play", async () => {
+    const registry = createAdapterRegistry();
+    const { adapter } = makeFakeAdapter("youtube");
+    registry.register(adapter);
+    const store = new PlayerStore({ registry });
+
+    // Two tracks: playing the first seeds the second as the up-next queue.
+    store.setQueue([track("youtube", "b")]);
+    await store.play(track("youtube", "a"));
+
+    store.failStalled();
+    const s = store.getState();
+    expect(s.isPlaying).toBe(false);
+    expect(s.status).toBe("error");
+    expect(s.recovery.phase).toBe("error");
+    expect(s.recovery.skipOffered).toBe(true); // there is a queued track to skip to
+    expect(s.notice).toMatch(/won't play/i);
+  });
+
+  it("failStalled with an empty queue still admits the error (skip simply has no target)", async () => {
+    const registry = createAdapterRegistry();
+    const { adapter } = makeFakeAdapter("youtube");
+    registry.register(adapter);
+    const store = new PlayerStore({ registry });
+
+    await store.play(track("youtube", "solo"));
+    store.failStalled();
+    const s = store.getState();
+    expect(s.status).toBe("error");
+    expect(s.recovery.phase).toBe("error");
+    expect(s.recovery.skipOffered).toBe(false); // nothing queued to skip to
+  });
+});

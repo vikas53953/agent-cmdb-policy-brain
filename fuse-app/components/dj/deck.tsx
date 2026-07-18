@@ -83,6 +83,9 @@ export default function Deck({
   const bridgeRef = useRef({
     reportPosition: (positionSec: number) => setDeckPos(positionSec > 0 ? positionSec : 0),
     next: async () => false,
+    // A DJ deck is preview-only and never touches the global recovery ladder; an engine
+    // error is just logged (R18) by the adapter, so this bridge no-ops it honestly.
+    reportError: () => {},
   });
 
   const [linkInput, setLinkInput] = useState("");
