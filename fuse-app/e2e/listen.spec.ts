@@ -139,6 +139,20 @@ test.describe("listen — the heart moment", () => {
   });
 
   test("Now Playing shows scrolling lyrics or an honest no-lyrics message", async ({ page }) => {
+    // Lyrics can be turned OFF in settings (a real, persisted user choice), which hides
+    // the panel entirely — so this spec first makes the setting deterministic by ensuring
+    // it is ON. Without this the test depends on whatever the robot user's setting happens
+    // to be and can wait forever on a hidden panel.
+    await page.getByTestId("open-settings").click();
+    const lyricsToggle = page.getByTestId("lyrics-toggle");
+    await expect(lyricsToggle).toBeVisible({ timeout: 10_000 });
+    if ((await lyricsToggle.getAttribute("aria-checked")) !== "true") {
+      await lyricsToggle.click();
+      await expect(lyricsToggle).toHaveAttribute("aria-checked", "true", { timeout: 10_000 });
+    }
+    await page.keyboard.press("Escape"); // close the profile sheet
+    await expect(page.getByTestId("profile-sheet")).toBeHidden({ timeout: 10_000 });
+
     const firstYt = await searchAndFirstYouTube(page);
     await firstYt.getByTestId("result-play").click();
 
