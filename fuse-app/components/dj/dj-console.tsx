@@ -36,8 +36,10 @@ export default function DjConsole() {
       <header className="dj-head">
         <h1 className="dj-heading">DJ console</h1>
         <p className="dj-note">
-          Every control here does something real. YouTube greys out what it can&apos;t do
-          and says why; your own files and Spotify light up as their support lands.
+          Every control here does something real. Your own files get the full engine —
+          EQ, loops, echo, scratch — on audio that never leaves your device. YouTube
+          greys out what it can&apos;t do and says why; Spotify lights up when its
+          support lands.
         </p>
       </header>
 

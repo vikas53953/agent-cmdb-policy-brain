@@ -2021,6 +2021,191 @@ body {
   color: var(--txt-lo);
 }
 
+/* --- My Files deck (Web Audio engine, U14) ----------------------------------- */
+.deck-local-promise {
+  margin: 0;
+  font-size: 0.74rem;
+  line-height: 1.35;
+  color: var(--txt-mid);
+  padding: 8px 10px;
+  border-radius: var(--r-sm);
+  background: var(--ink-0);
+  border: 1px solid var(--line-soft);
+}
+.deck-filebtn {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 16px;
+  height: 40px;
+  border-radius: var(--r-md);
+  background-image: var(--fuse);
+  color: var(--ink-0);
+  font-size: 0.82rem;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.deck-filebtn:focus-within {
+  outline: 2px solid var(--teal);
+  outline-offset: 2px;
+}
+.deck-file-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+}
+.deck-filename {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 0.78rem;
+  color: var(--txt-hi);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.deck-eq {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+}
+.deck-eq-band {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.deck-eq-label {
+  display: flex;
+  justify-content: space-between;
+  gap: 4px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--txt-mid);
+}
+.deck-eq-val {
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  color: var(--txt-hi);
+}
+.deck-eq-range {
+  width: 100%;
+  height: 6px;
+  -webkit-appearance: none;
+  appearance: none;
+  border-radius: var(--r-pill);
+  background: var(--fuse-dim);
+  cursor: pointer;
+}
+.deck-eq-range:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+  background: var(--ink-3);
+}
+.deck-eq-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--txt-hi);
+  border: 2px solid var(--ink-0);
+}
+.deck-eq-range::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--txt-hi);
+  border: 2px solid var(--ink-0);
+}
+.deck-eq-range:focus-visible {
+  outline: 2px solid var(--teal);
+  outline-offset: 4px;
+}
+.deck-fx {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.deck-fx-btn {
+  flex: 0 0 auto;
+  padding: 8px 16px;
+  border-radius: var(--r-pill);
+  border: 1px solid var(--line);
+  background: var(--ink-0);
+  color: var(--txt-mid);
+  font-size: 0.8rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+.deck-fx-btn:hover:not(:disabled) {
+  border-color: var(--line-strong, var(--txt-lo));
+  color: var(--txt-hi);
+}
+.deck-fx-btn.on {
+  background-image: var(--fuse);
+  color: var(--ink-0);
+  border-color: transparent;
+}
+.deck-fx-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+.deck-fx-btn:focus-visible {
+  outline: 2px solid var(--teal);
+  outline-offset: 2px;
+}
+.deck-scratch {
+  flex: 1 1 120px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.deck-scratch-label {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--txt-mid);
+}
+.deck-scratch-range {
+  width: 100%;
+  height: 6px;
+  -webkit-appearance: none;
+  appearance: none;
+  border-radius: var(--r-pill);
+  background: linear-gradient(90deg, var(--ember), var(--fuse-dim), var(--teal));
+  cursor: pointer;
+}
+.deck-scratch-range:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+  background: var(--ink-3);
+}
+.deck-scratch-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--txt-hi);
+  border: 2px solid var(--ink-0);
+}
+.deck-scratch-range::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--txt-hi);
+  border: 2px solid var(--ink-0);
+}
+.deck-scratch-range:focus-visible {
+  outline: 2px solid var(--teal);
+  outline-offset: 4px;
+}
+
 /* Honest notice for a source that can occupy a deck but can't play yet (Spotify). */
 .deck-notice {
   margin: 0;

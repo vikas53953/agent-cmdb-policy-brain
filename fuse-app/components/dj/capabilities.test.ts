@@ -27,25 +27,26 @@ function assertHonest(state: { available: boolean; reason: string | null }) {
   }
 }
 
-describe("U13 engine readiness reflects what is wired in THIS commit", () => {
-  it("ships YouTube decks; local (U14) and Spotify playback (U15) are not ready yet", () => {
+describe("engine readiness reflects what is wired in THIS commit", () => {
+  it("ships YouTube (U13) and local (U14) decks; Spotify playback (U15) is not ready yet", () => {
     expect(DJ_ENGINE_READY.youtube).toBe(true);
-    expect(DJ_ENGINE_READY.local).toBe(false);
+    expect(DJ_ENGINE_READY.local).toBe(true);
     expect(DJ_ENGINE_READY.spotify).toBe(false);
   });
 });
 
-describe("deck source picker — My Files honestly disabled until U14", () => {
-  it("renders My Files not selectable with the local-engine reason (R17)", () => {
+describe("deck source picker — My Files goes live in U14", () => {
+  it("renders My Files selectable now that its Web Audio engine is wired (R17)", () => {
     const opt = resolveDeckSourceOption("local", { deck: "A" });
-    expect(opt.selectable).toBe(false);
-    expect(opt.reason).toBe(REASONS.localEngineSoon);
-  });
-
-  it("flips My Files selectable once its engine is ready (U14 forward-check)", () => {
-    const opt = resolveDeckSourceOption("local", { deck: "A", ready: ALL_READY });
     expect(opt.selectable).toBe(true);
     expect(opt.reason).toBeNull();
+  });
+
+  it("would honestly disable My Files if its engine were not ready (readiness-driven)", () => {
+    const NO_LOCAL: DeckEngineReadiness = { youtube: true, spotify: false, local: false };
+    const opt = resolveDeckSourceOption("local", { deck: "A", ready: NO_LOCAL });
+    expect(opt.selectable).toBe(false);
+    expect(opt.reason).toBe(REASONS.localEngineSoon);
   });
 
   it("always offers YouTube as a selectable source (its engine ships in U13)", () => {

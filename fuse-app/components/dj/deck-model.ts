@@ -32,7 +32,7 @@ export type DeckEngineReadiness = Record<TrackSource, boolean>;
 export const DJ_ENGINE_READY: DeckEngineReadiness = {
   youtube: true, // U13: two visible iframe players, volume-crossfaded — real audio.
   spotify: false, // U15: Web Playback SDK / YouTube fallback.
-  local: false, // U14: Web Audio engine on decoded local files.
+  local: true, // U14: Web Audio engine on decoded local files — full EQ/loops/FX/scratch.
 };
 
 // The plain-English reason a not-yet-wired source gives for a control the matrix would

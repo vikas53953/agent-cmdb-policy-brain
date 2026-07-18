@@ -1,19 +1,19 @@
 "use client";
 
-// A single DJ deck (U13, R12/R13/R17, AE3/AE4, F3). One of the two decks in the
-// console. Its source picker and control set are driven entirely by the deck model
+// A single DJ deck (U13 + U14, R12/R13/R14/R17, AE3/AE4, F3). One of the two decks in
+// the console. Its source picker and control set are driven entirely by the deck model
 // (deck-model.ts), which composes the capability matrix with what actually works in
 // THIS commit — so the deck can never show a control that does nothing.
 //
-// What genuinely works here in U13:
-//   - Selecting YouTube and loading a real video (paste a link / id) into a VISIBLE
-//     player (KTD-7 — never hidden), play / pause, and change speed.
-//   - The crossfader volume is applied to this deck's live player by the parent.
+// What genuinely works here:
+//   - YouTube (U13): select YouTube, load a real video into a VISIBLE player (KTD-7 —
+//     never hidden), play / pause, change speed; the crossfader volume applies to it.
+//   - My Files (U14): pick a local audio file, decoded IN THE BROWSER and NEVER
+//     uploaded (R14), and drive the full Web Audio engine on it — 3-band EQ, loops,
+//     echo FX, scratch, speed — with the crossfader blending it against the other deck.
 // What is honestly disabled with a plain reason:
-//   - My Files as a source (its engine lands in U14).
 //   - Spotify playback (lands in U15) — Spotify can still occupy the deck so the
 //     one-deck-at-a-time lock (AE4) is demonstrable, but its transport stays disabled.
-//   - EQ / Loops / FX / Scratch — greyed indicators, not fake knobs (AE3).
 
 import { useEffect, useRef, useState } from "react";
 import type { TrackRef, TrackSource } from "@/lib/repos/track";
@@ -23,6 +23,12 @@ import {
   createYouTubeAdapter,
   type YouTubeAdapter,
 } from "@/lib/player/adapters/youtube";
+import {
+  createDjDeckEngine,
+  EQ_GAIN_RANGE,
+  type DjDeckEngine,
+  type EqBand,
+} from "@/lib/dj/engine";
 import {
   parseYouTubeId,
   resolveDeckControls,
@@ -41,6 +47,16 @@ const INERT_BRIDGE = {
 };
 
 const [RATE_MIN, RATE_MAX] = LOCAL_RATE_RANGE;
+const [EQ_MIN, EQ_MAX] = EQ_GAIN_RANGE;
+
+type EqState = { low: number; mid: number; high: number };
+const FLAT_EQ: EqState = { low: 0, mid: 0, high: 0 };
+
+const EQ_BANDS: readonly { band: EqBand; label: string }[] = [
+  { band: "low", label: "Low" },
+  { band: "mid", label: "Mid" },
+  { band: "high", label: "High" },
+];
 
 export default function Deck({
   deckId,
@@ -59,6 +75,7 @@ export default function Deck({
   volume: number;
 }) {
   const adapterRef = useRef<YouTubeAdapter | null>(null);
+  const engineRef = useRef<DjDeckEngine | null>(null);
   const hostRef = useRef<HTMLDivElement>(null);
 
   const [linkInput, setLinkInput] = useState("");
@@ -67,6 +84,14 @@ export default function Deck({
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [rate, setRate] = useState(1);
+
+  // Local-files (Web Audio) deck state (U14).
+  const [localName, setLocalName] = useState<string | null>(null);
+  const [localLoaded, setLocalLoaded] = useState(false);
+  const [eq, setEq] = useState<EqState>(FLAT_EQ);
+  const [loopOn, setLoopOn] = useState(false);
+  const [echoOn, setEchoOn] = useState(false);
+  const [scratchVal, setScratchVal] = useState(0);
 
   const options = resolveDeckSourceOptions({ deck: deckId, otherDeckSource: otherSource });
   const controls = source ? resolveDeckControls(source, { deck: deckId, otherDeckSource: otherSource }) : null;
@@ -85,9 +110,23 @@ export default function Deck({
     };
   }, [source]);
 
-  // Keep the live player's volume in step with the crossfader.
+  // Spin up (and dispose) a private Web Audio engine when this deck is on My Files.
+  // dispose() frees the decoded buffer — the user's bytes leave memory (R14).
+  useEffect(() => {
+    if (source !== "local") return;
+    const engine = createDjDeckEngine();
+    engineRef.current = engine;
+    return () => {
+      engine.dispose();
+      engineRef.current = null;
+    };
+  }, [source]);
+
+  // Keep the live player's volume in step with the crossfader — for whichever engine
+  // this deck currently runs (YouTube adapter or Web Audio engine).
   useEffect(() => {
     adapterRef.current?.setVolume(volume);
+    engineRef.current?.setCrossfade(volume);
   }, [volume]);
 
   // Switching (or clearing) this deck's source resets everything loaded on it, so the
@@ -98,6 +137,12 @@ export default function Deck({
     setIsPlaying(false);
     setLoadError(null);
     setRate(1);
+    setLocalName(null);
+    setLocalLoaded(false);
+    setEq(FLAT_EQ);
+    setLoopOn(false);
+    setEchoOn(false);
+    setScratchVal(0);
     onSelectSource(source === next ? null : next);
   }
 
@@ -148,17 +193,94 @@ export default function Deck({
   function changeRate(next: number) {
     setRate(next);
     adapterRef.current?.setRate(next);
+    engineRef.current?.setRate(next);
+  }
+
+  // ── My Files (Web Audio) handlers (U14) ────────────────────────────────────────
+
+  async function pickFile(file: File | undefined) {
+    const engine = engineRef.current;
+    if (!engine || !file) return;
+    if (!engine.available) {
+      // No Web Audio in this browser — say so plainly instead of faking a load (R17).
+      setLoadError("Your browser can't play decoded audio, so files can't be loaded here.");
+      return;
+    }
+    setLoadError(null);
+    setLoading(true);
+    try {
+      // Decode straight from the device — no network, ever (R14).
+      await engine.resume();
+      await engine.loadFile(file);
+      // Re-apply the current control values onto the freshly decoded buffer.
+      engine.setRate(rate);
+      engine.setCrossfade(volume);
+      engine.setEq("low", eq.low);
+      engine.setEq("mid", eq.mid);
+      engine.setEq("high", eq.high);
+      engine.setLoop(loopOn);
+      engine.setEcho(echoOn);
+      engine.play();
+      setLocalName(file.name);
+      setLocalLoaded(true);
+      setIsPlaying(true);
+    } catch {
+      setLoadError("Couldn't read that audio file. Try another one.");
+      setLocalLoaded(false);
+      setIsPlaying(false);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function toggleLocalPlay() {
+    const engine = engineRef.current;
+    if (!engine || !localLoaded) return;
+    const nowPlaying = engine.toggle();
+    setIsPlaying(nowPlaying);
+  }
+
+  function setEqBand(band: EqBand, db: number) {
+    setEq((prev) => ({ ...prev, [band]: db }));
+    engineRef.current?.setEq(band, db);
+  }
+
+  function toggleLoop() {
+    const next = !loopOn;
+    setLoopOn(next);
+    engineRef.current?.setLoop(next);
+  }
+
+  function toggleEcho() {
+    const next = !echoOn;
+    setEchoOn(next);
+    engineRef.current?.setEcho(next);
+  }
+
+  function onScratch(value: number) {
+    setScratchVal(value);
+    engineRef.current?.scratch(value);
+  }
+
+  function releaseScratch() {
+    setScratchVal(0);
+    engineRef.current?.endScratch();
   }
 
   const badge = source ? SOURCE_BADGES[source] : null;
-  // Speed is live only for a YouTube deck with a track actually loaded.
-  const speedLive = source === "youtube" && controls?.rate.available === true && loadedId !== null;
+  // Speed is live for a YouTube deck with a track loaded, or a local deck with a file
+  // decoded — exactly when there is real audio for it to act on.
+  const speedLive =
+    (source === "youtube" && controls?.rate.available === true && loadedId !== null) ||
+    (source === "local" && localLoaded);
   const speedReason =
     controls && !controls.rate.available
       ? controls.rate.reason
-      : !loadedId
+      : source === "youtube" && !loadedId
         ? "Load a track to change speed"
-        : null;
+        : source === "local" && !localLoaded
+          ? "Load a file to change speed"
+          : null;
 
   return (
     <section className={`deck deck-${accent}`} aria-label={`Deck ${deckId}`}>
@@ -252,6 +374,148 @@ export default function Deck({
           </div>
 
           {controls ? <CapabilityBadges controls={controls} /> : null}
+        </>
+      ) : null}
+
+      {source === "local" ? (
+        <>
+          {/* On-device promise, stated where files are loaded (R14). */}
+          <p className="deck-local-promise">
+            Files stay on your device — decoded here in your browser, never uploaded.
+          </p>
+
+          <div className="deck-load">
+                <label className="deck-filebtn">
+                  {localName ? "Swap file" : "Choose a file"}
+                  <input
+                    type="file"
+                    accept="audio/*"
+                    className="deck-file-input"
+                    onChange={(e) => pickFile(e.target.files?.[0])}
+                    aria-label={`Deck ${deckId} audio file`}
+                  />
+                </label>
+                {localName ? (
+                  <span className="deck-filename" title={localName}>
+                    {localName}
+                  </span>
+                ) : null}
+              </div>
+              {loadError ? <p className="deck-error">{loadError}</p> : null}
+
+              <div className="deck-transport">
+                <button
+                  type="button"
+                  className="icon-btn primary deck-play"
+                  onClick={toggleLocalPlay}
+                  disabled={!localLoaded}
+                  aria-label={isPlaying ? "Pause deck" : "Play deck"}
+                  title={localLoaded ? undefined : "Load a file first"}
+                >
+                  {isPlaying ? <PauseIcon /> : <PlayIcon />}
+                </button>
+
+                <div className="deck-speed">
+                  <label className="deck-speed-label" htmlFor={`deck-${deckId}-speed`}>
+                    Speed <span className="deck-speed-val">{rate.toFixed(2)}×</span>
+                  </label>
+                  <input
+                    id={`deck-${deckId}-speed`}
+                    type="range"
+                    className="deck-speed-range"
+                    min={RATE_MIN}
+                    max={RATE_MAX}
+                    step={0.05}
+                    value={rate}
+                    onChange={(e) => changeRate(Number(e.target.value))}
+                    disabled={!speedLive}
+                    title={speedLive ? undefined : (speedReason ?? undefined)}
+                    aria-label={`Deck ${deckId} playback speed`}
+                  />
+                  {!speedLive && speedReason ? (
+                    <span className="deck-speed-reason">{speedReason}</span>
+                  ) : null}
+                </div>
+              </div>
+
+              {/* The full engine — every knob acts on real decoded audio (U14). All are
+                  disabled until a file is decoded, so none is ever a dead control (R17). */}
+              <div className="deck-eq" role="group" aria-label={`Deck ${deckId} EQ`}>
+                {EQ_BANDS.map(({ band, label }) => (
+                  <div className="deck-eq-band" key={band}>
+                    <label
+                      className="deck-eq-label"
+                      htmlFor={`deck-${deckId}-eq-${band}`}
+                    >
+                      {label}
+                      <span className="deck-eq-val">
+                        {eq[band] > 0 ? "+" : ""}
+                        {eq[band]} dB
+                      </span>
+                    </label>
+                    <input
+                      id={`deck-${deckId}-eq-${band}`}
+                      type="range"
+                      className="deck-eq-range"
+                      min={EQ_MIN}
+                      max={EQ_MAX}
+                      step={1}
+                      value={eq[band]}
+                      onChange={(e) => setEqBand(band, Number(e.target.value))}
+                      disabled={!localLoaded}
+                      title={localLoaded ? undefined : "Load a file first"}
+                      aria-label={`Deck ${deckId} ${label} EQ`}
+                    />
+                  </div>
+                ))}
+              </div>
+
+              <div className="deck-fx" role="group" aria-label={`Deck ${deckId} effects`}>
+                <button
+                  type="button"
+                  className={`deck-fx-btn${loopOn ? " on" : ""}`}
+                  onClick={toggleLoop}
+                  disabled={!localLoaded}
+                  aria-pressed={loopOn}
+                  title={localLoaded ? undefined : "Load a file first"}
+                >
+                  Loop
+                </button>
+                <button
+                  type="button"
+                  className={`deck-fx-btn${echoOn ? " on" : ""}`}
+                  onClick={toggleEcho}
+                  disabled={!localLoaded}
+                  aria-pressed={echoOn}
+                  title={localLoaded ? undefined : "Load a file first"}
+                >
+                  Echo
+                </button>
+                <div className="deck-scratch">
+                  <label
+                    className="deck-scratch-label"
+                    htmlFor={`deck-${deckId}-scratch`}
+                  >
+                    Scratch
+                  </label>
+                  <input
+                    id={`deck-${deckId}-scratch`}
+                    type="range"
+                    className="deck-scratch-range"
+                    min={-1}
+                    max={1}
+                    step={0.02}
+                    value={scratchVal}
+                    onChange={(e) => onScratch(Number(e.target.value))}
+                    onPointerUp={releaseScratch}
+                    onPointerCancel={releaseScratch}
+                    onBlur={releaseScratch}
+                    disabled={!localLoaded}
+                    title={localLoaded ? undefined : "Load a file first"}
+                    aria-label={`Deck ${deckId} scratch`}
+                  />
+                </div>
+              </div>
         </>
       ) : null}
 

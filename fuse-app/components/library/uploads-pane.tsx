@@ -4,10 +4,10 @@
 // app: audio files you load for DJ mode stay on YOUR device and are NEVER uploaded to
 // Fuse's servers — there is deliberately no upload endpoint for user media.
 //
-// The actual file picker + decoded playback is the local-file adapter and Web Audio
-// engine (U14). Rather than show a file button that cannot yet play anything (a dead
-// control — R17), this pane honestly says that loading files lands with DJ local-file
-// support, keeping the on-device promise visible where files will be loaded.
+// The file picker + decoded playback is the Web Audio engine (U14), which lives on the
+// DJ decks. This pane keeps the on-device promise visible in the Library and points to
+// where files are actually loaded — it renders no control of its own, so there is
+// nothing here that could pretend to work (R17).
 
 export default function UploadsPane() {
   return (
@@ -21,9 +21,9 @@ export default function UploadsPane() {
         </p>
       </div>
       <p className="uploads-note">
-        Loading your own files turns on with DJ local-file support. When it arrives,
-        you&apos;ll pick files here and they&apos;ll be ready for the DJ decks — still
-        never leaving your device.
+        Open the DJ console and set a deck to My Files to pick a track from your device.
+        It gets the full engine — EQ, loops, echo, scratch — and still never leaves your
+        device.
       </p>
     </div>
   );
