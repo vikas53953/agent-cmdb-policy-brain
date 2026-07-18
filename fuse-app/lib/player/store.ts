@@ -14,11 +14,21 @@
 // track but honestly leaves `isPlaying` false — it will not claim to be playing
 // something it cannot play (R17 at the state layer).
 
+import type {
+  PlayerState,
+  RecoveryPhase,
+  RepeatMode,
+  SourceAdapter,
+} from "@/lib/player/types";
 import type { TrackRef } from "@/lib/repos/track";
-import type { PlayerState, RepeatMode, SourceAdapter } from "@/lib/player/types";
+import type { EngineErrorKind } from "@/lib/player/playback-health";
 import { adapterRegistry, type AdapterRegistry } from "@/lib/player/adapters";
+import { logActivity } from "@/lib/activity-log";
 
 export type PlayerListener = (state: PlayerState) => void;
+
+// The honest terminal message when the recovery ladder gives up on a track.
+export const WONT_PLAY_NOTICE = "This track won't play right now — skipping helps";
 
 const INITIAL_STATE: PlayerState = {
   current: null,
@@ -30,6 +40,7 @@ const INITIAL_STATE: PlayerState = {
   repeat: "off",
   notice: null,
   status: "idle",
+  recovery: { phase: "ok", skipOffered: false },
 };
 
 export type PlayerStoreOptions = {
@@ -47,6 +58,11 @@ export class PlayerStore {
   // The adapter currently producing (or paused on) sound, so pause/seek/volume/rate
   // reach the right player without the store branching on source.
   private activeAdapter: SourceAdapter | null = null;
+  // The kind of engine error observed for the CURRENT track since its last (re)load, if
+  // any. The app-wide recovery monitor reads this each tick so a hard embed refusal
+  // escalates the ladder immediately instead of wasting retries. Cleared on every fresh
+  // load and the moment real position progress resumes (a track that recovers is healthy).
+  private errorKind: EngineErrorKind = "none";
 
   constructor(options: PlayerStoreOptions = {}) {
     this.registry = options.registry ?? adapterRegistry;
@@ -100,12 +116,14 @@ export class PlayerStore {
           this.activeAdapter.unload();
           this.activeAdapter = null;
         }
+        this.errorKind = "none";
         this.set({
           current: requested,
           isPlaying: false,
           positionSec: 0,
           notice: resolution.reason,
           status: "error",
+          recovery: { phase: "error", skipOffered: this.state.queue.length > 0 },
         });
         return false;
       }
@@ -126,7 +144,15 @@ export class PlayerStore {
 
     if (!adapter) {
       // No engine for this source yet: focus the track but do not fake playback.
-      this.set({ current: target, isPlaying: false, positionSec: 0, notice, status: "idle" });
+      this.errorKind = "none";
+      this.set({
+        current: target,
+        isPlaying: false,
+        positionSec: 0,
+        notice,
+        status: "idle",
+        recovery: { phase: "ok", skipOffered: false },
+      });
       return false;
     }
 
@@ -135,16 +161,34 @@ export class PlayerStore {
     // YouTube video, U7/KTD-7) mounts on-screen first and the player is created inside a
     // visible container rather than a hidden one. `isPlaying` stays honest — it flips to
     // true only after the adapter has actually acted (R17 at the state layer).
-    this.set({ current: target, isPlaying: false, positionSec: 0, notice, status: "loading" });
+    // A fresh load clears any prior engine error and resets the recovery ladder — this
+    // track starts life healthy and is judged on its own playback.
+    this.errorKind = "none";
+    this.set({
+      current: target,
+      isPlaying: false,
+      positionSec: 0,
+      notice,
+      status: "loading",
+      recovery: { phase: "ok", skipOffered: false },
+    });
     try {
       await adapter.load(target);
       await adapter.play();
     } catch {
       // The engine could not start: honest error state, never a silent stuck "loading".
+      // The recovery monitor will drive the ladder (advance to an alternate / offer Skip).
+      this.errorKind = "soft";
       this.set({ isPlaying: false, status: "error" });
       return false;
     }
-    this.set({ isPlaying: true, status: "playing" });
+    // Only claim "playing" if an error did not arrive during load/play (onError can fire
+    // between here and the awaits). Never overwrite a known-bad engine back to "playing".
+    if (this.errorKind === "none") {
+      this.set({ isPlaying: true, status: "playing" });
+    } else {
+      this.set({ isPlaying: true });
+    }
     return true;
   }
 
@@ -170,12 +214,75 @@ export class PlayerStore {
     }
   }
 
-  // Re-issue playback on the active adapter WITHOUT resetting position — the stall
-  // recovery nudge Now Playing's retry path calls (U8, AE1). Honest no-op when
+  // Re-issue playback on the active adapter WITHOUT resetting position — the first,
+  // cheapest rung of the recovery ladder (a transient-buffer nudge). Honest no-op when
   // nothing is actively playing, so it never fakes a recovery it cannot perform.
   async retry(): Promise<void> {
     if (!this.activeAdapter || !this.state.current) return;
     await this.activeAdapter.play();
+  }
+
+  // Ladder rung 2: destroy and REBUILD the underlying player on the same track — a
+  // fresh iframe for a wedged one, which a bare playVideo() nudge cannot fix. Clears the
+  // engine-error flag first so the rebuilt player is judged on its own outcome.
+  async recreate(): Promise<boolean> {
+    if (!this.activeAdapter || !this.state.current) return false;
+    const track = this.state.current;
+    this.errorKind = "none";
+    try {
+      this.activeAdapter.unload();
+      await this.activeAdapter.load(track);
+      await this.activeAdapter.play();
+    } catch {
+      this.errorKind = "soft";
+      return false;
+    }
+    if (this.errorKind === "none") this.set({ isPlaying: true, status: "playing" });
+    return this.errorKind === "none";
+  }
+
+  // The engine (a source adapter) reports that the CURRENT track hit a playback error.
+  // Recorded, never hidden (R18). It does NOT itself flip the surfaced state — the
+  // recovery monitor reads the kind and drives the honest ladder — so a track that then
+  // plays via an alternate is never wrongly frozen as "error". A "fatal" kind (embed
+  // refused / unavailable) tells the ladder retrying is futile: advance to an alternate.
+  reportError(info: { message: string; kind: EngineErrorKind; code?: number }): void {
+    if (!this.state.current) return;
+    this.errorKind = info.kind;
+    logActivity({
+      level: "error",
+      type: "playback-error",
+      message: info.message,
+      detail: info.code != null ? { code: info.code, kind: info.kind } : { kind: info.kind },
+    });
+  }
+
+  // The current engine-error kind since the track's last (re)load — read by the
+  // recovery monitor each tick to decide how hard to work the ladder.
+  currentErrorKind(): EngineErrorKind {
+    return this.errorKind;
+  }
+
+  // Publish the recovery-ladder phase into the single truth so every surface (mini
+  // data-player-state, Now Playing banner, robot tester) renders the same honest health.
+  setRecovery(phase: RecoveryPhase, skipOffered: boolean): void {
+    const prev = this.state.recovery;
+    if (prev.phase === phase && prev.skipOffered === skipOffered) return;
+    this.set({ recovery: { phase, skipOffered } });
+  }
+
+  // The honest terminal: the ladder is exhausted and there is nothing to advance to.
+  // Stop pretending to play — surface a plain error + a working Skip, never a silent
+  // freeze or an endless "retrying" (AE1). Pauses the wedged engine so no ghost audio.
+  failStalled(): void {
+    if (!this.state.current) return;
+    this.activeAdapter?.pause();
+    this.set({
+      isPlaying: false,
+      status: "error",
+      notice: WONT_PLAY_NOTICE,
+      recovery: { phase: "error", skipOffered: this.state.queue.length > 0 },
+    });
   }
 
   // Advance to the next queued track (honouring repeat and shuffle). Returns false
@@ -241,8 +348,14 @@ export class PlayerStore {
   // Position/duration are pushed in by the active adapter's polling loop; the store
   // does not compute them. These are the only writers of those fields besides seek().
   reportPosition(positionSec: number, durationSec?: number): void {
+    const next = Math.max(0, positionSec);
+    // Real forward progress means the engine recovered — clear any lingering error flag
+    // so the recovery ladder does not keep trying to escape a track that is now playing.
+    if (this.errorKind !== "none" && next > this.state.positionSec + 0.25) {
+      this.errorKind = "none";
+    }
     this.set({
-      positionSec: Math.max(0, positionSec),
+      positionSec: next,
       ...(durationSec != null ? { durationSec: Math.max(0, durationSec) } : {}),
     });
   }

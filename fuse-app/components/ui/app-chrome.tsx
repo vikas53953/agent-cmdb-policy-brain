@@ -19,6 +19,7 @@ import { usePathname } from "next/navigation";
 import "@/lib/player/adapters/spotify";
 import { showsMiniPlayer } from "@/lib/ui/shell";
 import { blendController, setLiveCrossfadeSec } from "@/lib/player/blend-controller";
+import { usePlaybackRecovery } from "@/lib/player/use-playback-recovery";
 import TabBar from "@/components/ui/tab-bar";
 import MiniPlayer from "@/components/player/mini-player";
 import NowPlaying from "@/components/player/now-playing";
@@ -63,6 +64,11 @@ export default function AppChrome({
   const [crossfadeSec, setCrossfadeSec] = useState(initialCrossfadeSec);
   const pathname = usePathname() ?? "/";
   const withMiniPlayer = showsMiniPlayer(pathname);
+
+  // Mount the ONE app-wide playback recovery monitor (AE1). It runs the bounded stall
+  // ladder for whatever is playing, no matter which screen is open — so a track played
+  // from search can never freeze silently just because Now Playing is closed.
+  usePlaybackRecovery();
 
   // Seed the live blend length from the persisted value and start the auto-crossfade
   // engine watching the player. The engine is a singleton and start() is idempotent,

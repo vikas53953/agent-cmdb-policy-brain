@@ -123,6 +123,7 @@ function manualTimers() {
 
 function fakeStore() {
   const positions: Array<{ pos: number; dur?: number }> = [];
+  const errors: Array<{ message: string; kind: "soft" | "fatal"; code?: number }> = [];
   let nextCalls = 0;
   const bridge: PlayerBridge = {
     reportPosition: (pos, dur) => positions.push({ pos, dur }),
@@ -130,10 +131,12 @@ function fakeStore() {
       nextCalls += 1;
       return true;
     },
+    reportError: (info) => errors.push(info),
   };
   return {
     bridge,
     positions,
+    errors,
     nextCalls: () => nextCalls,
   };
 }

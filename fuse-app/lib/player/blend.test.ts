@@ -123,6 +123,7 @@ function makeFakeStore(initial: Partial<PlayerState> = {}) {
     repeat: "off",
     notice: null,
     status: "idle",
+    recovery: { phase: "ok", skipOffered: false },
     ...initial,
   };
   const listeners = new Set<() => void>();
