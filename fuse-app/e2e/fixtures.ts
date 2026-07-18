@@ -80,6 +80,9 @@ export async function signInRobot(
 export const test = base.extend({
   page: async ({ page, baseURL }, use) => {
     await signInRobot(page.request, baseURL);
+    // Land on the app so specs can interact with the shell (tabs, mini-player) straight
+    // away — without this the page sits on about:blank and every getByTestId waits out.
+    await page.goto("/");
     await use(page);
   },
 });
