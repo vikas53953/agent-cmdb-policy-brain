@@ -50,7 +50,10 @@ export type HealthConfig = {
 };
 
 export const DEFAULT_HEALTH_CONFIG: HealthConfig = {
-  stallAfterMs: 3000,
+  // 2s of no progress is a stall. Kept short so the whole ladder (retry → recreate →
+  // advance → honest terminal) fits inside the ~30s budget even when several tracks in a
+  // row refuse to play — the reality on bot-gated datacenter IPs.
+  stallAfterMs: 2000,
   maxRetries: 2,
   maxRecreates: 1,
 };
