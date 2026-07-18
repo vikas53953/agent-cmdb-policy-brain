@@ -1,4 +1,4 @@
-import { test, expect, E2E_READY, NOT_READY_REASON } from "./fixtures";
+import { test, expect, E2E_READY, NOT_READY_REASON, E2E_DB, NO_DB_REASON } from "./fixtures";
 import type { ConsoleMessage } from "@playwright/test";
 
 // App shell journey: every tab navigates, the profile-sheet settings actually persist
@@ -23,6 +23,7 @@ test.describe("shell — navigation, persistence, console health", () => {
   });
 
   test("crossfade length persists after a reload", async ({ page }) => {
+    test.skip(!E2E_DB, NO_DB_REASON);
     await page.goto("/");
     await page.getByTestId("open-settings").click();
     await expect(page.getByTestId("profile-sheet")).toBeVisible();
@@ -49,6 +50,7 @@ test.describe("shell — navigation, persistence, console health", () => {
   });
 
   test("lyrics on/off persists after a reload", async ({ page }) => {
+    test.skip(!E2E_DB, NO_DB_REASON);
     await page.goto("/");
     await page.getByTestId("open-settings").click();
     const toggle = page.getByTestId("lyrics-toggle");

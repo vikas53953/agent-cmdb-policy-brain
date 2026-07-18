@@ -1,4 +1,4 @@
-import { test, expect, E2E_READY, NOT_READY_REASON, STABLE } from "./fixtures";
+import { test, expect, E2E_READY, NOT_READY_REASON, E2E_DB, NO_DB_REASON, STABLE } from "./fixtures";
 
 // Library journey: create a playlist, add a real track to it via the + flow, see the
 // count become 1, rename it, delete it. Every step is a persisted write, so this whole
@@ -7,6 +7,7 @@ import { test, expect, E2E_READY, NOT_READY_REASON, STABLE } from "./fixtures";
 
 test.describe("library — playlists CRUD", () => {
   test.skip(!E2E_READY, NOT_READY_REASON);
+  test.skip(!E2E_DB, NO_DB_REASON);
 
   test("create → add a track → count 1 → rename → delete", async ({ page }) => {
     const name = `Robot ${Date.now()}`;

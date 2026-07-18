@@ -27,6 +27,17 @@ export const NOT_READY_REASON =
   "Robot Tester not provisioned — set E2E_TEST_SECRET (>= 32 chars) so the robot can " +
   "sign in through the secret-gated door. The secret is never committed.";
 
+// Some journeys (likes, playlists, settings persistence) are only meaningful against a
+// real database. E2E_DB=1 declares one is reachable (production has one; the live
+// watchman and a local run with a pulled DATABASE_URL set it). Without it those specs
+// SKIP rather than fail on an environment the run never claimed to have — the DB-free
+// journeys (auth, the listen heart-moment, dj honesty, navigation) still run and gate.
+export const E2E_DB = process.env.E2E_DB === "1";
+
+export const NO_DB_REASON =
+  "No database declared for this run (set E2E_DB=1 with a reachable DATABASE_URL). " +
+  "Likes / playlists / settings persistence need one.";
+
 // Sign the robot in through the door, programmatically (no UI): fetch the Auth.js CSRF
 // token, POST the secret to the e2e-robot Credentials callback, and confirm a session
 // landed. Cookies live in the shared browser context, so every subsequent page load in

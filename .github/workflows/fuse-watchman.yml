@@ -23,6 +23,9 @@ env:
   # BASE_URL is a repo variable; the secret is a repo secret. Never printed.
   BASE_URL: ${{ vars.FUSE_BASE_URL }}
   E2E_TEST_SECRET: ${{ secrets.E2E_TEST_SECRET }}
+  # Production has a real database, so the DB-backed journeys (likes, playlists, settings
+  # persistence) are meaningful here and run rather than skip.
+  E2E_DB: "1"
 
 jobs:
   watch:

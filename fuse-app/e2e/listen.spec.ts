@@ -1,4 +1,4 @@
-import { test, expect, E2E_READY, NOT_READY_REASON, TEXT, STABLE } from "./fixtures";
+import { test, expect, E2E_READY, NOT_READY_REASON, E2E_DB, NO_DB_REASON, TEXT, STABLE } from "./fixtures";
 import type { Locator } from "@playwright/test";
 
 // THE CORE journey (the heart moment): search → results with REAL loaded covers →
@@ -115,6 +115,7 @@ test.describe("listen — the heart moment", () => {
   });
 
   test("liking the current track makes it appear in Library → Liked", async ({ page }) => {
+    test.skip(!E2E_DB, NO_DB_REASON);
     const firstYt = await searchAndFirstYouTube(page);
     const title = (await firstYt.locator(".sresult-title").textContent())?.trim() ?? "";
     await firstYt.getByTestId("result-play").click();
