@@ -1,0 +1,146 @@
+name: Fuse Watchman
+
+# The live-site watchman. Every 30 minutes (and on demand) it drives the Robot Tester's
+# "live" project against production, signing in through the Robot Test Door. When the
+# live app is failing it opens (or updates) a SINGLE deduped GitHub issue with the
+# failing specs and links to the run + artifacts; when the app recovers it comments and
+# closes that issue. No spam: one issue, reused.
+on:
+  schedule:
+    - cron: "*/30 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+defaults:
+  run:
+    working-directory: fuse-app
+
+env:
+  # The production URL the watchman watches, and the door secret the robot presents.
+  # BASE_URL is a repo variable; the secret is a repo secret. Never printed.
+  BASE_URL: ${{ vars.FUSE_BASE_URL }}
+  E2E_TEST_SECRET: ${{ secrets.E2E_TEST_SECRET }}
+  # Production has a real database and real API keys, so the DB-backed journeys (likes,
+  # playlists, settings persistence) and the external ones (YouTube search + embed
+  # playback — the heart moment) are meaningful here and run rather than skip.
+  E2E_DB: "1"
+  E2E_EXTERNAL: "1"
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: fuse-app/package-lock.json
+      - run: npm install --no-audit --no-fund
+      - run: npx playwright install --with-deps chromium
+
+      - name: Run live specs against production
+        id: e2e
+        continue-on-error: true
+        env:
+          # Machine-readable results for the issue body (which specs failed).
+          PLAYWRIGHT_JSON_OUTPUT_NAME: playwright-report.json
+        run: npx playwright test --project=live --reporter=list,json
+
+      - name: Upload evidence on failure
+        if: steps.e2e.outcome == 'failure'
+        uses: actions/upload-artifact@v4
+        with:
+          name: watchman-evidence
+          path: |
+            fuse-app/test-results/
+            fuse-app/playwright-report.json
+          retention-days: 30
+
+      - name: File / update / close the watchman issue
+        uses: actions/github-script@v7
+        env:
+          E2E_OUTCOME: ${{ steps.e2e.outcome }}
+        with:
+          script: |
+            const fs = require('fs');
+            const TITLE = '🤖 Watchman: live Fuse is failing';
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const failed = process.env.E2E_OUTCOME === 'failure';
+
+            // Collect the failing spec titles from the Playwright JSON report.
+            function collectFailures() {
+              const out = [];
+              let report;
+              try {
+                report = JSON.parse(fs.readFileSync('fuse-app/playwright-report.json', 'utf8'));
+              } catch { return out; }
+              const walk = (suite, file) => {
+                const f = suite.file || file;
+                for (const spec of suite.specs || []) {
+                  if (spec.ok === false) out.push(`${f} › ${spec.title}`);
+                }
+                for (const child of suite.suites || []) walk(child, f);
+              };
+              for (const s of report.suites || []) walk(s, s.file);
+              return out;
+            }
+
+            // Find our single open watchman issue, if any.
+            const { data: open } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner, repo: context.repo.repo,
+              state: 'open', labels: 'watchman', per_page: 50,
+            });
+            const existing = open.find(i => i.title === TITLE);
+
+            if (failed) {
+              const failures = collectFailures();
+              const list = failures.length
+                ? failures.map(t => `- ${t}`).join('\n')
+                : '- (see the run — the suite failed before producing a per-spec report)';
+              const body = [
+                `The live Fuse app is failing the Robot Tester.`,
+                ``,
+                `**Failing checks:**`,
+                list,
+                ``,
+                `**Run:** ${runUrl}`,
+                `**Evidence:** traces/screenshots are attached to the run as the \`watchman-evidence\` artifact.`,
+                ``,
+                `_Last checked: ${new Date().toISOString()}_`,
+              ].join('\n');
+
+              if (existing) {
+                // Update in place (reopen if a race closed it) — never spam a new issue.
+                await github.rest.issues.update({
+                  owner: context.repo.owner, repo: context.repo.repo,
+                  issue_number: existing.number, state: 'open', body,
+                });
+                await github.rest.issues.createComment({
+                  owner: context.repo.owner, repo: context.repo.repo,
+                  issue_number: existing.number,
+                  body: `Still failing as of ${new Date().toISOString()}. ${runUrl}`,
+                });
+                core.setFailed(`Live Fuse failing; updated issue #${existing.number}.`);
+              } else {
+                const created = await github.rest.issues.create({
+                  owner: context.repo.owner, repo: context.repo.repo,
+                  title: TITLE, body, labels: ['watchman'],
+                });
+                core.setFailed(`Live Fuse failing; opened issue #${created.data.number}.`);
+              }
+            } else if (existing) {
+              // Recovered: comment and close the open issue.
+              await github.rest.issues.createComment({
+                owner: context.repo.owner, repo: context.repo.repo,
+                issue_number: existing.number,
+                body: `✅ Recovered — the live app passed the Robot Tester at ${new Date().toISOString()}. ${runUrl}`,
+              });
+              await github.rest.issues.update({
+                owner: context.repo.owner, repo: context.repo.repo,
+                issue_number: existing.number, state: 'closed',
+              });
+            }

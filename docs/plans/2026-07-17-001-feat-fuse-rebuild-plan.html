@@ -1,0 +1,262 @@
+<title>Fuse Rebuild - Plan</title>
+<style>
+  :root{
+    --bg:#faf8f5; --surface:#ffffff; --ink:#26221e; --muted:#6b625a;
+    --line:#e6e0d8; --accent:#c2571b; --accent-text:#a34612; --accent-soft:#f9ece2;
+    --cool:#146b70; --cool-text:#115a5e; --cool-soft:#e4f1f1;
+    --warn-soft:#fdf3d7; --warn-text:#7a5a00;
+    --chip-bg:#f1ece5;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{
+      --bg:#171412; --surface:#201c19; --ink:#ece6df; --muted:#a89e93;
+      --line:#37312b; --accent:#e8834a; --accent-text:#f09a68; --accent-soft:#33241a;
+      --cool:#4fb3b8; --cool-text:#7ccdd1; --cool-soft:#16302f;
+      --warn-soft:#332b12; --warn-text:#e3c55f;
+      --chip-bg:#2b2622;
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#171412; --surface:#201c19; --ink:#ece6df; --muted:#a89e93;
+    --line:#37312b; --accent:#e8834a; --accent-text:#f09a68; --accent-soft:#33241a;
+    --cool:#4fb3b8; --cool-text:#7ccdd1; --cool-soft:#16302f;
+    --warn-soft:#332b12; --warn-text:#e3c55f;
+    --chip-bg:#2b2622;
+  }
+  :root[data-theme="light"]{
+    --bg:#faf8f5; --surface:#ffffff; --ink:#26221e; --muted:#6b625a;
+    --line:#e6e0d8; --accent:#c2571b; --accent-text:#a34612; --accent-soft:#f9ece2;
+    --cool:#146b70; --cool-text:#115a5e; --cool-soft:#e4f1f1;
+    --warn-soft:#fdf3d7; --warn-text:#7a5a00;
+    --chip-bg:#f1ece5;
+  }
+  body{background:var(--bg); color:var(--ink);
+    font:16px/1.6 "Segoe UI", system-ui, -apple-system, sans-serif;}
+  .wrap{max-width:920px; margin-inline:auto; padding:2.5rem 1.25rem 4rem;}
+  h1,h2,h3{font-family:Bahnschrift,"Segoe UI Semibold","Segoe UI",sans-serif; line-height:1.25; text-wrap:balance;}
+  h1{font-size:2rem; margin:0 0 .25rem;}
+  h2{font-size:1.35rem; margin:2.5rem 0 .75rem; padding-top:1.5rem; border-top:1px solid var(--line);}
+  h3{font-size:1.05rem; margin:1.5rem 0 .5rem;}
+  p,li{max-width:70ch;}
+  p{margin:.6rem 0;}
+  .eyebrow{font-size:.72rem; letter-spacing:.12em; text-transform:uppercase; color:var(--accent-text); font-weight:600;}
+  .meta{display:flex; flex-wrap:wrap; gap:.5rem; margin:1rem 0 0;}
+  .meta div{background:var(--chip-bg); border:1px solid var(--line); border-radius:999px;
+    padding:.25rem .75rem; font-size:.78rem;}
+  .meta dt{display:inline; color:var(--muted); text-transform:uppercase; font-size:.68rem; letter-spacing:.06em;}
+  .meta dd{display:inline; margin:0; font-weight:600;}
+  nav.toc{margin:1.5rem 0 0; padding:1rem 1.25rem; background:var(--surface); border:1px solid var(--line); border-radius:12px;}
+  nav.toc ul{margin:.25rem 0 0; padding-left:1.1rem; columns:2; column-gap:2rem;}
+  nav.toc li{margin:.2rem 0;}
+  a{color:var(--accent-text);}
+  table{border-collapse:collapse; width:100%; font-size:.92rem;}
+  .scroll{overflow-x:auto;}
+  th,td{border:1px solid var(--line); padding:.5rem .65rem; text-align:left; vertical-align:top;}
+  th{background:var(--chip-bg); font-family:Bahnschrift,"Segoe UI",sans-serif; font-weight:600; font-size:.82rem; letter-spacing:.04em;}
+  td:first-child{white-space:nowrap; font-weight:600; color:var(--accent-text);}
+  .card{background:var(--surface); border:1px solid var(--line); border-radius:12px; padding:1rem 1.25rem; margin:.75rem 0;}
+  .card h3{margin-top:0;}
+  .callout{border-radius:12px; padding:.9rem 1.15rem; margin:.75rem 0;}
+  .callout .eyebrow{display:block; margin-bottom:.25rem;}
+  .callout.defer{background:var(--warn-soft);} .callout.defer .eyebrow{color:var(--warn-text);}
+  .callout.keep{background:var(--cool-soft);} .callout.keep .eyebrow{color:var(--cool-text);}
+  .callout.note{background:var(--accent-soft);}
+  .yes{color:var(--cool-text); font-weight:600;} .no{color:var(--muted);}
+  footer.composition-signal{margin-top:3rem; padding-top:1rem; border-top:1px solid var(--line);
+    font-size:.78rem; color:var(--muted);}
+  code{background:var(--chip-bg); padding:.1rem .35rem; border-radius:6px; font-size:.88em;}
+  strong{color:inherit;}
+  ol,ul{padding-left:1.25rem;}
+  li{margin:.3rem 0;}
+  @media (max-width:640px){ nav.toc ul{columns:1;} }
+</style>
+
+<div class="wrap">
+<header>
+  <span class="eyebrow">Requirements Plan · Fuse Music App</span>
+  <h1>Fuse Rebuild - Plan</h1>
+  <p style="color:var(--muted); max-width:70ch;">The agreed scope for rebuilding Fuse from zero. Written in plain words: what we're building, the decisions behind it, and how we'll know it's right.</p>
+  <dl class="meta">
+    <div><dt>type</dt> <dd>feat</dd></div>
+    <div><dt>date</dt> <dd><time datetime="2026-07-17">2026-07-17</time></dd></div>
+    <div><dt>topic</dt> <dd>fuse-rebuild</dd></div>
+    <div><dt>artifact_contract</dt> <dd>ce-unified-plan/v1</dd></div>
+    <div><dt>artifact_readiness</dt> <dd>requirements-only</dd></div>
+    <div><dt>product_contract_source</dt> <dd>ce-brainstorm</dd></div>
+    <div><dt>execution</dt> <dd>code</dd></div>
+  </dl>
+</header>
+
+<nav class="toc">
+  <span class="eyebrow">Contents</span>
+  <ul>
+    <li><a href="#goal-capsule">Goal Capsule</a></li>
+    <li><a href="#product-contract">Product Contract</a></li>
+    <li><a href="#key-decisions">Key Decisions</a></li>
+    <li><a href="#product-requirements">Requirements</a></li>
+    <li><a href="#key-flows">Key Flows</a></li>
+    <li><a href="#acceptance-examples">Acceptance Examples</a></li>
+    <li><a href="#success-criteria">Success Criteria</a></li>
+    <li><a href="#scope-boundaries">Scope Boundaries</a></li>
+    <li><a href="#dependencies-assumptions">Dependencies &amp; Assumptions</a></li>
+    <li><a href="#outstanding-questions">Outstanding Questions</a></li>
+    <li><a href="#sources">Sources &amp; References</a></li>
+  </ul>
+</nav>
+
+<section id="goal-capsule">
+  <h2>Goal Capsule</h2>
+  <p><strong>Objective.</strong> Rebuild Fuse from scratch as a public web music app whose identity is <em>blending</em>: songs melt into each other, sourced from YouTube and Spotify plus the user's own files, with a working three-source DJ console, real synced lyrics, playlists, and a learning home feed. Every control that appears on screen works — nothing decorative pretends to be a feature.</p>
+  <p><strong>Product authority.</strong> Vikas (owner). The approved clickable prototype is the design north star (see <a href="#sources">Sources</a>).</p>
+  <p><strong>Open blockers.</strong> None. Design direction and scope are approved; the questions that remain are deferred to planning (see <a href="#outstanding-questions">Outstanding Questions</a>).</p>
+</section>
+
+<section id="product-contract">
+  <h2>Product Contract</h2>
+
+  <h3 id="summary">Summary</h3>
+  <p>Build a new Fuse: a public, account-based web music app where listening flows without jarring stops (auto-crossfade as the signature), the heart moment is <strong>search → instant play → scrolling lyrics</strong>, and the DJ console is the pro layer of the same blending idea — honest about what each music source allows.</p>
+
+  <h3 id="problem-frame">Problem Frame</h3>
+  <p>The current Fuse (live on Vercel, code in <code>fuse-app/</code>) fails everywhere it matters: playback gets stuck, clicks don't respond, features overlap across screens, and headline buttons — Lyrics, Cue — are pure decoration that show nothing. It presents itself as a YouTube + Spotify player, but only YouTube actually plays, and its real Web Audio DJ engine is bypassed by the very tracks users play. The owner has lost trust in it; polishing is not enough.</p>
+
+  <h3 id="key-decisions">Key Decisions</h3>
+  <div class="card"><h3>Fuse means blend</h3><p>The product's identity is fusion: automatic crossfades in normal listening, transitions that never jar, and a DJ console that is simply the manual, pro version of what the app does by itself. Chosen over a plain "clean player" because it gives Fuse a reason to exist next to Spotify and makes DJ native rather than bolted on.</p></div>
+  <div class="card"><h3>Honest capability, everywhere, by design</h3><p>Every control shown must work for the current situation. When a source doesn't allow something (for example the full DJ engine on YouTube), the control is visibly disabled with a plain-English reason. This is the class-level fix for the old app's "showcase buttons": no feature ships as decoration, ever.</p></div>
+  <div class="card"><h3>Three music sources, each with its true powers</h3><p>YouTube (streams, real thumbnails, huge catalog), Spotify (user's own account, album art, search), and the user's own audio files (the only source whose raw audio the DJ engine can fully process). The app never pretends a source can do more than it can.</p></div>
+  <div class="card"><h3>Public app with accounts</h3><p>Anyone can sign up. Google sign-in, a hosted database for each user's likes, playlists, and settings, deployed on Vercel — the same proven pattern as the owner's SubTrackr app.</p></div>
+  <div class="card"><h3>User files never touch our servers</h3><p>Audio files loaded for DJ mode stay on the user's device (browser-local). We never upload or store anyone's music files — the legal safety line for a public app.</p></div>
+  <div class="card"><h3>One v1, built in stages, verified stage by stage</h3><p>All headline features ship in v1, but the build proceeds in working stages (core playback → lyrics/playlists → DJ → smart feed). Each stage ends with a test-it-yourself checklist the owner personally confirms before the next stage begins. Launch can be pulled earlier to a music-only cut if ever desired.</p></div>
+  <div class="card"><h3>The approved prototype is the design north star</h3><p>Dark premium theme where a warm ember orange and a cool teal always meet in blends; phone-frame app layout with bottom tabs and a persistent mini-player; profile avatar opening full settings; horizontally scrolling home carousels. The built app follows the prototype's look and structure, with real data replacing placeholders.</p></div>
+
+  <h3 id="actors">Actors</h3>
+  <ul>
+    <li>A1. <strong>Listener</strong> — any signed-up member of the public. Searches, plays, likes, builds playlists, reads lyrics.</li>
+    <li>A2. <strong>DJ user</strong> — a listener who opens the DJ console and mixes tracks across the three sources.</li>
+    <li>A3. <strong>Owner (Vikas)</strong> — confirms each build stage, reviews as visual pages, and is the product authority.</li>
+  </ul>
+
+  <h3 id="product-requirements">Requirements</h3>
+
+  <p><strong>Core playback &amp; search</strong></p>
+  <div class="scroll"><table>
+    <tr><th>ID</th><th>Requirement</th></tr>
+    <tr><td id="r1">R1.</td><td>Search returns results from YouTube and Spotify as the user types, each result showing its true cover art (YouTube video thumbnail or Spotify album cover) and a source badge.</td></tr>
+    <tr><td id="r2">R2.</td><td>Tapping a result starts playback immediately — the heart moment. Playback never silently sticks; any failure shows a plain-English message and offers a retry or an alternative.</td></tr>
+    <tr><td id="r3">R3.</td><td>Songs blend: when one track ends, the next begins with an automatic crossfade whose length the user controls in settings.</td></tr>
+    <tr><td id="r4">R4.</td><td>A persistent mini-player (song, play/pause, next) is visible on Home, Search, and Library, and opens the full Now Playing screen when tapped.</td></tr>
+    <tr><td id="r5">R5.</td><td>Every track everywhere in the app shows real cover art from its source — never a plain colored box.</td></tr>
+  </table></div>
+
+  <p><strong>Lyrics</strong></p>
+  <div class="scroll"><table>
+    <tr><th>ID</th><th>Requirement</th></tr>
+    <tr><td id="r6">R6.</td><td>Now Playing shows real lyrics that scroll in time with the song, current line highlighted, fetched from a lyrics service.</td></tr>
+    <tr><td id="r7">R7.</td><td>When lyrics don't exist for a track, the screen says so honestly ("No lyrics available for this song") — the feature never fakes or hides.</td></tr>
+  </table></div>
+
+  <p><strong>Library &amp; playlists</strong></p>
+  <div class="scroll"><table>
+    <tr><th>ID</th><th>Requirement</th></tr>
+    <tr><td id="r8">R8.</td><td>Users can like tracks and see all likes in their Library, saved to their account and present on any device they sign into.</td></tr>
+    <tr><td id="r9">R9.</td><td>Users can create, rename, reorder, and delete playlists mixing tracks from any source.</td></tr>
+  </table></div>
+
+  <p><strong>Home feed</strong></p>
+  <div class="scroll"><table>
+    <tr><th>ID</th><th>Requirement</th></tr>
+    <tr><td id="r10">R10.</td><td>Home shows horizontally scrolling rows (recently played, trending, "more like what you love") with a visible cue that more content sits to the right.</td></tr>
+    <tr><td id="r11">R11.</td><td>The "more like what you love" row learns from the user's listening and likes, and visibly improves as they use the app.</td></tr>
+  </table></div>
+
+  <p><strong>DJ console</strong></p>
+  <div class="scroll"><table>
+    <tr><th>ID</th><th>Requirement</th></tr>
+    <tr><td id="r12">R12.</td><td>The DJ console has two decks and a crossfader; each deck can load a track from My Files, YouTube, or Spotify.</td></tr>
+    <tr><td id="r13">R13.</td><td>Decks honestly reflect each source's powers: My Files gets the full engine (EQ, loops, effects, scratch); YouTube gets crossfade and speed with other controls visibly disabled and explained; Spotify can occupy only one deck at a time, with the second deck's Spotify option locked and explained.</td></tr>
+    <tr><td id="r14">R14.</td><td>Files loaded for DJ use stay on the user's device and are never uploaded to Fuse's servers; the UI says so where files are loaded.</td></tr>
+  </table></div>
+
+  <p><strong>Accounts &amp; settings</strong></p>
+  <div class="scroll"><table>
+    <tr><th>ID</th><th>Requirement</th></tr>
+    <tr><td id="r15">R15.</td><td>Anyone can sign up and sign in with Google; each user's likes, playlists, history, and settings are private to their account.</td></tr>
+    <tr><td id="r16">R16.</td><td>All settings live under the profile avatar: account &amp; sign out, crossfade length, audio quality, connected sources (including Spotify connect), lyrics on/off, and about.</td></tr>
+  </table></div>
+
+  <p><strong>Reliability &amp; honesty (the class-level fix)</strong></p>
+  <div class="scroll"><table>
+    <tr><th>ID</th><th>Requirement</th></tr>
+    <tr><td id="r17">R17.</td><td>No control appears on any screen unless it works in the user's current situation; anything unavailable is visibly disabled with a short plain-English reason.</td></tr>
+    <tr><td id="r18">R18.</td><td>The app records its own activity log (playback events, errors) so failures can be diagnosed from evidence, and errors shown to users always say what went wrong and what to do.</td></tr>
+  </table></div>
+
+  <h3 id="key-flows">Key Flows</h3>
+  <ul>
+    <li>F1. <strong>The heart moment.</strong> <strong>Trigger:</strong> user types in Search. Results appear as they type with real covers → they tap a song → it plays within a breath → they open Now Playing → lyrics are already scrolling. <strong>Covers R1, R2, R5, R6.</strong></li>
+    <li>F2. <strong>Blended listening.</strong> <strong>Trigger:</strong> a song approaches its end. The next queued track melts in over the user's chosen crossfade length; Now Playing visualises the blend. <strong>Covers R3.</strong></li>
+    <li>F3. <strong>A DJ session.</strong> <strong>Trigger:</strong> user opens the DJ console. They load Deck A from My Files (full engine lights up), Deck B from YouTube (limited controls, clearly explained), and mix with the crossfader. <strong>Covers R12, R13, R14.</strong></li>
+    <li>F4. <strong>Joining Fuse.</strong> <strong>Trigger:</strong> a new visitor arrives. They sign in with Google, optionally connect Spotify in settings, and land on a Home that starts generic and gets personal as they listen. <strong>Covers R10, R11, R15, R16.</strong></li>
+  </ul>
+
+  <h3 id="acceptance-examples">Acceptance Examples</h3>
+  <ul>
+    <li>AE1. <strong>When</strong> a playing YouTube track stalls (network hiccup), <strong>then</strong> within a few seconds the player shows "Playback stalled — retrying", retries, and if it still fails offers Skip. It never freezes silently. <strong>Covers R2, R18.</strong></li>
+    <li>AE2. <strong>When</strong> the current track has no lyrics on the lyrics service, <strong>then</strong> Now Playing shows "No lyrics available for this song" instead of an empty or fake panel. <strong>Covers R6, R7.</strong></li>
+    <li>AE3. <strong>When</strong> a deck is switched to YouTube, <strong>then</strong> EQ, loops, effects, and scratch grey out with the note "Not available for YouTube tracks", and crossfade + speed remain live. <strong>Covers R13, R17.</strong></li>
+    <li>AE4. <strong>When</strong> Spotify is loaded on Deck A and the user opens Deck B's source picker, <strong>then</strong> the Spotify option is locked with "Spotify allows one deck at a time". <strong>Covers R13, R17.</strong></li>
+    <li>AE5. <strong>When</strong> a user without a connected Spotify account taps a Spotify-only track, <strong>then</strong> the app explains and offers the choice defined in Outstanding Question Q2 (once resolved). <strong>Covers R17.</strong></li>
+  </ul>
+
+  <h3 id="success-criteria">Success Criteria</h3>
+  <ul>
+    <li>From tapping a search result to hearing sound: about three seconds or less on a normal connection.</li>
+    <li>Zero decorative controls: a full click-through of every screen finds no button that does nothing.</li>
+    <li>Each build stage is confirmed working by the owner on their own screen (test-it-yourself checklist) before the next stage starts; "done" claims always come with fresh evidence.</li>
+    <li>The built app is recognisably the approved prototype with real data in it.</li>
+  </ul>
+
+  <h3 id="scope-boundaries">Scope Boundaries</h3>
+  <div class="callout defer"><span class="eyebrow">Deferred for later</span>
+    <ul>
+      <li>Native phone apps (iOS/Android) — v1 is web only, styled app-like.</li>
+      <li>Offline listening / downloads.</li>
+      <li>Payments, subscriptions, or any monetisation.</li>
+      <li>Social features: profiles you follow, sharing, comments.</li>
+    </ul>
+  </div>
+  <div class="callout keep"><span class="eyebrow">Outside this product's identity</span>
+    <ul>
+      <li>Hosting or storing users' music files server-side — Fuse plays and blends; it is not a locker service.</li>
+      <li>Becoming a licensed catalog service competing with Spotify's own apps — Fuse rides on top of the sources users already have.</li>
+    </ul>
+  </div>
+
+  <h3 id="dependencies-assumptions">Dependencies &amp; Assumptions</h3>
+  <ul>
+    <li>YouTube's public embedded player provides streaming and thumbnails; its rules mean raw audio is never accessible to the DJ engine (drives R13).</li>
+    <li>Spotify sign-in provides search and album art to any user; full-length Spotify playback in the browser requires that user's Spotify Premium (feeds Q2).</li>
+    <li>A free lyrics service provides synced lyrics; coverage varies by song (drives R7). Provider choice is planning's.</li>
+    <li>Assumed stack pattern: Google sign-in, hosted database, Vercel deployment — mirroring SubTrackr. Planning may revisit with reasons.</li>
+    <li>The existing <code>fuse-app/</code> code is reference material only; the rebuild starts clean and reuses nothing without justification.</li>
+  </ul>
+
+  <h3 id="outstanding-questions">Outstanding Questions</h3>
+  <p><strong>Deferred to planning</strong> — none block this contract:</p>
+  <ul>
+    <li>Q1. Where the new code lives: replace <code>fuse-app/</code> in the same repo, or a fresh dedicated repo. (Recommendation leans fresh repo for a public product.)</li>
+    <li>Q2. What happens when a user without Spotify Premium picks a Spotify track: play a short preview, or automatically play the same song's YouTube version (the blend-identity answer). Planning decides after checking current Spotify rules.</li>
+    <li>Q3. Which lyrics service, after checking coverage and terms.</li>
+    <li>Q4. How "trending" is computed at launch, before Fuse has enough of its own listening data.</li>
+  </ul>
+
+  <h3 id="sources">Sources &amp; References</h3>
+  <ul>
+    <li>Approved clickable prototype (design north star): <a href="https://claude.ai/code/artifact/89d76603-74c8-4c59-908e-c969fed8f0af">claude.ai artifact — Fuse Prototype</a>. Its generated cover art stands in for the real thumbnails/covers required by R5.</li>
+    <li>Current (broken) app, for reference: <a href="https://fuse-music-app-vikas-mittals-projects-e426f6c6.vercel.app">fuse-music-app on Vercel</a>; code at <a href="https://github.com/vikas53953/agent-cmdb-policy-brain/tree/claude/music-streaming-app-design-qi9t82/fuse-app"><code>fuse-app/</code> on branch claude/music-streaming-app-design-qi9t82</a>.</li>
+    <li>Grounding notes on the current app's real state (what actually works vs pretends) were gathered during brainstorming; key findings are reflected in the Problem Frame.</li>
+  </ul>
+</section>
+
+<footer class="composition-signal">Composed 2026-07-17 by ce-brainstorm from the Fuse rethink dialogue and the approved prototype.</footer>
+</div>

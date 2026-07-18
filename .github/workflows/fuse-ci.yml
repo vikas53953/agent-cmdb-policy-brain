@@ -1,0 +1,70 @@
+name: Fuse CI
+
+# The release gate for the Fuse rebuild (fuse-app/). The blocking gate is the plan's
+# Verification Contract — tsc --noEmit && eslint . && vitest run && next build — plus the
+# Playwright "local" project (the Robot Tester) driving the real signed-in app.
+on:
+  push:
+    paths: ["fuse-app/**", ".github/workflows/fuse-ci.yml"]
+  pull_request:
+    paths: ["fuse-app/**", ".github/workflows/fuse-ci.yml"]
+
+defaults:
+  run:
+    working-directory: fuse-app
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: fuse-app/package-lock.json
+      - run: npm install --no-audit --no-fund
+      - run: npx tsc --noEmit
+      - run: npx eslint .
+      - run: npx vitest run
+      - run: npx next build
+
+  e2e:
+    # The Robot Tester against a locally-booted dev server. Runs after the static gate.
+    needs: gate
+    runs-on: ubuntu-latest
+    env:
+      # The Robot Test Door secret — opens the door on the dev server AND lets the specs
+      # sign in. A GitHub repo secret; never printed. Without it the specs SKIP (they do
+      # not fake a pass).
+      E2E_TEST_SECRET: ${{ secrets.E2E_TEST_SECRET }}
+      # Auth.js needs a session-encryption secret for the JWT the door issues.
+      AUTH_SECRET: ${{ secrets.AUTH_SECRET }}
+      # The gate runs the DETERMINISTIC app-contract specs — door sign-in, DJ capability
+      # honesty, navigation, console health. The external-integration specs (YouTube
+      # search + embed playback = the heart moment) and DB-backed specs (playlists, likes,
+      # settings persistence) SKIP here because they need real API keys / a database that
+      # this gate does not carry — they run against production in the watchman. To also
+      # exercise them in the gate, add YOUTUBE_API_KEY + a Neon-branch DATABASE_URL as
+      # secrets and set E2E_EXTERNAL / E2E_DB to "1" below.
+      DATABASE_URL: ${{ secrets.E2E_DATABASE_URL }}
+      YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: fuse-app/package-lock.json
+      - run: npm install --no-audit --no-fund
+      - run: npx playwright install --with-deps chromium
+      - run: npx playwright test --project=local
+      - name: Upload Playwright traces on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-traces
+          path: |
+            fuse-app/test-results/
+            fuse-app/playwright-report/
+          retention-days: 14
