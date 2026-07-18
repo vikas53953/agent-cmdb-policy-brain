@@ -1,4 +1,13 @@
-import { test, expect, E2E_READY, NOT_READY_REASON, TEXT, STABLE } from "./fixtures";
+import {
+  test,
+  expect,
+  E2E_READY,
+  NOT_READY_REASON,
+  E2E_EXTERNAL,
+  NO_EXTERNAL_REASON,
+  TEXT,
+  STABLE,
+} from "./fixtures";
 
 // DJ console journey. The honesty rules made concrete (R13/R17, AE3/AE4) plus a real
 // playing-deck check: a YouTube deck greys out the full-engine controls with a reason
@@ -28,6 +37,7 @@ test.describe("dj — capability honesty and a really-playing deck", () => {
   });
 
   test("Deck A on YouTube: a known video loads and the deck really advances", async ({ page }) => {
+    test.skip(!E2E_EXTERNAL, NO_EXTERNAL_REASON);
     await page.getByTestId("tab-dj").click();
     const deckA = page.getByTestId("deck-A");
     await page.getByTestId("deck-A-source-youtube").click();

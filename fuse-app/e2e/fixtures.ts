@@ -38,6 +38,18 @@ export const NO_DB_REASON =
   "No database declared for this run (set E2E_DB=1 with a reachable DATABASE_URL). " +
   "Likes / playlists / settings persistence need one.";
 
+// The heart moment and a really-playing deck depend on EXTERNAL integrations reachable
+// with real keys: YouTube Data API search (needs YOUTUBE_API_KEY) and live YouTube
+// embed playback. E2E_EXTERNAL=1 declares those are available (the live watchman sets it
+// against production, which has the keys). Without it, the search/playback specs SKIP
+// rather than fail on an environment that lacks the keys — the deterministic app-contract
+// specs (auth, dj capability honesty, navigation, console health) still run and gate.
+export const E2E_EXTERNAL = process.env.E2E_EXTERNAL === "1";
+
+export const NO_EXTERNAL_REASON =
+  "External integrations not declared for this run (set E2E_EXTERNAL=1 with a real " +
+  "YOUTUBE_API_KEY). YouTube search + embed playback need them; the live watchman does.";
+
 // Sign the robot in through the door, programmatically (no UI): fetch the Auth.js CSRF
 // token, POST the secret to the e2e-robot Credentials callback, and confirm a session
 // landed. Cookies live in the shared browser context, so every subsequent page load in

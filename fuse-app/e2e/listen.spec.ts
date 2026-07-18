@@ -1,4 +1,15 @@
-import { test, expect, E2E_READY, NOT_READY_REASON, E2E_DB, NO_DB_REASON, TEXT, STABLE } from "./fixtures";
+import {
+  test,
+  expect,
+  E2E_READY,
+  NOT_READY_REASON,
+  E2E_DB,
+  NO_DB_REASON,
+  E2E_EXTERNAL,
+  NO_EXTERNAL_REASON,
+  TEXT,
+  STABLE,
+} from "./fixtures";
 import type { Locator } from "@playwright/test";
 
 // THE CORE journey (the heart moment): search → results with REAL loaded covers →
@@ -11,6 +22,7 @@ import type { Locator } from "@playwright/test";
 
 test.describe("listen — the heart moment", () => {
   test.skip(!E2E_READY, NOT_READY_REASON);
+  test.skip(!E2E_EXTERNAL, NO_EXTERNAL_REASON);
 
   // Search for a stable query and return the first playable YouTube result row. Fails
   // LOUDLY (never silently passes) if search returns nothing — that means YouTube
