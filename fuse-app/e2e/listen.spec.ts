@@ -44,20 +44,37 @@ test.describe("listen — the heart moment", () => {
     return ytRows.first();
   }
 
-  // Wait for the recovery ladder to settle to an HONEST outcome — real "playing" or an
-  // honest "error" — and fail loudly if it instead hangs in loading/stalled ("retrying").
-  // Returns the settled state so a caller can branch on playable vs. refused. This is the
-  // single truthful gate every playback-dependent journey uses (never a silent freeze).
-  async function settlePlayback(mini: Locator): Promise<string> {
+  // Wait for the recovery ladder to reach a STABLE, HONEST outcome and return it:
+  //   • "playing" — a track is genuinely producing sound (state "playing" AND position
+  //     has moved past 0), or
+  //   • "error"   — the ladder tried retry → recreate → the next results and honestly
+  //     gave up (state "error", with a working Skip).
+  // A transient "playing" at position 0 (a just-(re)loaded track in its grace window,
+  // or one the ladder is about to advance past) is NOT a settled outcome — we keep
+  // polling. It fails loudly only if NEITHER honest outcome is reached, i.e. the app
+  // hung in loading/stalled ("retrying") — the exact silent-stall class this tester
+  // exists to catch. The generous window fits the whole bounded ladder (well under the
+  // 120s per-test timeout).
+  async function settlePlayback(mini: Locator): Promise<"playing" | "error"> {
     await expect
-      .poll(async () => mini.getAttribute("data-player-state"), {
-        message:
-          "Player never settled to playing/error within 35s — it hung in the silent-" +
-          "stall bug ('retrying' forever) instead of recovering or failing honestly.",
-        timeout: 35_000,
-      })
-      .toMatch(/^(playing|error)$/);
-    return (await mini.getAttribute("data-player-state")) ?? "";
+      .poll(
+        async () => {
+          const state = await mini.getAttribute("data-player-state");
+          if (state === "error") return "error";
+          const pos = Number(await mini.getAttribute("data-player-position"));
+          if (state === "playing" && pos > 0.25) return "playing";
+          return "working";
+        },
+        {
+          message:
+            "Playback never settled to real advancing sound OR an honest error+skip — " +
+            "it hung in loading/stalled ('retrying'), which is exactly the silent-stall " +
+            "bug the tester exists to catch.",
+          timeout: 60_000,
+        },
+      )
+      .not.toBe("working");
+    return (await mini.getAttribute("data-player-state")) === "error" ? "error" : "playing";
   }
 
   test("covers load, and playback either advances OR recovers to an honest error+skip", async ({
@@ -88,29 +105,15 @@ test.describe("listen — the heart moment", () => {
 
     const mini = page.getByTestId("mini-player");
 
-    // THE REAL OUTCOME CONTRACT (the class fix). Within 35s the bounded recovery ladder
-    // must settle to one of exactly TWO HONEST outcomes — never a silent hang, and never
-    // an endless "retrying":
-    //   (a) real playback — data-player-state "playing", OR
-    //   (b) honest refusal — data-player-state "error" (the embed genuinely won't play
-    //       here, e.g. a datacenter IP YouTube bot-gates; the ladder tried retry →
-    //       recreate → the next results, then surfaced an honest error + Skip).
-    // If it instead sits in "loading" or "stalled" past 35s, the app hung — FAIL LOUDLY.
-    await expect
-      .poll(async () => mini.getAttribute("data-player-state"), {
-        message:
-          "Player never settled: it hung in loading/stalled ('retrying') instead of " +
-          "reaching real playback OR an honest error+skip within 35s. That is exactly " +
-          "the silent-stall class this tester exists to catch.",
-        timeout: 35_000,
-      })
-      .toMatch(/^(playing|error)$/);
+    // THE REAL OUTCOME CONTRACT (the class fix). The bounded recovery ladder must settle
+    // to one of exactly TWO HONEST outcomes — never a silent hang, never an endless
+    // "retrying". settlePlayback fails loudly if it hangs instead.
+    const outcome = await settlePlayback(mini);
 
-    const settled = await mini.getAttribute("data-player-state");
-
-    if (settled === "error") {
-      // Honest refusal terminal. The app admitted the track won't play rather than
-      // freezing. Open Now Playing and prove a real Skip is offered (never a dead end).
+    if (outcome === "error") {
+      // Honest refusal terminal (e.g. a bot-gated datacenter IP where YouTube embeds
+      // won't play). The app admitted it rather than freezing. Open Now Playing and prove
+      // a real Skip is offered — never a dead end (AE1).
       await page.getByTestId("mini-open").click();
       const skip = page.getByTestId("np-skip");
       await expect(
@@ -120,9 +123,9 @@ test.describe("listen — the heart moment", () => {
       return;
     }
 
-    // Playable path: position must STRICTLY ADVANCE across 5s. A stall would freeze it —
-    // unless the ladder honestly degrades to "error" in the meantime (still acceptable:
-    // it never lied about playing).
+    // Playable path: position must KEEP advancing across 5s — a stall would freeze it.
+    // (settlePlayback already proved it passed 0; this proves it keeps moving.) An honest
+    // degrade to "error" in the meantime is still acceptable — it never lied about playing.
     const p0 = Number(await mini.getAttribute("data-player-position"));
     await page.waitForTimeout(5_000);
     const state1 = await mini.getAttribute("data-player-state");
