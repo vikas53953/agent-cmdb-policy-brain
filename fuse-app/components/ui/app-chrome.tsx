@@ -18,6 +18,7 @@ import TabBar from "@/components/ui/tab-bar";
 import MiniPlayer from "@/components/player/mini-player";
 import NowPlaying from "@/components/player/now-playing";
 import ProfileSheet from "@/components/settings/profile-sheet";
+import PlayRecorder from "@/components/home/play-recorder";
 
 // The subset of the signed-in user the shell needs. Serializable so it can cross
 // the server→client boundary from the layout.
@@ -74,6 +75,10 @@ export default function AppChrome({
 
   return (
     <div className="app-frame">
+      {/* Headless: records a play whenever a new track actually starts, feeding the
+          Home "recently played" row and anonymous trending (U12). */}
+      <PlayRecorder />
+
       <header className="topbar">
         <span className="brand">Fuse</span>
         <button

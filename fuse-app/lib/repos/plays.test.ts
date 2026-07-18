@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { makeModel, makePrisma } from "./__fixtures__/fake-prisma";
-import { recordPlay, listRecentPlays, trendingByPlayCount, trendingSeed } from "./plays";
+import { recordPlay, listRecentPlays, trendingByPlayCount, trendingSeed, trendingTracks } from "./plays";
 
 describe("plays repo — per-user history (R11)", () => {
   it("recordPlay writes with the caller's ownerId; recent list is scoped and newest-first", async () => {
@@ -44,5 +44,19 @@ describe("plays repo — trending (KTD-4)", () => {
     const prisma = makePrisma({ trendingSeed: trendingSeedModel.model });
     const seed = await trendingSeed(10, prisma);
     expect(seed.map((s) => s.nativeId)).toEqual(["a", "b"]);
+  });
+
+  it("trendingTracks enriches aggregate counts with real display fields (R5), most-played first", async () => {
+    // v1 played twice with real cover art on the rows; v2 once. trendingTracks must
+    // hand back renderable tracks (title + art), ordered by play count.
+    const play = makeModel([
+      { id: "1", ownerId: "A", source: "youtube", nativeId: "v1", title: "One", artist: "Aa", artUrl: "art1" },
+      { id: "2", ownerId: "B", source: "youtube", nativeId: "v1", title: "One", artist: "Aa", artUrl: "art1" },
+      { id: "3", ownerId: "A", source: "youtube", nativeId: "v2", title: "Two", artist: "Bb", artUrl: "art2" },
+    ]);
+    const prisma = makePrisma({ play: play.model });
+    const tracks = await trendingTracks(10, prisma);
+    expect(tracks[0]).toMatchObject({ nativeId: "v1", title: "One", artUrl: "art1", durationSec: null });
+    expect(tracks.map((t) => t.nativeId)).toEqual(["v1", "v2"]);
   });
 });

@@ -138,6 +138,13 @@ export function ChevronDownIcon({ size = 22, className }: IconProps) {
   return svg(<path d="m6 9 6 6 6-6" />, size, className);
 }
 
+// Chevron-right — the "more content to the right" scroll cue on Home carousels
+// (U12, R10). The button it sits inside actually scrolls the rail, so it is a real
+// control, not decoration (R17).
+export function ChevronRightIcon({ size = 22, className }: IconProps) {
+  return svg(<path d="m9 6 6 6-6 6" />, size, className);
+}
+
 export function MusicIcon({ size = 20, className }: IconProps) {
   return svg(
     <>
