@@ -1,8 +1,8 @@
 name: Fuse CI
 
-# CI gate for the Fuse rebuild (fuse-app/). Mirrors the plan's Verification
-# Contract: tsc --noEmit && eslint . && vitest run && next build. Playwright e2e
-# joins this gate from U16.
+# The release gate for the Fuse rebuild (fuse-app/). The blocking gate is the plan's
+# Verification Contract — tsc --noEmit && eslint . && vitest run && next build — plus the
+# Playwright "local" project (the Robot Tester) driving the real signed-in app.
 on:
   push:
     paths: ["fuse-app/**", ".github/workflows/fuse-ci.yml"]
@@ -28,3 +28,42 @@ jobs:
       - run: npx eslint .
       - run: npx vitest run
       - run: npx next build
+
+  e2e:
+    # The Robot Tester against a locally-booted dev server. Runs after the static gate.
+    needs: gate
+    runs-on: ubuntu-latest
+    env:
+      # The Robot Test Door secret — opens the door on the dev server AND lets the specs
+      # sign in. A GitHub repo secret; never printed. Without it the specs SKIP (they do
+      # not fake a pass).
+      E2E_TEST_SECRET: ${{ secrets.E2E_TEST_SECRET }}
+      # Auth.js needs a session-encryption secret for the JWT the door issues.
+      AUTH_SECRET: ${{ secrets.AUTH_SECRET }}
+      # Real search is what makes the heart-moment (listen) spec meaningful; without it
+      # that spec fails honestly rather than silently passing.
+      YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
+      # DB-backed specs (library CRUD, like -> library, settings persistence) need a
+      # database. Point this at a Neon BRANCH (not prod) so gate runs never touch real
+      # user data; when unset, those specs fail honestly and the DB-free journeys (auth,
+      # listen play, dj) still run and gate.
+      DATABASE_URL: ${{ secrets.E2E_DATABASE_URL }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: fuse-app/package-lock.json
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npx playwright test --project=local
+      - name: Upload Playwright traces on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-traces
+          path: |
+            fuse-app/test-results/
+            fuse-app/playwright-report/
+          retention-days: 14
