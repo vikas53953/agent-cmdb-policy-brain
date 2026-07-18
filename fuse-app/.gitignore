@@ -24,3 +24,5 @@ coverage
 *.log
 *.tsbuildinfo
 *.local
+
+.vercel

@@ -25,6 +25,11 @@ export const authConfig: NextAuthConfig = {
   // Next 16 binds trusted hosts from AUTH_URL/host headers; required for the proxy
   // runtime session check to work behind Vercel.
   trustHost: true,
+  // Send sign-in to Fuse's own branded /login screen instead of Auth.js's default
+  // bare button page. Auth.js routes every "you need to sign in" redirect here.
+  pages: {
+    signIn: "/login",
+  },
   providers: [
     // Wire Google to our own env var names (Auth.js v5's bare `Google` would default
     // to AUTH_GOOGLE_ID/SECRET; the plan standardises on GOOGLE_CLIENT_ID/SECRET).

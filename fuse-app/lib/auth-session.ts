@@ -23,10 +23,9 @@ export type SessionUser = {
   image: string | null;
 };
 
-// Auth.js's default sign-in page (no custom pages.signIn is set yet — a branded
-// /login lands with the app shell in a later unit). The proxy redirects here too, so
-// keeping it in one place avoids drift.
-export const SIGN_IN_PATH = "/api/auth/signin";
+// Fuse's branded sign-in screen (lib/auth.ts sets pages.signIn to this too, and the
+// proxy redirects signed-out visitors here). Keeping it in one place avoids drift.
+export const SIGN_IN_PATH = "/login";
 
 // Resolve the Auth.js session at most once per request.
 const getSession = cache(() => auth());

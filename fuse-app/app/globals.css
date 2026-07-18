@@ -2493,6 +2493,119 @@ body {
   outline-offset: 2px;
 }
 
+/* --- Login screen (branded sign-in, outside the app chrome) ------------------
+ * The honest front door. Same dark ember/teal base as the app (the body aura shows
+ * through), a centered card, the Fuse wordmark in the fusion gradient, one real
+ * "Continue with Google" control, and a plain footnote. No tabs, no dock — this
+ * surface is deliberately outside the (app) route group. */
+.login-screen {
+  min-height: 100dvh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 28px 20px calc(env(safe-area-inset-bottom, 0px) + 28px);
+}
+.login-card {
+  width: 100%;
+  max-width: 400px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 14px;
+  padding: 36px 26px 30px;
+  border-radius: var(--r-lg);
+  background: linear-gradient(180deg, rgba(23, 29, 41, 0.72), rgba(11, 14, 18, 0.72));
+  border: 1px solid var(--line-soft);
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.5);
+}
+.login-brand {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.login-wordmark {
+  font-family: var(--font-display);
+  font-size: clamp(3rem, 14vw, 4rem);
+  font-weight: 700;
+  letter-spacing: -0.04em;
+  line-height: 1;
+  background-image: var(--fuse);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+.login-blend-dot {
+  width: 11px;
+  height: 11px;
+  border-radius: var(--r-pill);
+  background-image: var(--fuse);
+  box-shadow: 0 0 14px rgba(52, 228, 198, 0.6);
+}
+.login-tagline {
+  margin: 2px 0 0;
+  font-family: var(--font-display);
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: var(--txt-hi);
+  letter-spacing: -0.01em;
+}
+.login-lede {
+  margin: 0;
+  max-width: 32ch;
+  font-size: 0.92rem;
+  line-height: 1.55;
+  color: var(--txt-mid);
+}
+.login-form {
+  width: 100%;
+  margin-top: 8px;
+}
+.login-google {
+  width: 100%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 14px 18px;
+  border: none;
+  border-radius: var(--r-pill);
+  background-image: var(--fuse);
+  color: #0b0e12;
+  font-family: var(--font-body);
+  font-size: 1rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: transform 0.12s ease, box-shadow 0.15s ease, opacity 0.15s ease;
+}
+.login-google:hover {
+  opacity: 0.94;
+  box-shadow: 0 10px 30px rgba(255, 122, 77, 0.25);
+}
+.login-google:active {
+  transform: scale(0.985);
+}
+.login-google:focus-visible {
+  outline: 2px solid var(--teal);
+  outline-offset: 3px;
+}
+/* The Google G sits on a white chip so its brand colours read on the gradient. */
+.login-google-g {
+  flex: 0 0 auto;
+  display: block;
+  padding: 3px;
+  border-radius: var(--r-pill);
+  background: #fff;
+  box-sizing: content-box;
+}
+.login-footnote {
+  margin: 6px 0 0;
+  max-width: 34ch;
+  font-size: 0.78rem;
+  line-height: 1.5;
+  color: var(--txt-lo);
+}
+
 /* --- Reduced motion: collapse every transition/animation to near-instant ----- */
 @media (prefers-reduced-motion: reduce) {
   *,

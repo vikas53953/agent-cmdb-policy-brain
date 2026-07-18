@@ -60,7 +60,12 @@ export function buildCsp(isDev: boolean): string {
     `media-src 'self' blob:`,
     `object-src 'none'`,
     `base-uri 'self'`,
-    `form-action 'self'`,
+    // Sign-in is a same-origin form POST that 302-redirects to an external identity
+    // endpoint. Chrome enforces form-action against the REDIRECT TARGET, so 'self'
+    // alone silently blocks the whole submission. Allow exactly the identity hosts we
+    // hand users off to via form POST: Google (Auth.js sign-in) and Spotify (the PKCE
+    // connect flow, its class-mate). Nothing wider — no general external POSTs.
+    `form-action 'self' https://accounts.google.com https://accounts.spotify.com`,
     // Nobody may frame Fuse itself.
     `frame-ancestors 'none'`,
     `upgrade-insecure-requests`,

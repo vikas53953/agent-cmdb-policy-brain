@@ -40,6 +40,38 @@ describe("buildCsp (KTD-9 minimal deny-all relaxation)", () => {
     expect(csp).toContain("frame-ancestors 'none'");
   });
 
+  it("allows the OAuth form redirect targets in form-action (else Chrome blocks sign-in)", () => {
+    const csp = buildCsp(false);
+    const formAction = csp
+      .split(";")
+      .map((d) => d.trim())
+      .find((d) => d.startsWith("form-action"));
+    // Sign-in POSTs to /api/auth/... then 302s to Google; Chrome checks form-action
+    // against the redirect target, so accounts.google.com MUST be allowed.
+    expect(formAction).toContain("'self'");
+    expect(formAction).toContain("https://accounts.google.com");
+    expect(formAction).toContain("https://accounts.spotify.com");
+  });
+
+  it("does not weaken the other directives while widening form-action", () => {
+    const csp = buildCsp(false);
+    // form-action is widened to exactly two identity hosts and nothing more permissive.
+    const formAction = csp
+      .split(";")
+      .map((d) => d.trim())
+      .find((d) => d.startsWith("form-action"));
+    expect(formAction).toBe(
+      "form-action 'self' https://accounts.google.com https://accounts.spotify.com",
+    );
+    // No wildcard or unsafe token crept into the policy as a whole.
+    expect(csp).not.toContain("form-action *");
+    expect(csp).not.toContain("default-src *");
+    // The backbone that must stay strict is untouched.
+    expect(csp).toContain("default-src 'self'");
+    expect(csp).toContain("object-src 'none'");
+    expect(csp).toContain("frame-ancestors 'none'");
+  });
+
   it("only adds 'unsafe-eval' in development", () => {
     expect(buildCsp(true)).toContain("'unsafe-eval'");
     expect(buildCsp(false)).not.toContain("'unsafe-eval'");

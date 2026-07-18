@@ -15,7 +15,7 @@ import { setLyricsEnabled, setCrossfadeSec, getCrossfadeSec } from "@/lib/repos/
 // auth env set this cannot be reached in a real session anyway (there is nothing to
 // sign out of); it is never invoked at build time, so a keyless build is unaffected.
 export async function signOutAction(): Promise<void> {
-  await signOut({ redirectTo: "/api/auth/signin" });
+  await signOut({ redirectTo: "/login" });
 }
 
 // Persist the Lyrics on/off setting for the signed-in user (U9, R16/R17). This is a
