@@ -4,6 +4,7 @@
 // components (the profile sheet) can import them by reference and use them as
 // <form action=...> handlers without pulling any auth runtime into the client bundle.
 
+import { cookies } from "next/headers";
 import { signOut } from "@/lib/auth";
 import { requireUser } from "@/lib/auth-session";
 import { setLyricsEnabled, setCrossfadeSec, getCrossfadeSec } from "@/lib/repos/settings";
@@ -38,4 +39,16 @@ export async function setCrossfadeSecAction(seconds: number): Promise<number> {
   const user = await requireUser();
   await setCrossfadeSec(user.id, seconds);
   return getCrossfadeSec(user.id);
+}
+
+// Disconnect Spotify (U15, R16). Clears the connection marker and the httpOnly token
+// cookies set by the PKCE callback, so the Sources control honestly flips back to "not
+// connected". A REAL control — it removes a real stored connection. Token VALUES are
+// never read or logged here; the cookies are simply deleted. Reachable only inside a
+// real session; a keyless build never invokes it.
+export async function disconnectSpotifyAction(): Promise<void> {
+  const jar = await cookies();
+  jar.delete("sp_connected");
+  jar.delete("sp_access_token");
+  jar.delete("sp_refresh_token");
 }

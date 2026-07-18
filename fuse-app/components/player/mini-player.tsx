@@ -99,7 +99,7 @@ export default function MiniPlayer({
   npOpen?: boolean;
   onExpand?: () => void;
 }) {
-  const { current, isPlaying, queue } = usePlayerState();
+  const { current, isPlaying, queue, notice } = usePlayerState();
 
   if (!current) return <EmptyMini />;
 
@@ -109,8 +109,17 @@ export default function MiniPlayer({
   const canAdvance = queue.length > 0;
 
   return (
-    <div className="mini" aria-label="Mini player">
-      <MiniArt track={current} npOpen={npOpen} />
+    <>
+      {/* Honest label about the current playback situation (U15/AE5): shown when a
+          Spotify track is heard as its matched YouTube version. Plain words, always
+          truthful about what the listener is actually hearing (R17). */}
+      {notice ? (
+        <p className="player-notice" role="status" aria-live="polite">
+          {notice}
+        </p>
+      ) : null}
+      <div className="mini" aria-label="Mini player">
+        <MiniArt track={current} npOpen={npOpen} />
 
       {/* Tapping the track opens the full Now Playing screen (R4). */}
       <button
@@ -154,6 +163,7 @@ export default function MiniPlayer({
           <NextIcon />
         </button>
       </div>
-    </div>
+      </div>
+    </>
   );
 }

@@ -12,6 +12,11 @@
 
 import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
+// Side-effect import: registering the Spotify adapter at app load is what flips
+// Spotify search results from disabled to a real, enabled play button (its honest
+// YouTube fallback — U15/KTD-2). Mirrors how the YouTube adapter self-registers when
+// the mini-player mounts. No secret is read; the module load is pure.
+import "@/lib/player/adapters/spotify";
 import { showsMiniPlayer } from "@/lib/ui/shell";
 import { blendController, setLiveCrossfadeSec } from "@/lib/player/blend-controller";
 import TabBar from "@/components/ui/tab-bar";

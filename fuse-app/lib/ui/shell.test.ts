@@ -40,8 +40,9 @@ describe("mini-player visibility (R4)", () => {
 });
 
 describe("pending controls honesty (R17)", () => {
-  it("every not-yet-wired control carries a plain-English reason and an owning unit", () => {
-    expect(PENDING_CONTROLS.length).toBeGreaterThan(0);
+  it("any not-yet-wired control carries a plain-English reason and an owning unit", () => {
+    // The list is empty from U15 (every control is wired). If a future unit adds a
+    // pending control, it must still carry an honest reason and an owning unit.
     for (const control of PENDING_CONTROLS) {
       expect(control.label.trim().length).toBeGreaterThan(0);
       expect(control.reason.trim().length).toBeGreaterThan(0);

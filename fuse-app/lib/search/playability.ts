@@ -10,10 +10,11 @@
 //     a YouTube result is DISABLED with a plain reason. The moment U7 registers
 //     the adapter, `hasAdapter` flips true and the same rows light up — no change
 //     needed here.
-//   • Spotify — search/metadata work now, but real Spotify playback (and the
-//     honest YouTube fallback) land in U15. So a Spotify result is ALWAYS disabled
-//     in this commit with "Plays after Spotify support arrives", regardless of any
-//     adapter — never a clickable dead result (the plan's interim-honesty rule).
+//   • Spotify — from U15 the Spotify adapter is registered and plays every Spotify
+//     result honestly as its matched YouTube version (KTD-2/AE5). So, exactly like
+//     YouTube, a Spotify result is playable once that adapter is registered, and
+//     disabled with "Plays after Spotify support arrives" only before it is (never a
+//     clickable dead result).
 //   • local — never appears in search results (it is device files for the DJ).
 //
 // Pure and framework-free so it is unit-tested in node without a DOM.
@@ -30,12 +31,13 @@ export type Playability = { playable: boolean; reason: string | null };
 // Decide whether a result of `source` can play now, given whether that source's
 // adapter is currently registered in the player.
 export function resultPlayability(source: TrackSource, hasAdapter: boolean): Playability {
-  if (source === "spotify") {
-    // Deferred to U15 by design — disabled even if some adapter existed.
-    return { playable: false, reason: SPOTIFY_SOON_REASON };
-  }
   if (source === "local") {
     return { playable: false, reason: LOCAL_NOT_SEARCHABLE_REASON };
+  }
+  if (source === "spotify") {
+    // Honest to the registry — enabled only once U15's Spotify adapter (the YouTube
+    // fallback) is wired; before that, the plain "arrives" reason (never a dead click).
+    return hasAdapter ? { playable: true, reason: null } : { playable: false, reason: SPOTIFY_SOON_REASON };
   }
   // YouTube: honest to the registry — enabled only once U7's adapter is wired.
   return hasAdapter ? { playable: true, reason: null } : { playable: false, reason: ENGINE_SOON_REASON };

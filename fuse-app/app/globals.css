@@ -479,6 +479,62 @@ body {
   padding: 3px 9px;
 }
 
+/* Sources → connect actions (U15). The connect/disconnect control and the Connected
+ * tag. Real controls only — rendered when the flow is configured (R17). */
+.setting-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+.connected-tag {
+  font-size: 0.66rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--teal);
+  border: 1px solid rgba(52, 228, 198, 0.4);
+  background: var(--teal-soft);
+  border-radius: var(--r-pill);
+  padding: 3px 9px;
+}
+.connect-btn {
+  display: inline-block;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--ink-0);
+  background-image: var(--fuse);
+  border: 0;
+  border-radius: var(--r-pill);
+  padding: 6px 14px;
+  cursor: pointer;
+  text-decoration: none;
+  transition: opacity 0.15s ease;
+}
+.connect-btn:hover {
+  opacity: 0.9;
+}
+.connect-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.connect-btn:focus-visible {
+  outline: 2px solid var(--teal);
+  outline-offset: 2px;
+}
+
+/* Honest playback-situation label (U15/AE5) — e.g. a Spotify track heard as its
+ * YouTube version. Shown above the mini-player and on Now Playing. */
+.player-notice {
+  margin: 0;
+  padding: 6px 14px;
+  font-size: 0.74rem;
+  color: var(--teal);
+  background: var(--teal-soft);
+  border-bottom: 1px solid var(--line-soft);
+  text-align: center;
+}
+
 .signout-btn {
   width: 100%;
   padding: 12px 14px;

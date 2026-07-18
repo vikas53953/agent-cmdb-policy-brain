@@ -61,7 +61,7 @@ export default function NowPlaying({
   // profile sheet shows/hides this screen's lyrics panel instantly.
   lyricsEnabled: boolean;
 }) {
-  const { current, isPlaying, queue, positionSec, durationSec, shuffle, repeat } =
+  const { current, isPlaying, queue, positionSec, durationSec, shuffle, repeat, notice } =
     usePlayerState();
 
   const [health, setHealth] = useState<HealthState>(() => initHealth(0));
@@ -170,6 +170,13 @@ export default function NowPlaying({
             <div className="np-info">
               <h2 className="np-title">{current.title}</h2>
               <p className="np-artist">{current.artist ?? "Unknown artist"}</p>
+              {/* Honest label about the current situation (U15/AE5): shown when a
+                  Spotify track is heard as its matched YouTube version. */}
+              {notice ? (
+                <p className="player-notice" role="status" aria-live="polite">
+                  {notice}
+                </p>
+              ) : null}
             </div>
 
             {/* Like the current track (U10, R8). A real, persisted control — the

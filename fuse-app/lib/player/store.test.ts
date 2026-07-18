@@ -228,6 +228,65 @@ describe("subscriptions and reported position", () => {
   });
 });
 
+describe("resolvePlayable substitution (U15 — Spotify → YouTube fallback, AE5)", () => {
+  it("plays the substituted track on its own engine and carries an honest notice", async () => {
+    const registry = createAdapterRegistry();
+    const yt = makeFakeAdapter("youtube");
+    registry.register(yt.adapter);
+
+    // A Spotify-like adapter that substitutes to a YouTube track (the real fallback).
+    const ytTarget = track("youtube", "vid");
+    const spotify: SourceAdapter = {
+      ...makeFakeAdapter("spotify").adapter,
+      resolvePlayable: async () => ({ track: ytTarget, notice: "playing the YouTube version" }),
+    };
+    registry.register(spotify);
+    const store = new PlayerStore({ registry });
+
+    const started = await store.play(track("spotify", "sp-1"));
+    expect(started).toBe(true);
+    // The engine is the YouTube adapter (the resolved track's source), not Spotify.
+    expect(yt.calls).toEqual(["load", "play"]);
+    expect(store.getState().current?.source).toBe("youtube");
+    expect(store.getState().current?.nativeId).toBe("vid");
+    expect(store.getState().isPlaying).toBe(true);
+    expect(store.getState().notice).toBe("playing the YouTube version");
+  });
+
+  it("honestly stays silent with a reason when no substitute can be resolved", async () => {
+    const registry = createAdapterRegistry();
+    const spotify: SourceAdapter = {
+      ...makeFakeAdapter("spotify").adapter,
+      resolvePlayable: async () => ({ track: null, reason: "no YouTube version found" }),
+    };
+    registry.register(spotify);
+    const store = new PlayerStore({ registry });
+
+    const started = await store.play(track("spotify", "sp-1"));
+    expect(started).toBe(false);
+    expect(store.getState().isPlaying).toBe(false);
+    expect(store.getState().current?.source).toBe("spotify");
+    expect(store.getState().notice).toBe("no YouTube version found");
+  });
+
+  it("clears a stale notice when a normal track plays next", async () => {
+    const registry = createAdapterRegistry();
+    const yt = makeFakeAdapter("youtube");
+    registry.register(yt.adapter);
+    const spotify: SourceAdapter = {
+      ...makeFakeAdapter("spotify").adapter,
+      resolvePlayable: async () => ({ track: track("youtube", "v1"), notice: "fallback" }),
+    };
+    registry.register(spotify);
+    const store = new PlayerStore({ registry });
+
+    await store.play(track("spotify", "sp-1"));
+    expect(store.getState().notice).toBe("fallback");
+    await store.play(track("youtube", "plain"));
+    expect(store.getState().notice).toBeNull();
+  });
+});
+
 describe("switching source stops the previous adapter", () => {
   it("pauses and unloads the old adapter before starting the new one", async () => {
     const registry = createAdapterRegistry();

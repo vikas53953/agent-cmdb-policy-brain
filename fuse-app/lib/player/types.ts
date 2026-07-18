@@ -34,6 +34,12 @@ export type PlayerState = {
   durationSec: number;
   shuffle: boolean;
   repeat: RepeatMode;
+  // A short, plain-English label about the CURRENT playback situation, or null when
+  // there is nothing to say. Set honestly by the store when a source is substituted —
+  // e.g. a Spotify track played as its matched YouTube version for a non-Premium user
+  // (KTD-2, AE5): "Spotify needs Premium — playing the YouTube version". It is cleared
+  // on every fresh play so it never lingers past the moment it describes (R17).
+  notice: string | null;
 };
 
 // The DJ/player powers whose availability differs by source and context. These are
@@ -86,6 +92,14 @@ export type SourceAdapter = {
   readonly source: TrackSource;
   // The adapter's static capabilities (the source's column in the matrix).
   readonly capabilities: SourceCapabilities;
+  // OPTIONAL substitution seam (U15, KTD-2/AE5). Given a track of THIS adapter's
+  // source, return the track that should actually be played and an honest label for
+  // any swap — or a null track with a reason when nothing playable can be found.
+  // Sources that always play natively omit this (the store treats absence as
+  // identity). The Spotify adapter uses it to hand back the matched YouTube version
+  // for a non-Premium user, so the store — and the visible-player rule — operate on a
+  // real, playable track rather than a source the app cannot actually stream.
+  resolvePlayable?(track: TrackRef): Promise<PlayableResolution>;
   // Prepare a track for playback (create/point the underlying player at it).
   load(track: TrackRef): Promise<void>;
   // Begin / resume playback. Resolves once sound is (or will imminently be) produced.
@@ -101,3 +115,12 @@ export type SourceAdapter = {
   // Release the underlying player/resources for this adapter's current track.
   unload(): void;
 };
+
+// The result of resolvePlayable: either a playable track (optionally a SUBSTITUTE for
+// the requested one, carrying an honest notice about the swap), or an honest failure
+// with a plain-English reason when nothing playable could be resolved. The two-shape
+// union makes it impossible to return a substitute without saying so, or a failure
+// without a reason (R17 at the resolution layer).
+export type PlayableResolution =
+  | { track: TrackRef; notice: string | null }
+  | { track: null; reason: string };

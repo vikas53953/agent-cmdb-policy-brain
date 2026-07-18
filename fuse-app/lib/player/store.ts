@@ -28,6 +28,7 @@ const INITIAL_STATE: PlayerState = {
   durationSec: 0,
   shuffle: false,
   repeat: "off",
+  notice: null,
 };
 
 export type PlayerStoreOptions = {
@@ -78,9 +79,41 @@ export class PlayerStore {
   // source and delegates; only marks `isPlaying` true once an adapter has acted, so
   // the state never lies about producing sound. Returns whether playback started.
   async play(track?: TrackRef): Promise<boolean> {
-    const target = track ?? this.state.current;
-    if (!target) return false;
+    const requested = track ?? this.state.current;
+    if (!requested) return false;
 
+    // Ask the REQUESTED source's adapter whether the track needs substituting for an
+    // actually-playable one (Spotify → matched YouTube version for a non-Premium user,
+    // KTD-2/AE5). Sources that play natively have no resolvePlayable, so `target` stays
+    // the requested track and `notice` stays null — identity, no branch on source here.
+    let target = requested;
+    let notice: string | null = null;
+    const requestedAdapter = this.registry.get(requested.source);
+    if (requestedAdapter?.resolvePlayable) {
+      const resolution = await requestedAdapter.resolvePlayable(requested);
+      if (!resolution.track) {
+        // Nothing playable could be resolved: focus the requested track, keep silence,
+        // and surface the plain-English reason. Never claim to be playing (R17).
+        if (this.activeAdapter) {
+          this.activeAdapter.pause();
+          this.activeAdapter.unload();
+          this.activeAdapter = null;
+        }
+        this.set({
+          current: requested,
+          isPlaying: false,
+          positionSec: 0,
+          notice: resolution.reason,
+        });
+        return false;
+      }
+      target = resolution.track;
+      notice = resolution.notice;
+    }
+
+    // The engine is whichever adapter owns the RESOLVED track's source — for a Spotify
+    // fallback that is the YouTube adapter, so playback flows through the visible video
+    // (KTD-7) exactly as a native YouTube track would.
     const adapter = this.registry.get(target.source);
     // Switch active adapter if the source changed; stop the previous one honestly.
     if (this.activeAdapter && this.activeAdapter !== adapter) {
@@ -91,7 +124,7 @@ export class PlayerStore {
 
     if (!adapter) {
       // No engine for this source yet: focus the track but do not fake playback.
-      this.set({ current: target, isPlaying: false, positionSec: 0 });
+      this.set({ current: target, isPlaying: false, positionSec: 0, notice });
       return false;
     }
 
@@ -100,7 +133,7 @@ export class PlayerStore {
     // YouTube video, U7/KTD-7) mounts on-screen first and the player is created inside a
     // visible container rather than a hidden one. `isPlaying` stays honest — it flips to
     // true only after the adapter has actually acted (R17 at the state layer).
-    this.set({ current: target, isPlaying: false, positionSec: 0 });
+    this.set({ current: target, isPlaying: false, positionSec: 0, notice });
     await adapter.load(target);
     await adapter.play();
     this.set({ isPlaying: true });

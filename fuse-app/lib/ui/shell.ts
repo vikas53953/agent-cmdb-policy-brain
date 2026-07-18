@@ -51,17 +51,13 @@ export type PendingControl = {
 // The controls the profile sheet shows as "coming later". Each has a plain-English
 // reason a non-technical owner can read. (Audio-quality is deliberately absent —
 // it was dropped from v1 per R16, so it is not a pending control, it is gone.)
-export const PENDING_CONTROLS: readonly PendingControl[] = [
-  // Crossfade length graduated to a REAL control in U11 (the profile-sheet slider
-  // persists it and the blend engine reads it), so it is no longer pending.
-  {
-    id: "spotify",
-    group: "Sources",
-    label: "Connect Spotify",
-    reason: "Turns on when Spotify support arrives",
-    wiredIn: "U15",
-  },
-];
+//
+// This list is now EMPTY: every profile-sheet control is wired for real. Crossfade
+// length graduated to a live slider in U11, and Connect Spotify became a real control
+// in U15 (the Sources section renders it directly with its own honest configured /
+// connected / disabled states). The list and its machinery stay in place so a future
+// not-yet-wired control has one honest home to live in.
+export const PENDING_CONTROLS: readonly PendingControl[] = [];
 
 // Source badge display metadata (prototype .src.yt/.sp/.mp3). One definition the
 // search results, mini-player, and library rows all read from.

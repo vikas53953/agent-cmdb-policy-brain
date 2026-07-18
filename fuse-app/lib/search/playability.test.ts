@@ -6,16 +6,16 @@ import {
 } from "./playability";
 
 describe("resultPlayability — honesty rule (R17)", () => {
-  it("Spotify results are ALWAYS disabled in this commit (playback lands U15)", () => {
-    // Even if some adapter claimed to exist, Spotify stays honestly disabled.
-    expect(resultPlayability("spotify", true)).toEqual({
-      playable: false,
-      reason: SPOTIFY_SOON_REASON,
-    });
+  it("Spotify is disabled with a reason until its adapter is registered (U15)", () => {
     expect(resultPlayability("spotify", false)).toEqual({
       playable: false,
       reason: SPOTIFY_SOON_REASON,
     });
+  });
+
+  it("Spotify becomes playable once U15's adapter (YouTube fallback) is registered", () => {
+    // From U15 the Spotify adapter plays each result as its matched YouTube version.
+    expect(resultPlayability("spotify", true)).toEqual({ playable: true, reason: null });
   });
 
   it("YouTube is disabled with a reason until its adapter is registered (U7)", () => {

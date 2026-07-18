@@ -13,7 +13,12 @@
 
 import { useEffect, useRef, useState } from "react";
 import { PENDING_CONTROLS } from "@/lib/ui/shell";
-import { signOutAction, setLyricsEnabledAction, setCrossfadeSecAction } from "@/lib/actions";
+import {
+  signOutAction,
+  setLyricsEnabledAction,
+  setCrossfadeSecAction,
+  disconnectSpotifyAction,
+} from "@/lib/actions";
 import { CROSSFADE_MIN_SEC, CROSSFADE_MAX_SEC } from "@/lib/repos/settings";
 import type { ShellUser } from "@/components/ui/app-chrome";
 
@@ -48,6 +53,102 @@ function PendingRow({ label, reason }: { label: string; reason: string }) {
         <div className="setting-reason">{reason}</div>
       </div>
       <span className="soon-tag">Soon</span>
+    </div>
+  );
+}
+
+// Whether the PKCE connect flow is configured on THIS deployment. The public client id
+// and base URL are NEXT_PUBLIC_ (inlined at build), so this is safe to read client-side.
+// With either unset there is nothing to connect to, and the row renders disabled with
+// an honest reason (R17) — never an enabled button that would dead-end.
+const SPOTIFY_CONNECT_CONFIGURED = Boolean(
+  process.env.NEXT_PUBLIC_SPOTIFY_CLIENT_ID && process.env.NEXT_PUBLIC_BASE_URL,
+);
+const SP_UNCONFIGURED_REASON = "Spotify sign-in isn't set up on this server yet";
+
+// Read the non-secret `sp_connected` marker cookie (a bare "1"). Never reads a token.
+function readSpotifyConnected(): boolean {
+  if (typeof document === "undefined") return false;
+  return document.cookie
+    .split(";")
+    .map((c) => c.trim())
+    .some((c) => c === "sp_connected=1");
+}
+
+// Sources → Spotify (U15, R16/R17). Three honest states:
+//   • not configured → disabled, plain reason (above).
+//   • configured, not connected → a real Connect link that starts the PKCE flow.
+//   • connected → Connected badge + a real Disconnect control.
+// Reads the NON-secret `sp_connected` marker cookie on mount (starts false so server
+// and first client render agree — no hydration mismatch).
+function SpotifyRow() {
+  const [connected, setConnected] = useState(false);
+  const [working, setWorking] = useState(false);
+
+  // Read the non-secret `sp_connected` marker cookie after mount. Deferred to a
+  // microtask (not a synchronous effect setState) so server and first client render
+  // agree on `false` — no hydration mismatch — then the real value settles in.
+  useEffect(() => {
+    let active = true;
+    void Promise.resolve().then(() => {
+      if (active) setConnected(readSpotifyConnected());
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  if (!SPOTIFY_CONNECT_CONFIGURED) {
+    return <PendingRow label="Spotify" reason={SP_UNCONFIGURED_REASON} />;
+  }
+
+  async function disconnect() {
+    if (working) return;
+    setWorking(true);
+    try {
+      await disconnectSpotifyAction();
+      setConnected(false);
+    } finally {
+      setWorking(false);
+    }
+  }
+
+  if (connected) {
+    return (
+      <div className="setting-row">
+        <div className="setting-main">
+          <div className="setting-label">Spotify</div>
+          <div className="setting-reason">
+            Connected — Spotify songs play as their YouTube version
+          </div>
+        </div>
+        <div className="setting-actions">
+          <span className="connected-tag">Connected</span>
+          <button
+            type="button"
+            className="connect-btn"
+            onClick={disconnect}
+            disabled={working}
+            aria-label="Disconnect Spotify"
+          >
+            Disconnect
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="setting-row">
+      <div className="setting-main">
+        <div className="setting-label">Spotify</div>
+        <div className="setting-reason">Link your account to search with your Spotify</div>
+      </div>
+      {/* A real navigation to the PKCE start route — does something the moment it is
+          tapped (redirects to Spotify's sign-in), so it is never a decorative button. */}
+      <a className="connect-btn" href="/api/spotify/connect" aria-label="Connect Spotify">
+        Connect
+      </a>
     </div>
   );
 }
@@ -196,7 +297,7 @@ export default function ProfileSheet({
         </section>
 
         {/* Sources — the three music sources. YouTube is always on (built in);
-            Spotify connect is wired in U15. */}
+            Spotify connect is a real control from U15 (SpotifyRow). */}
         <section className="sheet-group">
           <h3 className="sheet-group-title">Sources</h3>
           <div className="setting-row">
@@ -206,6 +307,7 @@ export default function ProfileSheet({
             </div>
             <span className="badge yt">On</span>
           </div>
+          <SpotifyRow />
           {pendingFor("Sources").map((c) => (
             <PendingRow key={c.id} label={c.label} reason={c.reason} />
           ))}
