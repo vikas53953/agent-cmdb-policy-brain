@@ -1,11 +1,13 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import {
   clearActivity,
+  formatActivityLine,
   getActivity,
   logActivity,
   logPlaybackError,
   onActivity,
   redactedLength,
+  summarizeActivity,
   type ActivityEvent,
 } from "@/lib/activity-log";
 
@@ -63,5 +65,52 @@ describe("secrets never touch the log (owner standing rule)", () => {
   it("treats a null/undefined sensitive value as length 0", () => {
     expect(redactedLength(null)).toEqual({ redacted: true, length: 0 });
     expect(redactedLength(undefined)).toEqual({ redacted: true, length: 0 });
+  });
+});
+
+describe("diagnostics readers (U16, R18)", () => {
+  const at = new Date(2026, 6, 18, 9, 5, 3).getTime(); // 09:05:03 local
+
+  it("formats a readable, secret-safe line for a plain event", () => {
+    const line = formatActivityLine({
+      at,
+      level: "info",
+      type: "play",
+      message: 'Now playing "Track A"',
+      detail: { code: 100 },
+    });
+    expect(line).toBe('09:05:03  info  play  Now playing "Track A"  (code=100)');
+  });
+
+  it("renders a redacted value as its length only — never the value", () => {
+    const secret = "super-secret-token-value";
+    const line = formatActivityLine({
+      at,
+      level: "error",
+      type: "error",
+      message: "Auth failed",
+      detail: { token: redactedLength(secret) },
+    });
+    expect(line).toContain("ERROR");
+    expect(line).toContain(`token=[${secret.length} chars]`);
+    expect(line).not.toContain(secret);
+  });
+
+  it("degrades a bad timestamp to a placeholder instead of throwing", () => {
+    const line = formatActivityLine({
+      at: Number.NaN,
+      level: "info",
+      type: "tick",
+      message: "x",
+    });
+    expect(line.startsWith("--:--:--")).toBe(true);
+  });
+
+  it("summarizes totals and error counts", () => {
+    logActivity({ level: "info", type: "play", message: "a" });
+    logPlaybackError("b");
+    logActivity({ level: "info", type: "play", message: "c" });
+    expect(summarizeActivity()).toEqual({ total: 3, errors: 1 });
+    expect(summarizeActivity([])).toEqual({ total: 0, errors: 0 });
   });
 });

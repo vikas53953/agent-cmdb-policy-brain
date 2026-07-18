@@ -90,7 +90,56 @@ export function onActivity(listener: ActivityListener): () => void {
   };
 }
 
-// Clear the log (used by tests and, later, a diagnostics reset).
+// Clear the log (used by tests and the diagnostics reset control).
 export function clearActivity(): void {
   buffer.length = 0;
+}
+
+// ── Diagnostics readers (U16 completion of R18) ────────────────────────────────
+//
+// R18 promises the app records its own activity so failures can be DIAGNOSED from
+// evidence. U16 surfaces that: the diagnostics panel in the profile sheet reads the
+// log through these helpers. Both are pure and secret-safe — a RedactedLength renders
+// only as its length, never its value.
+
+// True when a two-decimal-safe clock string can be built for `at`.
+function clock(at: number): string {
+  // Local HH:MM:SS — enough to line up events during a listening session. Guarded so a
+  // bad timestamp degrades to "--:--:--" rather than throwing inside a render.
+  const d = new Date(at);
+  if (Number.isNaN(d.getTime())) return "--:--:--";
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+}
+
+// Render one detail value for display. A RedactedLength becomes "[N chars]" — the
+// value itself is NEVER produced, keeping the owner standing rule intact even in the UI.
+function formatDetailValue(value: ActivityDetail[string]): string {
+  if (typeof value === "object" && value !== null && "redacted" in value) {
+    return `[${value.length} chars]`;
+  }
+  return String(value);
+}
+
+// A single plain-English line for the diagnostics view / a copyable log. Secret-safe.
+export function formatActivityLine(event: ActivityEvent): string {
+  const tag = event.level === "error" ? "ERROR" : "info";
+  let line = `${clock(event.at)}  ${tag}  ${event.type}  ${event.message}`;
+  if (event.detail) {
+    const pairs = Object.entries(event.detail)
+      .map(([k, v]) => `${k}=${formatDetailValue(v)}`)
+      .join(", ");
+    if (pairs) line += `  (${pairs})`;
+  }
+  return line;
+}
+
+// A one-glance summary for the diagnostics header (how much has happened, how much
+// went wrong). Drives the "N events, M errors" line without exposing any content.
+export function summarizeActivity(
+  events: readonly ActivityEvent[] = getActivity(),
+): { total: number; errors: number } {
+  let errors = 0;
+  for (const e of events) if (e.level === "error") errors += 1;
+  return { total: events.length, errors };
 }

@@ -20,6 +20,7 @@ import {
   disconnectSpotifyAction,
 } from "@/lib/actions";
 import { CROSSFADE_MIN_SEC, CROSSFADE_MAX_SEC } from "@/lib/repos/settings";
+import DiagnosticsPanel from "@/components/settings/diagnostics-panel";
 import type { ShellUser } from "@/components/ui/app-chrome";
 
 type Props = {
@@ -340,7 +341,7 @@ export default function ProfileSheet({
           </div>
         </section>
 
-        {/* About — informational, not a control. */}
+        {/* About — informational, plus the activity log (R18). */}
         <section className="sheet-group">
           <h3 className="sheet-group-title">About</h3>
           <p className="about-line">
@@ -348,6 +349,10 @@ export default function ProfileSheet({
             and your own files. It is being built in stages; every button you see does
             something real, and anything not ready yet says so plainly.
           </p>
+          {/* The app records its own playback events and errors so problems can be
+              diagnosed from evidence (R18). This is where you can read that log; it
+              never shows any secret, only what happened. */}
+          <DiagnosticsPanel />
         </section>
       </aside>
     </>

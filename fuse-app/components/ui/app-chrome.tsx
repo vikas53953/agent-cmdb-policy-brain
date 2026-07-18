@@ -80,6 +80,12 @@ export default function AppChrome({
 
   return (
     <div className="app-frame">
+      {/* First stop for a keyboard user — jump past the top bar to the page (U16, a11y).
+          Off-screen until focused. */}
+      <a className="skip-link" href="#main-content">
+        Skip to content
+      </a>
+
       {/* Headless: records a play whenever a new track actually starts, feeding the
           Home "recently played" row and anonymous trending (U12). */}
       <PlayRecorder />
@@ -103,7 +109,9 @@ export default function AppChrome({
         </button>
       </header>
 
-      <main className="screen">{children}</main>
+      <main id="main-content" className="screen" tabIndex={-1}>
+        {children}
+      </main>
 
       <div className="dock">
         {withMiniPlayer ? (

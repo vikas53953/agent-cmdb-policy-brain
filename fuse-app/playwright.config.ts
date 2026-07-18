@@ -1,10 +1,16 @@
 import { defineConfig, devices } from "@playwright/test";
+import { E2E_READY } from "./e2e/fixtures";
 
-// Playwright is WIRED here at the scaffold (U1) but carries no specs yet — the
-// e2e suite (heart moment + honesty rules) lands in U16. Until then the `e2e/`
-// directory holds only this config's target and `playwright test` finds no specs.
-// The command joins the CI gate from U16 (see the plan's Verification Contract);
-// the U1 gate is `tsc --noEmit && eslint . && vitest run && next build`.
+// Playwright was WIRED at the scaffold (U1); the e2e suite (heart moment, honesty rules,
+// stall/retry) lands here in U16. `playwright test` joins the CI gate from U16 (see the
+// plan's Verification Contract; the U1..U15 gate is `tsc --noEmit && eslint . &&
+// vitest run && next build`).
+//
+// The specs GATE on E2E_READY: running them end-to-end needs a provisioned environment
+// (a signed-in storage state + the app's runtime secrets, none of which live on the
+// build machine or in the repo). With `E2E_READY=1` the setup project runs and the
+// specs execute against a signed-in browser; otherwise every spec skips with a clear
+// reason instead of failing a bare run.
 //
 // Browser binaries are NOT installed by `npm install`; run
 // `npx playwright install chromium` once before the first e2e run.
@@ -25,7 +31,19 @@ export default defineConfig({
     trace: "on-first-retry",
     screenshot: "only-on-failure",
   },
-  projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
+  projects: [
+    // Validates the injected signed-in session before the specs run (skips when the
+    // suite isn't provisioned). Only wired as a dependency once E2E_READY is set, so a
+    // bare run doesn't try to authenticate against nothing.
+    { name: "setup", testMatch: /auth\.setup\.ts/ },
+    {
+      name: "chromium",
+      use: { ...devices["Desktop Chrome"] },
+      // The signed-in state is applied per-spec via test.use(storageState); the file is
+      // only required when the suite is actually running.
+      dependencies: E2E_READY ? ["setup"] : [],
+    },
+  ],
   webServer: {
     command: `npm run dev -- -p ${PORT}`,
     url: BASE_URL,

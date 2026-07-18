@@ -2400,6 +2400,99 @@ body {
   color: var(--txt-mid);
 }
 
+/* --- Skip to content (U16, a11y) --------------------------------------------- */
+/* A keyboard user's first Tab lands here so they can jump past the top bar straight
+ * to the page. Off-screen until focused, then it slides into view. */
+.skip-link {
+  position: fixed;
+  top: 0;
+  left: 50%;
+  transform: translate(-50%, -120%);
+  z-index: 200;
+  padding: 10px 16px;
+  border-radius: 0 0 var(--r-sm) var(--r-sm);
+  background: var(--ink-2);
+  color: var(--txt-hi);
+  border: 1px solid var(--line);
+  border-top: none;
+  font: 600 14px/1 var(--font-body);
+  text-decoration: none;
+  transition: transform 0.15s ease;
+}
+.skip-link:focus {
+  transform: translate(-50%, 0);
+  outline: 2px solid var(--teal);
+  outline-offset: 2px;
+}
+
+/* --- Diagnostics panel (U16, R18) — the readable activity log in About -------- */
+.diag {
+  margin-top: 12px;
+}
+.diag-toggle {
+  appearance: none;
+  background: var(--ink-1);
+  color: var(--txt-mid);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  padding: 8px 12px;
+  font: 600 13px/1 var(--font-body);
+  cursor: pointer;
+}
+.diag-toggle:hover {
+  color: var(--txt-hi);
+  background: var(--ink-3);
+}
+.diag-toggle:focus-visible {
+  outline: 2px solid var(--teal);
+  outline-offset: 2px;
+}
+.diag-body {
+  margin-top: 10px;
+}
+.diag-summary {
+  font: 600 12px/1.4 var(--font-body);
+  color: var(--txt-mid);
+  margin-bottom: 8px;
+}
+.diag-list {
+  list-style: none;
+  margin: 0 0 10px;
+  padding: 8px;
+  max-height: 220px;
+  overflow: auto;
+  background: var(--ink-0);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--r-sm);
+}
+.diag-line {
+  font: 400 11px/1.5 var(--font-mono);
+  color: var(--txt-mid);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.diag-line.error {
+  color: var(--ember);
+}
+.diag-clear {
+  appearance: none;
+  background: transparent;
+  color: var(--txt-lo);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  padding: 6px 12px;
+  font: 600 12px/1 var(--font-body);
+  cursor: pointer;
+}
+.diag-clear:hover {
+  color: var(--txt-hi);
+  border-color: var(--line);
+}
+.diag-clear:focus-visible {
+  outline: 2px solid var(--teal);
+  outline-offset: 2px;
+}
+
 /* --- Reduced motion: collapse every transition/animation to near-instant ----- */
 @media (prefers-reduced-motion: reduce) {
   *,
