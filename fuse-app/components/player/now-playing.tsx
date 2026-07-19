@@ -14,7 +14,7 @@
 // live only when a working adapter backs the source, Next only when something is
 // queued, Skip only when there is a track to skip to.
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { usePlayerSelector } from "@/lib/player/use-player-selector";
 import { playerStore } from "@/lib/player/store";
 import { adapterRegistry } from "@/lib/player/adapters";
@@ -84,11 +84,15 @@ export default function NowPlaying({
   }, [open, onClose]);
 
   // A new track resets theater — the maximise state belongs to the video you were
-  // watching, not the next one.
+  // watching, not the next one. This is React's documented "adjust state when a prop
+  // changes" pattern (a guarded setState during render), not an effect, so it applies
+  // in the same render with no cascading re-render.
   const currentId = current ? `${current.source}:${current.nativeId}` : null;
-  useEffect(() => {
-    setTheater(false);
-  }, [currentId]);
+  const prevIdRef = useRef(currentId);
+  if (prevIdRef.current !== currentId) {
+    prevIdRef.current = currentId;
+    if (theater) setTheater(false);
+  }
 
   // The recovery ladder is driven app-wide by the single monitor in the shell
   // (use-playback-recovery.ts). This screen only RENDERS its honest phase from the store
