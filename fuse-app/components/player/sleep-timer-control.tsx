@@ -7,7 +7,7 @@
 // presets arm a real countdown that pauses playback, "End of track" arms the real store
 // flag, and Cancel truly disarms.
 
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   sleepTimer,
   useSleepTimer,
@@ -32,9 +32,9 @@ export default function SleepTimerControl({ variant = "icon" }: { variant?: "ico
   const armed = state.mode !== "off";
 
   // Anchor the portaled menu to the trigger: drop it just below, right-aligned, using fixed
-  // viewport coordinates. Measured with a layout effect so it paints in the right place with
-  // no flash. Re-measured on scroll/resize while open so it tracks the trigger.
-  useLayoutEffect(() => {
+  // viewport coordinates. The menu stays hidden (visibility:hidden) until measured, so there
+  // is no flash. Re-measured on scroll/resize while open so it tracks the trigger.
+  useEffect(() => {
     if (!open) return;
     const measure = () => {
       const el = ref.current;
