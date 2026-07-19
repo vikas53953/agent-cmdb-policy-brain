@@ -219,8 +219,28 @@ export class PlayerStore {
     this.set({ isPlaying: false, status: "idle", intent: "pause" });
   }
 
-  // Resume the current track. Convenience alias over play() with no argument.
+  // Resume the current track. When its player is still loaded (merely PAUSED in place —
+  // e.g. after the DJ console borrowed the decks), re-issue play on the SAME adapter with
+  // NO reload, so playback continues from the exact paused position rather than restarting
+  // from 0:00 (a resume must resume, never restart). Falls back to a full play() — which
+  // loads — only when there is no live adapter/track to resume.
   async resume(): Promise<boolean> {
+    if (this.activeAdapter && this.state.current) {
+      this.set({ status: "loading", intent: "play" });
+      try {
+        await this.activeAdapter.play();
+      } catch {
+        this.errorKind = "soft";
+        this.set({ isPlaying: false, status: "error" });
+        return false;
+      }
+      this.set(
+        this.errorKind === "none"
+          ? { isPlaying: true, status: "playing" }
+          : { isPlaying: true },
+      );
+      return true;
+    }
     return this.play();
   }
 

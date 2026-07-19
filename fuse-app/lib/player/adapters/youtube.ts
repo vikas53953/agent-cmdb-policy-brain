@@ -499,6 +499,9 @@ export function createYouTubeAdapter(deps: YouTubeAdapterDeps = {}): YouTubeAdap
       if (!player) return;
       await whenReady();
       player.playVideo();
+      // A real video is now playing: the ToS "keep the player visible" obligation is live,
+      // so the coordinator keeps a visible box (over the active slot, or a fallback chip).
+      if (coordinator) coordinator.setPlaybackLive("primary", true);
     },
 
     pause(): void {
@@ -506,6 +509,13 @@ export function createYouTubeAdapter(deps: YouTubeAdapterDeps = {}): YouTubeAdap
       // Reflect the pause immediately (the engine's own 'paused' event also confirms it),
       // so the recovery monitor sees "not playing" without waiting for the state event.
       if (player) setEngineState("paused");
+      // A PAUSED video carries no ToS visibility obligation, so playback is no longer
+      // "live" for the coordinator. This is what kills the orphaned fallback chip: when a
+      // screen with no player slot (the DJ console) pauses the main track, the host hides
+      // instead of stranding a small, uncontrollable video over the console. On a screen
+      // that DOES have a slot (mini/Now Playing) the paused frame still shows in that slot,
+      // because a present slot always wins over the live flag.
+      if (player && coordinator) coordinator.setPlaybackLive("primary", false);
     },
 
     seek(positionSec: number): void {

@@ -24,9 +24,16 @@ const SP_TOKEN_URL = "https://accounts.spotify.com/api/token";
 const SP_SEARCH_URL = "https://api.spotify.com/v1/search";
 const SP_AUTHORIZE_URL = "https://accounts.spotify.com/authorize";
 
-// Plain-English reasons for the UI (R17).
+// Plain-English reasons for the UI (R17). Both are HONEST and CALM — neither promises that
+// retrying will help, because when Spotify search is down on a deployment it stays down
+// (a missing/blocked app credential, not a transient hiccup). "try again" here misled every
+// searcher into re-running a query that could never succeed, so it is gone (the P1 fix).
 export const SP_NOT_CONFIGURED = "Spotify search isn't set up on this server yet";
-const SP_REQUEST_FAILED = "Spotify search is unavailable right now — try again";
+// App-credential search reached Spotify but was refused (invalid credentials, or Spotify
+// blocking the server's datacenter IP). Persistent, not transient — so we say so plainly and
+// point the user at what still works, rather than inviting a pointless retry.
+export const SP_UNAVAILABLE =
+  "Spotify search isn't available here right now — these results are from YouTube";
 
 export function hasSpotifyAppCredentials(): boolean {
   return !!process.env.SPOTIFY_CLIENT_ID && !!process.env.SPOTIFY_CLIENT_SECRET;
@@ -106,7 +113,7 @@ export async function searchSpotify(
     const res = await opts.fetch(`${SP_SEARCH_URL}?${params.toString()}`, {
       headers: { Authorization: `Bearer ${token}` },
     });
-    if (!res.ok) return { ok: false, reason: SP_REQUEST_FAILED };
+    if (!res.ok) return { ok: false, reason: SP_UNAVAILABLE };
     const body = (await res.json()) as SpotifySearchResponse;
     const tracks: TrackRef[] = (body.tracks?.items ?? [])
       .map((item): TrackRef | null => {
@@ -127,7 +134,7 @@ export async function searchSpotify(
       .filter((t): t is TrackRef => t !== null);
     return { ok: true, tracks };
   } catch {
-    return { ok: false, reason: SP_REQUEST_FAILED };
+    return { ok: false, reason: SP_UNAVAILABLE };
   }
 }
 

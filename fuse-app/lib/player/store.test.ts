@@ -65,6 +65,28 @@ describe("PlayerStore is the single source of playback truth", () => {
     expect(calls).toEqual(["load", "play", "pause"]);
   });
 
+  it("resume() re-issues play on the SAME loaded adapter — never a reload/restart (P1 DJ)", async () => {
+    // The DJ console pauses the main track on entry and resumes it on leave. Resume must
+    // continue from where it was, not restart from 0 — so it must NOT call load() again
+    // (loadVideoById restarts the video). It re-issues play() on the still-loaded adapter.
+    const registry = createAdapterRegistry();
+    const { adapter, calls } = makeFakeAdapter("youtube");
+    registry.register(adapter);
+    const store = new PlayerStore({ registry });
+
+    await store.play(track("youtube", "abc"));
+    store.pause();
+    expect(calls).toEqual(["load", "play", "pause"]);
+
+    const resumed = await store.resume();
+    expect(resumed).toBe(true);
+    expect(store.getState().isPlaying).toBe(true);
+    expect(store.getState().status).toBe("playing");
+    // One extra "play", and crucially NO second "load" — the track was not reloaded.
+    expect(calls).toEqual(["load", "play", "pause", "play"]);
+    expect(calls.filter((c) => c === "load")).toHaveLength(1);
+  });
+
   it("drives the identical contract for a different source (no YouTube-only wiring)", async () => {
     const registry = createAdapterRegistry();
     const { adapter, calls } = makeFakeAdapter("local");

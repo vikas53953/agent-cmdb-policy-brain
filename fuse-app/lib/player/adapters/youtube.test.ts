@@ -438,6 +438,22 @@ describe("geometry mode (the reparent-reload fix) — coordinator-driven host", 
     adapter.unload();
     expect(coord.live).toContainEqual({ role: "primary", live: false });
   });
+
+  it("pause marks playback not-live so a slot-less screen shows no orphaned chip (P1 DJ)", async () => {
+    // When the DJ console (a screen with no player slot) pauses the main track, the paused
+    // video carries no ToS visibility obligation — so the adapter tells the coordinator
+    // playback is no longer live, which hides the host instead of stranding an
+    // uncontrollable fallback chip over the console. Resuming re-marks it live.
+    const { adapter, coord } = setup();
+    await adapter.load(track("aaa"));
+    await adapter.play();
+    coord.live.length = 0; // focus on what pause/play report from here
+    adapter.pause();
+    expect(coord.live).toContainEqual({ role: "primary", live: false });
+    coord.live.length = 0;
+    await adapter.play();
+    expect(coord.live).toContainEqual({ role: "primary", live: true });
+  });
 });
 
 describe("engine state seam (intent-gated recovery reads this)", () => {

@@ -22,12 +22,28 @@ export default function DjConsole() {
   const [sourceB, setSourceB] = useState<TrackSource | null>(null);
   // 0 = full Deck A, 1 = full Deck B. Start centred so both decks are audible.
   const [position, setPosition] = useState(0.5);
+  // Captured ONCE at entry (a pure store read in the initializer): the title of the main
+  // track we are about to take over, or null when nothing was playing. Driving the notice
+  // from this — not a setState in the effect — keeps the takeover honest without a
+  // cascading render: we say plainly what we paused and that it resumes on leave (the P1
+  // fix — no music silently lost, no orphaned uncontrollable chip).
+  const [pausedTitle] = useState<string | null>(() => {
+    const { isPlaying, current } = playerStore.getState();
+    return isPlaying ? current?.title ?? "your track" : null;
+  });
 
-  // Taking over the decks pauses the main mini-player so the console's audio is the
-  // only thing playing — no overlap, no hidden main track behind the DJ screen.
+  // Taking over the decks pauses the main mini-player so the console's audio is the only
+  // thing playing — no overlap, no hidden main track behind the DJ screen. Only when
+  // something was actually playing: we pause it here and RESUME it (in place, from where it
+  // was) when the user leaves DJ — tapping one tab must never silently stop your music.
   useEffect(() => {
+    if (pausedTitle === null) return; // nothing was playing — leave the player untouched
     playerStore.pause();
-  }, []);
+    return () => {
+      // Leaving the console: hand the sound back exactly where we borrowed it.
+      void playerStore.resume();
+    };
+  }, [pausedTitle]);
 
   const gains = crossfadeGains(position);
 
@@ -35,6 +51,17 @@ export default function DjConsole() {
     <div className="dj">
       <header className="dj-head">
         <h1 className="dj-heading">DJ console</h1>
+        {pausedTitle ? (
+          <p
+            className="dj-paused-note"
+            data-testid="dj-paused-note"
+            role="status"
+            aria-live="polite"
+          >
+            Paused “{pausedTitle}” so the decks have the sound — it picks up again when you
+            leave DJ.
+          </p>
+        ) : null}
         <p className="dj-note">
           Every control here does something real. Your own files get the full engine —
           EQ, loops, echo, scratch — on audio that never leaves your device. YouTube
