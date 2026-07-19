@@ -16,11 +16,14 @@ import type { SourceOutcome } from "@/lib/youtube";
 // the honest per-source messaging in the results UI (R17).
 export type SourceStatus = { available: boolean; reason: string | null };
 
-// The full search payload — what the route returns and what gets cached (so a
-// cache hit reproduces the exact same combined output, statuses included).
+export type SourceStatuses = { youtube: SourceStatus; spotify: SourceStatus };
+
+// The full search payload — what the ROUTE returns. `sources` is ALWAYS computed
+// fresh (never read from cache), so a reworded availability notice ships the instant
+// it deploys and no customer is ever served a stale reason string (the P1 fix).
 export type SearchPayload = {
   results: TrackRef[];
-  sources: { youtube: SourceStatus; spotify: SourceStatus };
+  sources: SourceStatuses;
 };
 
 export type SearchResponse = SearchPayload & {
@@ -28,15 +31,29 @@ export type SearchResponse = SearchPayload & {
   cached: boolean;
 };
 
+// What actually goes INTO the cache: results ONLY. Per-source status/reason strings
+// are deliberately absent — they describe the live availability of a source at request
+// time, not the (query-stable) result rows, so caching them was the P1 bug. Keeping the
+// cached shape results-only makes that class of bug impossible: there is no reason
+// string in the store to go stale.
+export type CachedSearch = {
+  results: TrackRef[];
+};
+
 // The seams the core needs. Each is injected so tests control it precisely and
 // the route binds the real cache + source calls.
 export type SearchDeps = {
-  // Cached payload for this query, or null on a miss / expiry / cache error.
-  readCache: (query: string) => Promise<SearchPayload | null>;
-  // Persist the combined payload under this query (best-effort; may no-op).
-  writeCache: (query: string, payload: SearchPayload) => Promise<void>;
+  // Cached results for this query, or null on a miss / expiry / cache error. Results
+  // ONLY — never source statuses (those are recomputed fresh below).
+  readCache: (query: string) => Promise<CachedSearch | null>;
+  // Persist the results under this query (best-effort; may no-op). Results ONLY.
+  writeCache: (query: string, cached: CachedSearch) => Promise<void>;
   searchYouTube: (query: string) => Promise<SourceOutcome>;
   searchSpotify: (query: string) => Promise<SourceOutcome>;
+  // Fresh, no-network per-source availability from the CURRENT server config, using the
+  // live reason CONSTANTS. Called on every cache HIT so the notice a customer sees is
+  // always the current wording — never a string that was frozen into a cache entry.
+  freshStatus: () => SourceStatuses;
 };
 
 function toStatus(outcome: SourceOutcome): SourceStatus {
@@ -61,9 +78,11 @@ export async function runSearch(rawQuery: string, deps: SearchDeps): Promise<Sea
 
   const hit = await deps.readCache(query);
   if (hit) {
-    // HIT: return the cached combined payload — crucially WITHOUT calling YouTube,
-    // so a repeated query spends zero search.list quota (KTD-8).
-    return { query, cached: true, ...hit };
+    // HIT: return the cached RESULT ROWS — crucially WITHOUT calling YouTube, so a
+    // repeated query spends zero search.list quota (KTD-8). Source statuses are computed
+    // FRESH from current config (never read from the cache), so the availability notice
+    // is always today's wording and a stale "…try again" string can never resurface (P1).
+    return { query, cached: true, results: hit.results, sources: deps.freshStatus() };
   }
 
   // MISS: query both sources concurrently. Each independently reports success or
@@ -80,17 +99,16 @@ export async function runSearch(rawQuery: string, deps: SearchDeps): Promise<Sea
     if (spTracks[i]) results.push(spTracks[i]);
   }
 
-  const payload: SearchPayload = {
-    results,
-    sources: { youtube: toStatus(yt), spotify: toStatus(sp) },
-  };
+  const sources: SourceStatuses = { youtube: toStatus(yt), spotify: toStatus(sp) };
 
   // Only cache when at least one source actually returned — never cache a purely
   // "unconfigured" empty, or a first search after keys are provisioned would keep
-  // serving that stale emptiness for the whole TTL.
+  // serving that stale emptiness for the whole TTL. We cache RESULTS ONLY: the source
+  // statuses above are the live outcome for THIS miss and are returned now, but they are
+  // never written to the store (the P1 class fix — no reason string can ever go stale).
   if (yt.ok || sp.ok) {
-    await deps.writeCache(query, payload);
+    await deps.writeCache(query, { results });
   }
 
-  return { query, cached: false, ...payload };
+  return { query, cached: false, results, sources };
 }
