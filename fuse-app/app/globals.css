@@ -1856,6 +1856,18 @@ body {
     linear-gradient(270deg, var(--teal-soft), transparent 45%),
     var(--ink-1);
 }
+/* Honest takeover note (R17): shown only when entering DJ actually paused your track,
+   so the takeover is never silent and never strands an uncontrollable video chip. */
+.dj-paused-note {
+  margin: 0 2px;
+  font-size: 0.82rem;
+  color: var(--txt-mid);
+  line-height: 1.5;
+  padding: 8px 12px;
+  border: 1px dashed var(--line);
+  border-radius: var(--r-md);
+  background: var(--ink-1);
+}
 
 /* --- Deck -------------------------------------------------------------------- */
 .deck {

@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   searchSpotify,
   SP_NOT_CONFIGURED,
+  SP_UNAVAILABLE,
   base64UrlEncode,
   buildSpotifyAuthorizeUrl,
   codeChallengeS256,
@@ -22,6 +23,26 @@ describe("searchSpotify — credential guard (keyless-safe, R17)", () => {
       getToken: async () => null, // simulates missing SPOTIFY_CLIENT_ID/SECRET
     });
     expect(out).toEqual({ ok: false, reason: SP_NOT_CONFIGURED });
+  });
+
+  it("returns an honest, NON-transient reason when Spotify refuses the search (P1)", async () => {
+    // Token obtained (creds present) but the search endpoint refuses — the real live
+    // failure (invalid creds / datacenter-IP block). This is PERSISTENT, so the reason
+    // must not invite a pointless retry.
+    const out = await searchSpotify("taylor swift", {
+      fetch: fakeFetch({}, false), // non-ok response
+      getToken: async () => "app-token",
+    });
+    expect(out).toEqual({ ok: false, reason: SP_UNAVAILABLE });
+  });
+
+  it("no Spotify unavailability reason misleads with a transient 'try again' (honesty)", () => {
+    // The class-level honesty guard: every message a user sees when Spotify search is down
+    // states the persistent truth calmly — never "try again", which implied a hiccup that
+    // retrying would clear when in fact it never does.
+    for (const reason of [SP_NOT_CONFIGURED, SP_UNAVAILABLE]) {
+      expect(reason.toLowerCase()).not.toContain("try again");
+    }
   });
 });
 
