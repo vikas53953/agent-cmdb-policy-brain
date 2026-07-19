@@ -16,9 +16,10 @@
 
 import { NextResponse } from "next/server";
 import { readSearchCache, writeSearchCache } from "@/lib/repos/search-cache";
-import { searchYouTube } from "@/lib/youtube";
-import { searchSpotify } from "@/lib/spotify";
-import { runSearch, type SearchDeps, type SearchPayload } from "@/lib/search/orchestrate";
+import { searchYouTube, hasYouTubeApiKey, YT_NOT_CONFIGURED } from "@/lib/youtube";
+import { searchSpotify, hasSpotifyAppCredentials, SP_NOT_CONFIGURED } from "@/lib/spotify";
+import { runSearch, type SearchDeps, type CachedSearch, type SourceStatuses } from "@/lib/search/orchestrate";
+import type { TrackRef } from "@/lib/repos/track";
 
 // Prisma (Neon) needs the Node runtime, not Edge.
 export const runtime = "nodejs";
@@ -27,26 +28,47 @@ export const runtime = "nodejs";
 const realFetch = ((input: string, init?: RequestInit) =>
   fetch(input, init)) as unknown as Parameters<typeof searchYouTube>[1]["fetch"];
 
+// Fresh, no-network per-source availability from the CURRENT server config, using the
+// live reason CONSTANTS. This is what makes the P1 fix real: on a cache hit the notice is
+// re-derived here, so rewording SP_NOT_CONFIGURED / YT_NOT_CONFIGURED ships instantly and
+// no stale string can ever be served from a cache entry.
+function freshStatus(): SourceStatuses {
+  return {
+    youtube: hasYouTubeApiKey()
+      ? { available: true, reason: null }
+      : { available: false, reason: YT_NOT_CONFIGURED },
+    spotify: hasSpotifyAppCredentials()
+      ? { available: true, reason: null }
+      : { available: false, reason: SP_NOT_CONFIGURED },
+  };
+}
+
 // Cache reads/writes are best-effort: a missing/broken DATABASE_URL must degrade
 // to "no cache" (every query hits the sources) rather than 500 the search.
 const deps: SearchDeps = {
   readCache: async (query) => {
     try {
       const cached = await readSearchCache(query);
-      return (cached as SearchPayload | null) ?? null;
+      // Results ONLY — defensively ignore anything else a legacy entry may carry (e.g.
+      // a v1 `sources` block), so a stale reason string can never be read back even if
+      // the version prefix somehow lets an old entry through.
+      if (!cached || typeof cached !== "object") return null;
+      const results = (cached as { results?: unknown }).results;
+      return Array.isArray(results) ? { results: results as TrackRef[] } : null;
     } catch {
       return null; // treat a cache failure as a miss
     }
   },
-  writeCache: async (query, payload) => {
+  writeCache: async (query, cached: CachedSearch) => {
     try {
-      await writeSearchCache(query, payload as unknown as Parameters<typeof writeSearchCache>[1]);
+      await writeSearchCache(query, cached as unknown as Parameters<typeof writeSearchCache>[1]);
     } catch {
       // best-effort — a failed cache write must not fail the request
     }
   },
   searchYouTube: (query) => searchYouTube(query, { fetch: realFetch }),
   searchSpotify: (query) => searchSpotify(query, { fetch: realFetch }),
+  freshStatus,
 };
 
 export async function GET(request: Request) {

@@ -356,6 +356,69 @@ describe("user intent — the R1/R3/R4 gate (only the user's commands move inten
   });
 });
 
+describe("rehydrate — restore paused after a reload, then resume from the saved spot (FIX 2)", () => {
+  it("restores the track PAUSED at the saved position — never auto-plays", () => {
+    const registry = createAdapterRegistry();
+    registry.register(makeFakeAdapter("youtube").adapter);
+    const store = new PlayerStore({ registry });
+
+    store.rehydrate({
+      current: track("youtube", "abc"),
+      queue: [track("youtube", "b")],
+      positionSec: 42,
+      durationSec: 200,
+    });
+
+    const s = store.getState();
+    expect(s.current?.nativeId).toBe("abc");
+    expect(s.queue.map((t) => t.nativeId)).toEqual(["b"]);
+    expect(s.positionSec).toBe(42);
+    expect(s.durationSec).toBe(200);
+    // The no-uninvited-music law: restored means PAUSED, not playing.
+    expect(s.isPlaying).toBe(false);
+    expect(s.intent).toBe("idle");
+    expect(s.status).toBe("idle");
+  });
+
+  it("the first play after rehydrate seeks to the saved position, then plays from there", async () => {
+    const registry = createAdapterRegistry();
+    const { adapter, calls } = makeFakeAdapter("youtube");
+    registry.register(adapter);
+    const store = new PlayerStore({ registry });
+
+    store.rehydrate({ current: track("youtube", "abc"), positionSec: 42, durationSec: 200 });
+    // The user taps play (resume with no live adapter falls through to a fresh load).
+    const ok = await store.resume();
+    expect(ok).toBe(true);
+    // Load, THEN seek to the saved spot, THEN play — position continues from 42, not 0:00.
+    expect(calls).toEqual(["load", "seek", "play"]);
+    expect(store.getState().isPlaying).toBe(true);
+  });
+
+  it("the resume offset applies once and never leaks to a later, different track", async () => {
+    const registry = createAdapterRegistry();
+    const { adapter, calls } = makeFakeAdapter("youtube");
+    registry.register(adapter);
+    const store = new PlayerStore({ registry });
+
+    store.rehydrate({ current: track("youtube", "abc"), positionSec: 42 });
+    // A fresh play of a DIFFERENT track must NOT inherit the 42s offset (no seek).
+    await store.play(track("youtube", "other"));
+    expect(calls).toEqual(["load", "play"]); // no "seek"
+    expect(store.getState().current?.nativeId).toBe("other");
+  });
+
+  it("does not clobber a live in-memory session", () => {
+    const registry = createAdapterRegistry();
+    registry.register(makeFakeAdapter("youtube").adapter);
+    const store = new PlayerStore({ registry });
+    store.rehydrate({ current: track("youtube", "live") });
+    // A second rehydrate (e.g. a late-arriving snapshot) is ignored once a track is loaded.
+    store.rehydrate({ current: track("youtube", "stale"), positionSec: 99 });
+    expect(store.getState().current?.nativeId).toBe("live");
+  });
+});
+
 describe("switching source stops the previous adapter", () => {
   it("pauses and unloads the old adapter before starting the new one", async () => {
     const registry = createAdapterRegistry();

@@ -66,6 +66,12 @@ export class PlayerStore {
   // escalates the ladder immediately instead of wasting retries. Cleared on every fresh
   // load and the moment real position progress resumes (a track that recovers is healthy).
   private errorKind: EngineErrorKind = "none";
+  // A position (in seconds) to resume the CURRENT track from on the NEXT user-initiated
+  // play, set only by rehydrate() after a page reload. It is tied to a specific track so a
+  // fresh play of a DIFFERENT track never inherits a stale offset. Consumed (cleared) the
+  // moment play() runs, so it applies exactly once — the honest "restore paused, then play
+  // continues from where you left off" behaviour, never a silent auto-play.
+  private pendingResume: { source: string; nativeId: string; positionSec: number } | null = null;
 
   constructor(options: PlayerStoreOptions = {}) {
     this.registry = options.registry ?? adapterRegistry;
@@ -95,12 +101,56 @@ export class PlayerStore {
     this.set({ queue: [...tracks] });
   }
 
+  // Restore a track + queue from a persisted session after a page reload (FIX 2), PAUSED
+  // at the saved position. It NEVER starts sound — isPlaying stays false and intent stays
+  // "idle", so the no-uninvited-music law holds (the user must tap play). It records the
+  // saved position as a one-shot resume offset so that the user's NEXT play continues from
+  // exactly where they left off rather than restarting at 0:00. A no-op when a track is
+  // already loaded (a live session must never be clobbered by a stale snapshot).
+  rehydrate(snapshot: {
+    current: TrackRef;
+    queue?: readonly TrackRef[];
+    positionSec?: number;
+    durationSec?: number;
+  }): void {
+    if (this.state.current) return;
+    const positionSec = Math.max(0, snapshot.positionSec ?? 0);
+    this.pendingResume = {
+      source: snapshot.current.source,
+      nativeId: snapshot.current.nativeId,
+      positionSec,
+    };
+    this.set({
+      current: snapshot.current,
+      queue: snapshot.queue ? [...snapshot.queue] : [],
+      positionSec,
+      durationSec: Math.max(0, snapshot.durationSec ?? 0),
+      isPlaying: false,
+      status: "idle",
+      intent: "idle",
+      engineState: "unstarted",
+      recovery: { phase: "ok", skipOffered: false },
+      notice: null,
+    });
+  }
+
   // Play a track (or resume the current one). Resolves the adapter for the track's
   // source and delegates; only marks `isPlaying` true once an adapter has acted, so
   // the state never lies about producing sound. Returns whether playback started.
   async play(track?: TrackRef): Promise<boolean> {
     const requested = track ?? this.state.current;
     if (!requested) return false;
+
+    // Consume any one-shot resume offset from a rehydrated session (FIX 2). It applies
+    // ONLY when this play is for the same track that was restored; a fresh play of a
+    // different track drops it. Cleared unconditionally so it can never leak into a later
+    // play. `resumeSec` seeds the optimistic position and seeks the engine after load.
+    const resume = this.pendingResume;
+    this.pendingResume = null;
+    const resumeSec =
+      resume && resume.source === requested.source && resume.nativeId === requested.nativeId
+        ? resume.positionSec
+        : 0;
 
     // Ask the REQUESTED source's adapter whether the track needs substituting for an
     // actually-playable one (Spotify → matched YouTube version for a non-Premium user,
@@ -178,7 +228,9 @@ export class PlayerStore {
     this.set({
       current: target,
       isPlaying: false,
-      positionSec: 0,
+      // Seed the scrub at the rehydrated resume position (0 for a normal fresh play), so
+      // the UI shows the right spot the instant the track focuses rather than flashing 0:00.
+      positionSec: resumeSec,
       notice,
       status: "loading",
       recovery: { phase: "ok", skipOffered: false },
@@ -189,6 +241,12 @@ export class PlayerStore {
     });
     try {
       await adapter.load(target);
+      // Restored session: jump the freshly-loaded engine to where the user left off BEFORE
+      // starting, so playback continues from there rather than from 0:00 (FIX 2).
+      if (resumeSec > 0) {
+        adapter.seek(resumeSec);
+        this.set({ positionSec: resumeSec });
+      }
       await adapter.play();
     } catch {
       // The engine could not start: honest error state, never a silent stuck "loading".

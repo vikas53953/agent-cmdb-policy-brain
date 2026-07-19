@@ -26,6 +26,7 @@ import MiniPlayer from "@/components/player/mini-player";
 import NowPlaying from "@/components/player/now-playing";
 import ProfileSheet from "@/components/settings/profile-sheet";
 import PlayRecorder from "@/components/home/play-recorder";
+import PlayerPersistence from "@/components/player/player-persistence";
 
 // The subset of the signed-in user the shell needs. Serializable so it can cross
 // the server→client boundary from the layout.
@@ -102,6 +103,10 @@ export default function AppChrome({
       {/* Headless: records a play whenever a new track actually starts, feeding the
           Home "recently played" row and anonymous trending (U12). */}
       <PlayRecorder />
+
+      {/* Headless: restores the mini-player (paused) + persists it across reloads (FIX 2).
+          Never auto-plays — the user's tap is the only thing that starts sound. */}
+      <PlayerPersistence />
 
       <header className="topbar">
         <span className="brand">Fuse</span>

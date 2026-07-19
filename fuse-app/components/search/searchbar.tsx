@@ -16,6 +16,7 @@ import { useEffect, useRef, useState } from "react";
 import type { TrackRef } from "@/lib/repos/track";
 import type { SearchResponse } from "@/lib/search/orchestrate";
 import { adapterRegistry } from "@/lib/player/adapters";
+import { loadSearchQuery, saveSearchQuery } from "@/lib/session-state";
 import ResultRow from "@/components/search/result-row";
 
 const DEBOUNCE_MS = 350;
@@ -33,6 +34,23 @@ export default function SearchBar() {
   const [query, setQuery] = useState("");
   const [outcome, setOutcome] = useState<Outcome>(EMPTY_OUTCOME);
   const abortRef = useRef<AbortController | null>(null);
+
+  // Restore the last query after a reload (FIX 2). Deliberately done in a mount effect, not
+  // in the initial state: sessionStorage is browser-only, so seeding initial state from it
+  // would make the client's first render disagree with the server's empty input (a hydration
+  // mismatch). Reading it once post-hydration and setting state is the correct pattern here —
+  // the one-shot setState is intended (it re-runs the normal debounced search below, which
+  // the server cache serves, restoring the results view without a special path).
+  useEffect(() => {
+    const restored = loadSearchQuery();
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional one-shot restore from browser storage on mount
+    if (restored) setQuery(restored);
+  }, []);
+
+  // Persist the query on every change so the next reload can restore it (cleared when empty).
+  useEffect(() => {
+    saveSearchQuery(query);
+  }, [query]);
 
   useEffect(() => {
     const trimmed = query.trim();
