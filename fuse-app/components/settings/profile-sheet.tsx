@@ -17,6 +17,7 @@ import {
   signOutAction,
   setLyricsEnabledAction,
   setCrossfadeSecAction,
+  setPreferAudioAction,
   disconnectSpotifyAction,
 } from "@/lib/actions";
 import { CROSSFADE_MIN_SEC, CROSSFADE_MAX_SEC } from "@/lib/repos/settings";
@@ -35,6 +36,10 @@ type Props = {
   // slider, the live blend engine, and the persisted value stay in sync (U11, R3/R16).
   crossfadeSec: number;
   onCrossfadeChange: (seconds: number) => void;
+  // The current "prefer audio versions" value and a setter, owned by the shell so this
+  // toggle reflects and persists the choice the search route reads (Complaint 1, R16).
+  preferAudio: boolean;
+  onPreferAudioChange: (enabled: boolean) => void;
 };
 
 function initialOf(user: ShellUser | null): string {
@@ -162,12 +167,15 @@ export default function ProfileSheet({
   onLyricsChange,
   crossfadeSec,
   onCrossfadeChange,
+  preferAudio,
+  onPreferAudioChange,
 }: Props) {
   const closeRef = useRef<HTMLButtonElement>(null);
   // While a persist is in flight the toggle is disabled so a rapid double-tap can't
   // race two writes. Optimistic: the UI flips immediately; if the server write fails
   // we revert so the control never lies about what was saved.
   const [saving, setSaving] = useState(false);
+  const [savingAudio, setSavingAudio] = useState(false);
 
   async function toggleLyrics() {
     if (saving) return;
@@ -180,6 +188,20 @@ export default function ProfileSheet({
       onLyricsChange(!next); // revert on failure — honest state
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function togglePreferAudio() {
+    if (savingAudio) return;
+    const next = !preferAudio;
+    setSavingAudio(true);
+    onPreferAudioChange(next); // optimistic — the next search reorders instantly
+    try {
+      await setPreferAudioAction(next);
+    } catch {
+      onPreferAudioChange(!next); // revert on failure — honest state
+    } finally {
+      setSavingAudio(false);
     }
   }
 
@@ -293,6 +315,33 @@ export default function ProfileSheet({
               aria-label="Crossfade length in seconds"
               aria-valuetext={`${crossfadeSec} seconds`}
             />
+          </div>
+          {/* Prefer audio versions (Complaint 1). A REAL control: when on, search floats
+              official audio versions (Topic-channel uploads, "Official Audio" titles)
+              above music videos, so Fuse behaves like a music app. Honest about what it
+              can and can't do — videos still appear, and a video always stays a visible
+              video (YouTube's terms), it just sits below the audio versions. */}
+          <div className="setting-row">
+            <div className="setting-main">
+              <div className="setting-label">Prefer audio versions</div>
+              <div className="setting-reason">
+                {preferAudio
+                  ? "Search shows official audio first; videos still appear, labelled and below"
+                  : "Search shows results in mixed order — audio and video together"}
+              </div>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={preferAudio}
+              aria-label="Prefer audio versions"
+              data-testid="prefer-audio-toggle"
+              className={preferAudio ? "switch on" : "switch"}
+              onClick={togglePreferAudio}
+              disabled={savingAudio}
+            >
+              <span className="switch-knob" aria-hidden="true" />
+            </button>
           </div>
           {pendingFor("Playback").map((c) => (
             <PendingRow key={c.id} label={c.label} reason={c.reason} />

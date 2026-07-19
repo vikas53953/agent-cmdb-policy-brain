@@ -45,6 +45,7 @@ export default function AppChrome({
   user,
   lyricsEnabled: initialLyricsEnabled,
   crossfadeSec: initialCrossfadeSec,
+  preferAudio: initialPreferAudio,
   children,
 }: {
   user: ShellUser | null;
@@ -55,6 +56,9 @@ export default function AppChrome({
   // The persisted crossfade length in seconds (U11, R3/R16). Owned here so the slider
   // updates the live blend engine instantly while also persisting for next session.
   crossfadeSec: number;
+  // The persisted "prefer audio versions" setting (Complaint 1, R16). Owned here so the
+  // profile-sheet toggle reflects and persists the choice the search route reads.
+  preferAudio: boolean;
   children: React.ReactNode;
 }) {
   const [sheetOpen, setSheetOpen] = useState(false);
@@ -64,6 +68,7 @@ export default function AppChrome({
   const [npOpen, setNpOpen] = useState(false);
   const [lyricsEnabled, setLyricsEnabled] = useState(initialLyricsEnabled);
   const [crossfadeSec, setCrossfadeSec] = useState(initialCrossfadeSec);
+  const [preferAudio, setPreferAudio] = useState(initialPreferAudio);
   const pathname = usePathname() ?? "/";
   const withMiniPlayer = showsMiniPlayer(pathname);
 
@@ -153,6 +158,8 @@ export default function AppChrome({
         onLyricsChange={setLyricsEnabled}
         crossfadeSec={crossfadeSec}
         onCrossfadeChange={changeCrossfade}
+        preferAudio={preferAudio}
+        onPreferAudioChange={setPreferAudio}
       />
     </div>
   );

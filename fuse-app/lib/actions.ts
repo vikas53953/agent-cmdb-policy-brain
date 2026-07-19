@@ -7,7 +7,7 @@
 import { cookies } from "next/headers";
 import { signOut } from "@/lib/auth";
 import { requireUser } from "@/lib/auth-session";
-import { setLyricsEnabled, setCrossfadeSec, getCrossfadeSec } from "@/lib/repos/settings";
+import { setLyricsEnabled, setCrossfadeSec, getCrossfadeSec, setPreferAudio } from "@/lib/repos/settings";
 
 // Sign the current user out and land them back on the sign-in page. This is a REAL,
 // working control (the one live control in the U4 profile sheet). It calls Auth.js's
@@ -39,6 +39,17 @@ export async function setCrossfadeSecAction(seconds: number): Promise<number> {
   const user = await requireUser();
   await setCrossfadeSec(user.id, seconds);
   return getCrossfadeSec(user.id);
+}
+
+// Persist the "prefer audio versions" setting for the signed-in user (Complaint 1,
+// R16/R17). A REAL control — the profile-sheet toggle calls it and the search route
+// reads it, so results genuinely reorder audio-first and the choice survives reload.
+// requireUser scopes the write to the caller's own settings row; a keyless build never
+// invokes it. Returns the value written so the client can confirm its optimistic state.
+export async function setPreferAudioAction(enabled: boolean): Promise<boolean> {
+  const user = await requireUser();
+  await setPreferAudio(user.id, enabled);
+  return enabled;
 }
 
 // Disconnect Spotify (U15, R16). Clears the connection marker and the httpOnly token

@@ -8,6 +8,8 @@ import {
   setCrossfadeSec,
   getLyricsEnabled,
   setLyricsEnabled,
+  getPreferAudio,
+  setPreferAudio,
   CROSSFADE_DEFAULT_SEC,
   CROSSFADE_MIN_SEC,
   CROSSFADE_MAX_SEC,
@@ -64,5 +66,23 @@ describe("lyrics on/off setting (R16)", () => {
     expect(await getLyricsEnabled("A", prisma)).toBe(false);
     await setLyricsEnabled("A", true, prisma);
     expect(await getLyricsEnabled("A", prisma)).toBe(true);
+  });
+});
+
+describe("prefer-audio setting (Complaint 1)", () => {
+  it("defaults ON and round-trips a toggle", async () => {
+    const { prisma } = db();
+    expect(await getPreferAudio("A", prisma)).toBe(true);
+    await setPreferAudio("A", false, prisma);
+    expect(await getPreferAudio("A", prisma)).toBe(false);
+    await setPreferAudio("A", true, prisma);
+    expect(await getPreferAudio("A", prisma)).toBe(true);
+  });
+
+  it("is scoped per user", async () => {
+    const { prisma } = db();
+    await setPreferAudio("A", false, prisma);
+    expect(await getPreferAudio("A", prisma)).toBe(false);
+    expect(await getPreferAudio("B", prisma)).toBe(true); // B keeps the default
   });
 });

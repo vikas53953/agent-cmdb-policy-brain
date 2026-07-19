@@ -13,6 +13,7 @@ import { useState } from "react";
 import type { TrackRef } from "@/lib/repos/track";
 import { SOURCE_BADGES } from "@/lib/ui/shell";
 import { resultPlayability } from "@/lib/search/playability";
+import { trackKind, KIND_LABEL } from "@/lib/search/audio-kind";
 import { playerStore } from "@/lib/player/store";
 import AddToPlaylist from "@/components/library/add-to-playlist";
 import { PlayIcon, MusicIcon } from "@/components/ui/icons";
@@ -29,6 +30,10 @@ export default function ResultRow({
   const [artFailed, setArtFailed] = useState(false);
   const badge = SOURCE_BADGES[result.source] ?? { className: "mp3", label: result.source };
   const { playable, reason } = resultPlayability(result.source, hasAdapter);
+  // Honest AUDIO vs VIDEO label (Complaint 1): only shown for YouTube rows, where the
+  // distinction is real (a Topic-channel/"Official Audio" upload vs a music video).
+  // Non-YouTube sources have no honest kind to show, so `kind` is null and no chip renders.
+  const kind = trackKind(result);
 
   function handlePlay() {
     // Queue the tracks after this one, then start this track (R2 — instant play).
@@ -63,6 +68,15 @@ export default function ResultRow({
         <div className="sresult-sub">
           {result.artist ? <span className="sresult-artist">{result.artist}</span> : null}
           <span className={`badge ${badge.className}`}>{badge.label}</span>
+          {kind ? (
+            <span
+              className={`kind-badge kind-${kind}`}
+              data-testid="result-kind"
+              data-kind={kind}
+            >
+              {KIND_LABEL[kind]}
+            </span>
+          ) : null}
         </div>
       </div>
 

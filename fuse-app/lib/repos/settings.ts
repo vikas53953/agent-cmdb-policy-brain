@@ -15,6 +15,7 @@ import { prisma } from "@/lib/db";
 export const SETTING_KEYS = {
   crossfadeSec: "crossfadeSec",
   lyricsEnabled: "lyricsEnabled",
+  preferAudio: "preferAudio",
 } as const;
 
 // Crossfade length is user-chosen within 3..15s (R3/R11). Clamp on write so a bad
@@ -78,4 +79,18 @@ export async function getLyricsEnabled(userId: string, db: PrismaClient = prisma
 
 export function setLyricsEnabled(userId: string, enabled: boolean, db: PrismaClient = prisma) {
   return setSetting(userId, SETTING_KEYS.lyricsEnabled, enabled ? "true" : "false", db);
+}
+
+// Typed "prefer audio versions" accessors (Complaint 1). When on, search floats official
+// audio versions (Topic-channel uploads, "Official Audio" titles) above music videos, so
+// Fuse behaves like a music app rather than a video app. Defaults ON — it is the music-
+// first default a listener expects; the user turns it off to see videos in raw order.
+export async function getPreferAudio(userId: string, db: PrismaClient = prisma): Promise<boolean> {
+  const raw = await getSetting(userId, SETTING_KEYS.preferAudio, db);
+  if (raw == null) return true;
+  return raw === "true";
+}
+
+export function setPreferAudio(userId: string, enabled: boolean, db: PrismaClient = prisma) {
+  return setSetting(userId, SETTING_KEYS.preferAudio, enabled ? "true" : "false", db);
 }
