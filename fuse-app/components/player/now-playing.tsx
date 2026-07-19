@@ -104,7 +104,13 @@ export default function NowPlaying({
   const prevIdRef = useRef(currentId);
   if (prevIdRef.current !== currentId) {
     prevIdRef.current = currentId;
-    if (bigger) setBigger(false);
+    // A new video opens with the bigger player BY DEFAULT on a desktop-width viewport (owner
+    // fix 4), and the padded default on a phone. The user's Bigger/Smaller control overrides
+    // it. Guarded setState during render (React's "adjust state on prop change" pattern); the
+    // guard only fires on a real track change, never on first render, so SSR stays consistent.
+    const desktopDefault =
+      typeof window !== "undefined" && !!window.matchMedia?.("(min-width: 700px)").matches;
+    if (bigger !== desktopDefault) setBigger(desktopDefault);
   }
 
   // Enter REAL full screen (owner fix 4) via the Fullscreen API, on the single persistent

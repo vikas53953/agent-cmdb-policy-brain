@@ -130,12 +130,13 @@ test.describe("Owner feedback — carousel cue (signed-in robot)", () => {
   // Item 7: the left scroll button appears once a rail has been scrolled right.
   test("carousel shows a left scroll button after scrolling right", async ({ page }) => {
     await page.getByTestId("tab-home").click();
+    // Home rails only exist when the feed has content; count is instant (no auto-wait), so an
+    // empty/short home skips honestly instead of hanging on a missing element.
+    const railCount = await page.locator(".rail").count();
+    test.skip(railCount === 0, "No home carousel to exercise on this account's feed.");
     const rail = page.locator(".rail").first();
-    // Home rails only overflow when there is enough content; skip honestly when nothing
-    // scrolls (an empty/short home is a valid state, not a failure).
-    const overflows = await rail
-      .evaluate((el) => el.scrollWidth > el.clientWidth + 8)
-      .catch(() => false);
+
+    const overflows = await rail.evaluate((el) => el.scrollWidth > el.clientWidth + 8);
     test.skip(!overflows, "No overflowing carousel to exercise on this account's home feed.");
 
     await rail.evaluate((el) => {

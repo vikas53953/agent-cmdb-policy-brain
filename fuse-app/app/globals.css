@@ -930,18 +930,6 @@ body {
   aspect-ratio: 16 / 9;
 }
 
-/* On a wider (desktop) viewport a video track opens with a more prominent player by default
- * (owner fix 4) — the plain "bigger" layout without needing to press anything. The inline
- * Bigger/Smaller control still overrides it. */
-@media (min-width: 700px) {
-  .np-stage[data-theater="off"] .np-art:not(.np-art-audio) {
-    width: calc(100% + 40px);
-    max-width: none;
-    margin-inline: -20px;
-    border-radius: 0;
-  }
-}
-
 .np-theater-bar {
   flex: 0 0 auto;
   display: flex;
