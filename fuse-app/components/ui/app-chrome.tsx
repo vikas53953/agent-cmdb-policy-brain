@@ -19,6 +19,7 @@ import { usePathname } from "next/navigation";
 import "@/lib/player/adapters/spotify";
 import { showsMiniPlayer } from "@/lib/ui/shell";
 import { blendController, setLiveCrossfadeSec } from "@/lib/player/blend-controller";
+import { playerHostCoordinator } from "@/lib/player/host-coordinator";
 import { usePlaybackRecovery } from "@/lib/player/use-playback-recovery";
 import TabBar from "@/components/ui/tab-bar";
 import MiniPlayer from "@/components/player/mini-player";
@@ -69,6 +70,12 @@ export default function AppChrome({
   // ladder for whatever is playing, no matter which screen is open — so a track played
   // from search can never freeze silently just because Now Playing is closed.
   usePlaybackRecovery();
+
+  // Start the single player-host coordinator once, on shell mount. It owns the ONE
+  // never-re-parented, position:fixed YouTube host and keeps it laid over whichever
+  // on-screen slot (mini / Now Playing / melt) is active — the geometry model that makes
+  // opening/closing Now Playing and switching tabs a MOVE, not an iframe reload (R1/R3/R4).
+  useEffect(() => playerHostCoordinator.start(), []);
 
   // Seed the live blend length from the persisted value and start the auto-crossfade
   // engine watching the player. The engine is a singleton and start() is idempotent,
@@ -122,7 +129,7 @@ export default function AppChrome({
 
       <div className="dock">
         {withMiniPlayer ? (
-          <MiniPlayer npOpen={npOpen} onExpand={() => setNpOpen(true)} />
+          <MiniPlayer onExpand={() => setNpOpen(true)} />
         ) : null}
         <TabBar />
       </div>

@@ -9,13 +9,14 @@
 // enabled unless it actually does something (R17).
 //
 // U8 wires the expand affordance (R4 — the mini-player opens the full Now Playing
-// screen when tapped) and hands the single visible YouTube <iframe> up to Now Playing
-// while it is open: `npOpen` tells the mini to stop hosting the video so the same
-// player node re-parents into the big Now Playing art surface (never two hosts, never
-// a hidden player).
+// screen when tapped). The single visible YouTube <iframe> is owned by the host
+// coordinator, not by this component: the mini simply registers its art box as the
+// "mini" slot (via VideoSurface). When Now Playing is open its own slot wins by priority,
+// so the coordinator lays the video over Now Playing; when it closes the video snaps back
+// to the mini slot — all by geometry, never a re-parent, so the video never reloads.
 
 import type { TrackRef } from "@/lib/repos/track";
-import { usePlayerState } from "@/lib/player/use-player";
+import { usePlayerSelector } from "@/lib/player/use-player-selector";
 import { usePlayerPhase } from "@/lib/player/use-player-phase";
 import { playerStore } from "@/lib/player/store";
 import { adapterRegistry } from "@/lib/player/adapters";
@@ -25,17 +26,11 @@ import { MusicIcon, PlayIcon, PauseIcon, NextIcon } from "@/components/ui/icons"
 const NOT_WIRED_REASON = "Playback starts once the player engine is connected";
 const NO_NEXT_REASON = "Nothing queued up next";
 
-// The art box: the live YouTube video for a YouTube track (visible-player rule), the
-// track's real cover art for any other source, or a music glyph when art is missing.
-// While Now Playing is open (`npOpen`) the mini stops hosting the YouTube video so the
-// single iframe re-parents up into the Now Playing art surface — never two hosts.
-function MiniArt({ track, npOpen }: { track: TrackRef; npOpen: boolean }) {
+// The art box: the live YouTube video for a YouTube track (visible-player rule, positioned
+// over this slot by the coordinator), the track's real cover art for any other source, or
+// a music glyph when art is missing.
+function MiniArt({ track }: { track: TrackRef }) {
   if (track.source === "youtube") {
-    if (npOpen) {
-      // The video lives in Now Playing right now; keep a placeholder in the (hidden-
-      // behind-the-overlay) mini so we do not mount a second video host.
-      return <div className="mini-art mini-art-video" aria-hidden="true" />;
-    }
     return (
       <div className="mini-art mini-art-video">
         <VideoSurface variant="mini" />
@@ -100,13 +95,19 @@ function EmptyMini() {
 }
 
 export default function MiniPlayer({
-  npOpen = false,
   onExpand,
 }: {
-  npOpen?: boolean;
   onExpand?: () => void;
 }) {
-  const { current, isPlaying, queue, notice } = usePlayerState();
+  // Subscribe only to the rarely-changing slice — NOT positionSec — so the 500ms position
+  // poll does not re-render the controls; the position attribute below comes from
+  // usePlayerPhase, which is the one place that legitimately tracks position (R5).
+  const { current, isPlaying, queue, notice } = usePlayerSelector((s) => ({
+    current: s.current,
+    isPlaying: s.isPlaying,
+    queue: s.queue,
+    notice: s.notice,
+  }));
   // The machine-readable playback surface for the robot tester (data-player-state /
   // data-player-position on the mini root). Derived from the store's status plus a live
   // "is position advancing?" check (stall detection), reusing the same pure health core
@@ -137,7 +138,7 @@ export default function MiniPlayer({
         data-player-state={phase}
         data-player-position={positionSec.toFixed(2)}
       >
-        <MiniArt track={current} npOpen={npOpen} />
+        <MiniArt track={current} />
 
       {/* Tapping the track opens the full Now Playing screen (R4). */}
       <button

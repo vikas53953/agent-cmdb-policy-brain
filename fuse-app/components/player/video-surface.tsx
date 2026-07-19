@@ -1,20 +1,21 @@
 "use client";
 
-// Visible YouTube video surface (U7, KTD-7).
+// Visible YouTube video placeholder (U7, KTD-7) — now a pure geometry SLOT.
 //
-// This is the on-screen home for the single YouTube <iframe>. It renders an empty
-// container and, on mount, hands that container to the YouTube adapter, which
-// re-parents its owned player host into it. On unmount it releases the container so
-// the adapter parks the host (keeping playback alive) instead of the iframe being
-// destroyed by React.
+// THE OWNERSHIP FIX. This surface used to hand its container to the adapter, which
+// re-parented the single <iframe> into it on mount and parked it on unmount. Re-parenting
+// an iframe RELOADS it — so every Now Playing open/close and tab switch silently reloaded
+// the video (R1/R3/R4). It no longer hosts the iframe at all. Instead it registers its own
+// empty box as a "slot" with the host coordinator, which keeps the ONE never-re-parented,
+// position:fixed player host positioned exactly over whichever slot is active. Switching
+// surfaces is now a geometry move, not a DOM move — the iframe never reloads.
 //
-// The surface is ALWAYS a real visible box — never 0x0, never display:none. That is
-// the fix for the old app's hidden player (a YouTube ToS violation). In U7 it fills
-// the mini-player art slot ("small visible video"); U8 mounts the same surface at the
-// full Now Playing art size (the 200x200+ primary surface).
+// The surface is still ALWAYS a real visible box (never 0x0, never display:none): the
+// coordinator lays the live video directly over it. In the mini it is the small art slot;
+// in Now Playing it is the full 16:9 art surface.
 
 import { useEffect, useRef } from "react";
-import { youtubeAdapter } from "@/lib/player/adapters/youtube";
+import { playerHostCoordinator } from "@/lib/player/host-coordinator";
 
 export default function VideoSurface({
   variant = "mini",
@@ -26,9 +27,9 @@ export default function VideoSurface({
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
-    youtubeAdapter.mount(el);
-    return () => youtubeAdapter.unmount(el);
-  }, []);
+    playerHostCoordinator.registerSlot(variant, el);
+    return () => playerHostCoordinator.releaseSlot(variant, el);
+  }, [variant]);
 
-  return <div ref={ref} className={`yt-surface yt-surface-${variant}`} />;
+  return <div ref={ref} className={`yt-surface yt-surface-${variant}`} data-testid={`video-slot-${variant}`} />;
 }

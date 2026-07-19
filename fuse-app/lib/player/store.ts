@@ -15,6 +15,7 @@
 // something it cannot play (R17 at the state layer).
 
 import type {
+  EngineState,
   PlayerState,
   RecoveryPhase,
   RepeatMode,
@@ -41,6 +42,8 @@ const INITIAL_STATE: PlayerState = {
   notice: null,
   status: "idle",
   recovery: { phase: "ok", skipOffered: false },
+  intent: "idle",
+  engineState: "unstarted",
 };
 
 export type PlayerStoreOptions = {
@@ -124,6 +127,10 @@ export class PlayerStore {
           notice: resolution.reason,
           status: "error",
           recovery: { phase: "error", skipOffered: this.state.queue.length > 0 },
+          // Nothing playable resolved: the user's intent to hear sound cannot be honoured,
+          // so intent is idle — recovery must not treat this frozen state as a stall.
+          intent: "idle",
+          engineState: "error",
         });
         return false;
       }
@@ -152,6 +159,10 @@ export class PlayerStore {
         notice,
         status: "idle",
         recovery: { phase: "ok", skipOffered: false },
+        // No engine for this source yet: focus the track but do not claim intent to play
+        // something nothing can play.
+        intent: "idle",
+        engineState: "unstarted",
       });
       return false;
     }
@@ -171,6 +182,10 @@ export class PlayerStore {
       notice,
       status: "loading",
       recovery: { phase: "ok", skipOffered: false },
+      // The user asked for sound: intent is "play". This is the ONLY signal recovery
+      // gates on — it is set by a user command here, never manufactured by the ladder.
+      intent: "play",
+      engineState: "unstarted",
     });
     try {
       await adapter.load(target);
@@ -197,7 +212,11 @@ export class PlayerStore {
   // "paused"); isPlaying stays the fine-grained truth for the UI.
   pause(): void {
     this.activeAdapter?.pause();
-    this.set({ isPlaying: false, status: "idle" });
+    // Pausing is a definitive "the user does not want sound right now": intent → pause and
+    // any lingering engine-error flag is cleared, so the recovery monitor can never re-arm
+    // the ladder on a paused track (the R4 false-stall-while-paused class).
+    this.errorKind = "none";
+    this.set({ isPlaying: false, status: "idle", intent: "pause" });
   }
 
   // Resume the current track. Convenience alias over play() with no argument.
@@ -263,6 +282,19 @@ export class PlayerStore {
     return this.errorKind;
   }
 
+  // The active adapter mirrors its own engine lifecycle here (see EngineState). The
+  // recovery monitor reads it together with `intent` so a stall is only ever declared
+  // when the user wants sound AND the engine claims to be playing/buffering but the
+  // clock is frozen — never on a paused/unstarted/ended engine.
+  reportEngineState(state: EngineState): void {
+    if (this.state.engineState === state) return;
+    this.set({ engineState: state });
+  }
+
+  currentEngineState(): EngineState {
+    return this.state.engineState;
+  }
+
   // Publish the recovery-ladder phase into the single truth so every surface (mini
   // data-player-state, Now Playing banner, robot tester) renders the same honest health.
   setRecovery(phase: RecoveryPhase, skipOffered: boolean): void {
@@ -277,6 +309,9 @@ export class PlayerStore {
   failStalled(): void {
     if (!this.state.current) return;
     this.activeAdapter?.pause();
+    // Intent stays "play" — the user still wants this track; the app simply cannot play it
+    // and says so honestly (recovery.phase "error" + Skip). Keeping intent stable lets the
+    // health machine hold its terminal instead of resetting to idle and clearing the error.
     this.set({
       isPlaying: false,
       status: "error",
@@ -374,7 +409,15 @@ export class PlayerStore {
     );
     const queue =
       idx >= 0 ? this.state.queue.filter((_, i) => i !== idx) : [...this.state.queue];
-    this.set({ current: track, queue, isPlaying: true, positionSec: 0, status: "playing" });
+    this.set({
+      current: track,
+      queue,
+      isPlaying: true,
+      positionSec: 0,
+      status: "playing",
+      intent: "play",
+      engineState: "playing",
+    });
   }
 
   toggleShuffle(): void {

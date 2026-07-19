@@ -14,22 +14,23 @@
 
 import { useEffect, useRef } from "react";
 import { useMeltState } from "@/lib/player/blend-controller";
-import { youtubeAdapter } from "@/lib/player/adapters/youtube";
+import { playerHostCoordinator } from "@/lib/player/host-coordinator";
 import { SOURCE_BADGES } from "@/lib/ui/shell";
 import { MusicIcon } from "@/components/ui/icons";
 
-// Hosts the incoming YouTube player inside the melt panel (visible-player rule). Mirrors
-// VideoSurface but targets the adapter's INCOMING slot so both videos are on screen
-// during the overlap.
+// The on-screen home for the INCOMING blend video (visible-player rule). Like VideoSurface
+// it is now a pure geometry SLOT: it registers its box as the "melt" slot so the host
+// coordinator positions the second (incoming) player host over it during the overlap —
+// never a DOM re-parent, so the incoming iframe never reloads mid-blend.
 function IncomingVideoSurface() {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
-    youtubeAdapter.mountIncoming(el);
-    return () => youtubeAdapter.unmountIncoming(el);
+    playerHostCoordinator.registerSlot("melt", el);
+    return () => playerHostCoordinator.releaseSlot("melt", el);
   }, []);
-  return <div ref={ref} className="melt-video" />;
+  return <div ref={ref} className="melt-video" data-testid="video-slot-melt" />;
 }
 
 export default function MeltPanel() {

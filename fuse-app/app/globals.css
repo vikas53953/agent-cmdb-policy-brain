@@ -215,6 +215,20 @@ body {
   display: block;
   line-height: 0;
 }
+/* The video-slot placeholder boxes. The live YouTube iframe is NOT inside these — it
+ * lives in the single, never-re-parented #fuse-player-host that the host coordinator
+ * lays over whichever slot is active (the fix for the reparent-reload bug). These slots
+ * carry the corner rounding the coordinator copies onto the host so the video matches. */
+.yt-surface-mini {
+  border-radius: var(--r-sm);
+}
+.yt-surface-np {
+  border-radius: var(--r-lg);
+}
+/* The single persistent player host (position/size are set inline by the coordinator). */
+.fuse-player-host {
+  background: #000;
+}
 .yt-host,
 .yt-host iframe {
   width: 100%;

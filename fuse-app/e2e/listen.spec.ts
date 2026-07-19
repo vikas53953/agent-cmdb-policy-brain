@@ -138,6 +138,69 @@ test.describe("listen — the heart moment", () => {
     ).toBeGreaterThan(p0);
   });
 
+  test("open→minimize does not reload the video (same track, position keeps going)", async ({
+    page,
+  }) => {
+    // The ownership-model regression guard against LIVE YouTube: proves that opening then
+    // minimizing Now Playing does not re-parent (and therefore reload) the iframe. A reload
+    // would reset position to 0 and could switch the track. Skips honestly if the embed
+    // refuses on this network (the recovery terminal), which is not what this test asserts.
+    const firstYt = await searchAndFirstYouTube(page);
+    await firstYt.getByTestId("result-play").click();
+    const mini = page.getByTestId("mini-player");
+    if ((await settlePlayback(mini)) === "error") return;
+
+    await page.getByTestId("mini-open").click();
+    const np = page.getByTestId("now-playing");
+    await expect(np).toHaveAttribute("data-np-open", "true");
+    const titleBefore = (await np.locator(".np-title").textContent())?.trim() ?? "";
+
+    // Let it advance past ~3s inside Now Playing.
+    await expect
+      .poll(async () => Number(await mini.getAttribute("data-player-position")), {
+        timeout: 30_000,
+      })
+      .toBeGreaterThan(3);
+    const before = Number(await mini.getAttribute("data-player-position"));
+
+    // Minimize. A reparent-reload would snap position back to ~0.
+    await page.keyboard.press("Escape");
+    await expect(np).toHaveAttribute("data-np-open", "false");
+    await page.waitForTimeout(1500);
+
+    const after = Number(await mini.getAttribute("data-player-position"));
+    expect(
+      after,
+      `Minimizing reset position (${before} → ${after}) — the iframe was re-parented and ` +
+        "reloaded. The single-persistent-host model must move it by geometry, not appendChild.",
+    ).toBeGreaterThan(before - 1);
+    await page.getByTestId("mini-open").click();
+    const titleAfter = (await np.locator(".np-title").textContent())?.trim() ?? "";
+    expect(titleAfter, "Minimizing switched the track — a reload side effect.").toBe(titleBefore);
+  });
+
+  test("opening Now Playing on a paused track does not self-start playback", async ({ page }) => {
+    // Proves autoplay:0 + the intent gate against LIVE YouTube: a reparent-reload used to
+    // re-apply autoplay and self-play on open (R1). Pause, then open NP — it must stay paused.
+    const firstYt = await searchAndFirstYouTube(page);
+    await firstYt.getByTestId("result-play").click();
+    const mini = page.getByTestId("mini-player");
+    if ((await settlePlayback(mini)) === "error") return;
+
+    await page.getByTestId("mini-play").click(); // pause
+    await expect
+      .poll(async () => mini.getAttribute("data-player-state"))
+      .not.toBe("playing");
+
+    await page.getByTestId("mini-open").click();
+    await expect(page.getByTestId("now-playing")).toHaveAttribute("data-np-open", "true");
+    await page.waitForTimeout(1500);
+    expect(
+      await mini.getAttribute("data-player-state"),
+      "Opening Now Playing self-started audio — autoplay-on-reload regressed (R1).",
+    ).not.toBe("playing");
+  });
+
   test("Now Playing shows scrolling lyrics or an honest no-lyrics message", async ({ page }) => {
     // Lyrics can be turned OFF in settings (a real, persisted user choice), which hides
     // the panel entirely — so this spec first makes the setting deterministic by ensuring

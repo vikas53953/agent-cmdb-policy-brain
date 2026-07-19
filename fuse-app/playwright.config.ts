@@ -68,6 +68,10 @@ export default defineConfig({
           // The door secret the local app needs to open the door. Inherited from the
           // process env (a GitHub secret in CI, the shell locally). Never committed.
           E2E_TEST_SECRET: process.env.E2E_TEST_SECRET ?? "",
+          // Arms the deterministic in-DOM fake engine for the playback-intent specs. A
+          // strong value (>= 32 chars) is required to arm it; unset in production. Passed
+          // through so the dev server the specs drive builds with the fake engine.
+          NEXT_PUBLIC_E2E_FAKE_ENGINE: process.env.NEXT_PUBLIC_E2E_FAKE_ENGINE ?? "",
         },
       },
 });
