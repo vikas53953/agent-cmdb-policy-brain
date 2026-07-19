@@ -319,8 +319,8 @@ export default function ProfileSheet({
             <div className="setting-main">
               <div className="setting-label">Crossfade length</div>
               <div className="setting-reason">
-                Songs melt into each other over{" "}
-                <strong>{crossfadeSec}s</strong>
+                Up to <strong>{crossfadeSec}s</strong> — Fuse adapts per song: a long melt
+                for mixes, a short one for punchy vocals so voices never clash
               </div>
             </div>
             <input

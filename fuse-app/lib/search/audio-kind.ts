@@ -33,23 +33,25 @@ function isTopicChannel(artist: string | null): boolean {
   return /\s-\s*topic$/i.test(artist.trim());
 }
 
-// A title that plainly advertises itself as an audio (not video) upload. Covers the common
-// audio-first patterns across catalogues — "Official Audio", "(Audio)", "Audio Only", "Full
-// Audio", a visualizer, a lyric/lyrical video, plus the audio-first forms that dominate many
-// music markets: "Full Song", "Audio Song", and "Jukebox" (owner fix 9 — a broader, still
-// honest hit-rate so the Songs filter is populated). Deliberately still excludes bare
-// "video"/"official video", so an ordinary music video is never mislabelled audio.
-const AUDIO_TITLE_RE =
-  /\b(official\s+audio|audio\s+only|full\s+audio|full\s+song|audio\s+song|visuali[sz]er|jukebox)\b|[([]\s*audio\s*[)\]]|\blyric(al)?\s+video\b/i;
+// The ONLY title marker trusted as audio: an explicit "Official Audio" (in parentheses,
+// brackets, or as a bare phrase). This is the F-0 item-2 correction to the owner's Softly
+// case — a lyrics/fan upload whose title merely CONTAINS a word like "Audio", "Lyrical",
+// "Full Song", "Visualizer" or "Jukebox" was being MISLABELLED Audio. Title keywords alone
+// are never enough now: only a genuine "Official Audio" self-label counts, and the far
+// stronger signal is the "- Topic" channel. Everything else is a Video until proven
+// otherwise — honest under-labelling beats confident mislabelling.
+const OFFICIAL_AUDIO_TITLE_RE = /(?:^|[\s([\[|])official\s+audio(?:$|[\s)\]|])/i;
 
-function isAudioTitle(title: string): boolean {
-  return AUDIO_TITLE_RE.test(title);
+function isOfficialAudioTitle(title: string): boolean {
+  return OFFICIAL_AUDIO_TITLE_RE.test(title);
 }
 
 // Classify a YouTube result from its title + channel name. This is the single decision
-// point; the higher-level `trackKind` narrows by source.
+// point; the higher-level `trackKind` narrows by source. Audio ONLY for a "- Topic" channel
+// upload (YouTube's own art-track catalogue) or an explicit "Official Audio" self-label —
+// NEVER from an incidental title keyword (F-0 item 2).
 export function classifyYouTubeKind(title: string, artist: string | null): TrackKind {
-  return isTopicChannel(artist) || isAudioTitle(title) ? "audio" : "video";
+  return isTopicChannel(artist) || isOfficialAudioTitle(title) ? "audio" : "video";
 }
 
 // The presented kind of a track, or null when the source has no audio/video distinction

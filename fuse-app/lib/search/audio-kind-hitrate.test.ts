@@ -2,10 +2,12 @@ import { describe, expect, it } from "vitest";
 import { classifyYouTubeKind, isSongResult, filterByKind } from "@/lib/search/audio-kind";
 import type { TrackRef } from "@/lib/repos/track";
 
-// Owner fix 9: the "Songs" filter showed nothing. The classifier under-counted audio-first
-// uploads, so the Songs pane was empty for real queries. These cases pin the broadened,
-// still-honest hit-rate against realistic YouTube titles (kept THIN — the Song-identity layer
-// will re-architect this area). The rule stays: a plain music video is NOT a "song" here.
+// F-0 item 2 CORRECTS owner fix 9. Fix 9 broadened the classifier to call many title
+// keywords ("Lyrical Video", "Full Song", "Jukebox", "[Audio]", "Visualizer") Audio so the
+// Songs filter looked full — but that MISLABELLED fan/lyrics uploads as Audio (the owner's
+// Softly case). The honest rule is stricter: Audio ONLY for a "- Topic" channel or an
+// explicit "Official Audio". Under-labelling a real song as Video is far better than
+// confidently calling a lyrics upload Audio. These pin the corrected behaviour.
 
 const yt = (title: string, artist: string | null = "Some Channel"): TrackRef => ({
   source: "youtube",
@@ -16,10 +18,14 @@ const yt = (title: string, artist: string | null = "Some Channel"): TrackRef => 
   durationSec: 200,
 });
 
-describe("audio-kind classifier hit-rate (owner fix 9)", () => {
-  it("classifies common audio-first uploads as audio (songs)", () => {
-    const audioTitles = [
-      "Boyfriend (Official Audio)",
+describe("audio-kind classifier — the tightened, honest rule (F-0 item 2)", () => {
+  it("classifies ONLY Topic uploads and explicit 'Official Audio' as audio", () => {
+    expect(classifyYouTubeKind("Boyfriend (Official Audio)", "Some Channel")).toBe("audio");
+    expect(classifyYouTubeKind("Boyfriend", "Karan Aujla - Topic")).toBe("audio");
+  });
+
+  it("no longer mislabels lyric / visualizer / jukebox / bare-audio titles as audio", () => {
+    const nowVideo = [
       "Boyfriend | Lyrical Video",
       "Some Song (Full Song)",
       "Some Song - Audio Song",
@@ -27,12 +33,12 @@ describe("audio-kind classifier hit-rate (owner fix 9)", () => {
       "Song Name [Audio]",
       "Song Name (Visualizer)",
     ];
-    for (const t of audioTitles) {
-      expect(classifyYouTubeKind(t, "Some Channel")).toBe("audio");
+    for (const t of nowVideo) {
+      expect(classifyYouTubeKind(t, "Some Channel")).toBe("video");
     }
   });
 
-  it("still treats a plain music video as a video (Videos pane stays real)", () => {
+  it("still treats a plain music video as a video", () => {
     expect(classifyYouTubeKind("Boyfriend (Official Video)", "Some Channel")).toBe("video");
     expect(classifyYouTubeKind("Boyfriend (Official Music Video)", "Some Channel")).toBe("video");
   });
@@ -41,17 +47,20 @@ describe("audio-kind classifier hit-rate (owner fix 9)", () => {
     expect(isSongResult(yt("Boyfriend", "Karan Aujla - Topic"))).toBe(true);
   });
 
-  it("the Songs filter is populated when audio-first results are present", () => {
+  it("the Songs filter keeps ONLY genuinely-official audio + non-YouTube rows", () => {
     const results = [
-      yt("Boyfriend (Official Video)"),
-      yt("Boyfriend (Official Audio)"),
-      yt("Boyfriend | Lyrical Video"),
-      yt("Boyfriend", "Karan Aujla - Topic"),
+      yt("Boyfriend (Official Video)"), // video
+      yt("Boyfriend (Official Audio)"), // audio (song)
+      yt("Boyfriend | Lyrical Video"), // now video (was wrongly audio under fix 9)
+      yt("Boyfriend", "Karan Aujla - Topic"), // audio (song)
     ];
     const songs = filterByKind(results, "songs");
     const videos = filterByKind(results, "videos");
-    // Three of the four are songs; the plain video is the only "video".
-    expect(songs).toHaveLength(3);
-    expect(videos).toHaveLength(1);
+    // Two genuine songs (Official Audio + Topic); the lyrical upload is now honestly a video.
+    expect(songs.map((t) => t.nativeId)).toEqual([
+      "Boyfriend (Official Audio)",
+      "Boyfriend",
+    ]);
+    expect(videos).toHaveLength(2);
   });
 });

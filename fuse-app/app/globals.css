@@ -1807,6 +1807,138 @@ body {
   transition: width 0.08s linear;
 }
 
+/* --- The Transition Moment (F-0 item 1) --------------------------------------
+ * The hero block on Now Playing: NOW / NEXT (with small art) and a live "Fusing in
+ * N seconds" countdown reflecting the actual adapted melt length. Honest — it shows
+ * only what is true, and says plainly when playback will end. */
+.transition-moment {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border-radius: var(--r-md);
+  border: 1px solid var(--line-soft);
+  background: linear-gradient(105deg, var(--ember-soft), var(--teal-soft));
+}
+.transition-moment.tm-ending {
+  background: var(--ink-2);
+}
+.tm-ending-text {
+  margin: 0;
+  font-size: 0.82rem;
+  color: var(--txt-mid);
+}
+.tm-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.tm-tag {
+  flex: 0 0 auto;
+  width: 40px;
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  color: var(--txt-lo);
+}
+.tm-next .tm-tag {
+  background-image: var(--fuse);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+.tm-next-art {
+  flex: 0 0 auto;
+  width: 26px;
+  height: 26px;
+  border-radius: var(--r-sm);
+  overflow: hidden;
+  background: var(--ink-3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--txt-lo);
+}
+.tm-next-art img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border: 0;
+}
+.tm-title {
+  min-width: 0;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--txt-hi);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tm-now .tm-title {
+  font-weight: 500;
+  color: var(--txt-mid);
+}
+.tm-fuse {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+  padding-top: 2px;
+}
+.tm-fuse-line {
+  font-size: 0.86rem;
+  font-weight: 700;
+  background-image: var(--fuse);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+.tm-hint,
+.tm-energy {
+  font-size: 0.74rem;
+  color: var(--txt-mid);
+}
+.tm-hardcut {
+  margin: 0;
+  padding-top: 2px;
+  font-size: 0.76rem;
+  color: var(--txt-mid);
+}
+
+/* Compact echo in the mini-player: one honest line teasing what's next. */
+.tm-compact {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+  padding: 2px 12px 0;
+  font-size: 0.72rem;
+  color: var(--txt-mid);
+}
+.tm-compact-tag {
+  flex: 0 0 auto;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  font-size: 0.6rem;
+  background-image: var(--fuse);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+.tm-compact-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--txt-hi);
+}
+.tm-compact-fuse {
+  flex: 0 0 auto;
+  color: var(--txt-lo);
+}
+
 /* --- Home feed (U12, R10/R11) ------------------------------------------------
  * The scrolling home: a blend-strip stating the app's identity, then horizontal
  * carousels (recently played, trending, "more like what you love"). The right-edge
