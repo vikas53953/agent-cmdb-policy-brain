@@ -349,7 +349,7 @@ export default function ProfileSheet({
               <div className="setting-label">Prefer audio versions</div>
               <div className="setting-reason">
                 {preferAudio
-                  ? "Search shows official audio first; videos still appear, labelled and below"
+                  ? "Floats official audio to the top when a search has any; videos still appear, labelled and below"
                   : "Search shows results in mixed order — audio and video together"}
               </div>
             </div>

@@ -20,7 +20,7 @@ import type { TrackRef } from "@/lib/repos/track";
 import type { SearchResponse } from "@/lib/search/orchestrate";
 import { adapterRegistry } from "@/lib/player/adapters";
 import { loadSearchQuery, saveSearchQuery } from "@/lib/session-state";
-import { filterByKind, type ResultFilter } from "@/lib/search/audio-kind";
+import { filterByKind, trackKind, type ResultFilter } from "@/lib/search/audio-kind";
 import {
   browserStorage,
   loadRecentSearches,
@@ -136,6 +136,15 @@ export default function SearchBar({ userKey = "anon" }: { userKey?: string }) {
   const allResults = data?.results ?? [];
   const results = filterByKind(allResults, filter);
   const sources = data?.sources;
+  // Honest "prefer audio" hint (P2): the setting promises official audio first, but many
+  // searches (e.g. "Softly") simply have no official-audio upload to float. When the
+  // preference is ON and this result set contains zero audio versions, say so plainly rather
+  // than leaving the user to wonder why the toggle appeared to do nothing.
+  const noAudioForPreference =
+    status === "done" &&
+    (data?.preferAudio ?? false) &&
+    allResults.length > 0 &&
+    !allResults.some((r) => trackKind(r) === "audio");
   // Source-level honesty lines: show a reason only when that source failed AND we
   // are not still loading (so a momentary "unavailable" doesn't flash mid-type).
   const sourceNotices =
@@ -251,6 +260,12 @@ export default function SearchBar({ userKey = "anon" }: { userKey?: string }) {
           {filter === "videos"
             ? "No videos in these results."
             : "No songs in these results."}
+        </p>
+      ) : null}
+
+      {noAudioForPreference && results.length > 0 ? (
+        <p className="search-hint" data-testid="no-audio-hint">
+          No official audio for this search — showing videos.
         </p>
       ) : null}
 

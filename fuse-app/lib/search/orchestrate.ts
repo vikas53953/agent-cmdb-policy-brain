@@ -30,6 +30,11 @@ export type SearchPayload = {
 export type SearchResponse = SearchPayload & {
   query: string;
   cached: boolean;
+  // The audio preference actually applied to THIS response, echoed back so the client can be
+  // honest when it can't be honoured (P2). When true but the results contain no official
+  // audio, the UI shows a small "No official audio for this search — showing videos" hint
+  // instead of silently implying the toggle did nothing.
+  preferAudio: boolean;
 };
 
 // What actually goes INTO the cache: results ONLY. Per-source status/reason strings
@@ -93,10 +98,12 @@ export async function runSearch(
   opts: SearchOptions = {},
 ): Promise<SearchResponse> {
   const query = rawQuery.trim();
+  const preferAudio = opts.preferAudio === true;
   if (query === "") {
     return {
       query,
       cached: false,
+      preferAudio,
       results: [],
       sources: {
         youtube: { available: false, reason: "Type to search" },
@@ -111,7 +118,7 @@ export async function runSearch(
     // repeated query spends zero search.list quota (KTD-8). Source statuses are computed
     // FRESH from current config (never read from the cache), so the availability notice
     // is always today's wording and a stale "…try again" string can never resurface (P1).
-    return { query, cached: true, results: present(query, hit.results, opts), sources: deps.freshStatus() };
+    return { query, cached: true, preferAudio, results: present(query, hit.results, opts), sources: deps.freshStatus() };
   }
 
   // MISS: query both sources concurrently. Each independently reports success or
@@ -142,5 +149,5 @@ export async function runSearch(
     await deps.writeCache(query, { results });
   }
 
-  return { query, cached: false, results: present(query, results, opts), sources };
+  return { query, cached: false, preferAudio, results: present(query, results, opts), sources };
 }

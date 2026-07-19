@@ -1,19 +1,32 @@
-// Brutal search ranking (F-0 item 2) — the fix for the owner's Softly / Karan Aujla case,
-// where a lyrics upload titled "Chunni Meri Rang De …" (merely CONTAINING the word Softly)
-// outranked the actual official "SOFTLY" video.
+// Brutal search ranking (F-0 item 2, hardened by the overnight QA) — the fix for the
+// owner's Softly / Karan Aujla case, where the OFFICIAL artist upload was never the first
+// row.
 //
-// Two truths this enforces, in order:
-//   1. QUERY-TITLE RELEVANCE beats keyword-stuffing. The result whose title IS the query
-//      (or starts with it) beats one that merely contains a query word somewhere. This is
-//      the primary sort key — it is what pushes the real "Softly" above the coincidence.
-//   2. Among comparably-relevant results, OFFICIAL sources rank first: the artist's
-//      "- Topic" upload / an "Official Audio" (official audio ABOVE official video), then
-//      the official video, then everything ordinary, and lyrics / covers / fan uploads /
-//      Shorts / compilations / reactions LAST.
+// WHAT THE QA CAUGHT (and the earlier version still got wrong): across four real searches
+// the official channel was ranked 2nd–4th under lyrics/aggregator re-uploads —
+//   • "Karan Aujla Softly" → official "SOFTLY" (channel "Karan Aujla") sat at #4 under
+//     PRABXDEEP / Indie India / Musicgenree re-uploads.
+//   • "AP Dhillon Excuses" → official #2 behind a ChillPind re-upload titled "…(Official Audio)".
+//   • "Kesariya" → SonyMusicIndiaVEVO #2 behind a 7clouds lyrics video.
+//   • "Anti-Hero" → the official "Taylor Swift" upload #2 behind a LatinHype lyrics video.
 //
-// Pure and framework-free so the ordering is unit-tested in node (the owner's exact case is
-// pinned in ranking.test.ts). The search orchestrator applies this as the presentation
-// order; the cache stores the raw rows, so ranking is always computed fresh per request.
+// TWO ROOT CAUSES, both fixed here:
+//   1. RELEVANCE IGNORED THE CHANNEL. `relevanceLevel` scored the TITLE only. So when the
+//      query names the artist ("Karan Aujla Softly") the official upload — whose title is
+//      just the song ("SOFTLY") — scored 0, while a re-upload that stuffs "Karan Aujla -
+//      Softly" into its TITLE scored 2. `rankResults` now credits query words matched by
+//      the channel/artist too, so the official upload is recognised as a full match.
+//   2. RELEVANCE OUTRANKED OFFICIALNESS. Relevance was the primary sort key, so a re-upload
+//      that crafts a tighter title (exact "Kesariya", or "Artist - Song") beat a verified
+//      official upload carrying a decorated title. `rankResults` now sorts VERIFIED-CHANNEL
+//      authenticity ABOVE the fine title relevance: among results that genuinely match the
+//      query, the artist's own / Topic / VEVO / official channel wins even when a re-upload
+//      has a keyword-perfect title. Relevance still gates (a wrong-song official can never
+//      jump a right-song row) and still orders rows of equal authenticity + tier.
+//
+// Pure and framework-free so the ordering is unit-tested in node (all four QA cases are
+// pinned in ranking.test.ts). The orchestrator applies this as the presentation order; the
+// cache stores the raw rows, so ranking is always computed fresh per request.
 
 import type { TrackRef } from "@/lib/repos/track";
 import { classifyYouTubeKind } from "@/lib/search/audio-kind";
@@ -34,6 +47,10 @@ function tokens(value: string | null | undefined): string[] {
 //   2 — the title STARTS with the full query, or contains it as a contiguous run.
 //   1 — the title contains ALL query words (somewhere), i.e. a solid match.
 //   0 — only some query words appear (a keyword coincidence).
+//
+// TITLE-ONLY on purpose: this is the *fine* tiebreak among rows that already matched the
+// query. Whether a row matches AT ALL (which must also credit the channel/artist) is a
+// separate, coarser signal computed in `rankResults` — see `coversQuery`.
 export function relevanceLevel(query: string, title: string): number {
   const q = tokens(query);
   const t = tokens(title);
@@ -56,6 +73,19 @@ export function relevanceLevel(query: string, title: string): number {
   return 0; // only some words — keyword coincidence (the thing we push DOWN)
 }
 
+// Does this result genuinely match the SONG asked for? True when every query word appears
+// somewhere across the TITLE **and** the CHANNEL/ARTIST together. This is what rescues the
+// official "SOFTLY" by "Karan Aujla" on a query of "Karan Aujla Softly": the title alone
+// misses "karan"/"aujla", but the channel supplies them. It is the coarse yes/no gate that
+// sorts real matches above coincidences, so a verified-but-decorated official row is never
+// mistaken for a non-match. Exported for the ranking tests.
+export function coversQuery(query: string, track: TrackRef): boolean {
+  const q = tokens(query);
+  if (q.length === 0) return false;
+  const haystack = new Set([...tokens(track.title), ...tokens(track.artist)]);
+  return q.every((w) => haystack.has(w));
+}
+
 // Titles that mark a NON-official upload — pushed below ordinary results. Word-boundary
 // matched so "cover" in a song title is unlikely to false-trip on these specific phrases.
 const NON_OFFICIAL_TITLE_RE =
@@ -65,18 +95,42 @@ const NON_OFFICIAL_TITLE_RE =
 const OFFICIAL_VIDEO_TITLE_RE =
   /\bofficial\s+(music\s+)?video\b/i;
 
-// A channel that reads as an official/verified artist or label channel (Topic art-tracks,
-// VEVO, or a name ending in "Official"). A soft signal — it only orders comparably-relevant
-// results, never overrides relevance.
-function looksOfficialChannel(artist: string | null): boolean {
+// A channel that reads as an official/verified artist or label channel by its NAME ALONE:
+// YouTube "- Topic" art-track channels, VEVO channels, or a name ending in "Official".
+function looksOfficialChannelByName(artist: string | null): boolean {
   if (!artist) return false;
   const a = artist.trim();
-  return /\s-\s*topic$/i.test(a) || /vevo$/i.test(a) || /\bofficial\b/i.test(a);
+  return /\s-\s*topic$/i.test(a) || /vevo$/i.test(a.replace(/\s+/g, "")) || /\bofficial\b/i.test(a);
 }
 
-// The official-ness tier for a result. Higher ranks first among comparably-relevant rows.
+// Is this the ARTIST'S OWN channel for THIS query? True when the whole channel name is
+// contained in the query — e.g. query "Karan Aujla Softly", channel "Karan Aujla". This is
+// the query-aware half of official detection: a re-upload's channel ("PRABXDEEP", "7clouds",
+// "LatinHype") is not named in the query, so it never trips this, while the artist's own
+// channel does. Requires the channel to have at least one token and every token to be a
+// query word.
+function isQueryArtistChannel(query: string, artist: string | null): boolean {
+  const channel = tokens(artist);
+  if (channel.length === 0) return false;
+  const q = new Set(tokens(query));
+  return channel.every((w) => q.has(w));
+}
+
+// VERIFIED-CHANNEL authenticity: 1 when the row is on a channel we can positively tie to the
+// artist/label (Topic / VEVO / "…Official" / the artist channel named in the query), else 0.
+// This ranks ABOVE the title-based `officialTier` in `rankResults`, so a re-upload cannot
+// beat the real channel merely by writing "(Official Audio)" or a keyword-perfect title into
+// its own title — the QA's exact failure. Exported for the ranking tests.
+export function channelAuthenticity(query: string, track: TrackRef): number {
+  if (track.source !== "youtube") return 0;
+  return looksOfficialChannelByName(track.artist) || isQueryArtistChannel(query, track.artist) ? 1 : 0;
+}
+
+// The official-ness tier for a result, from its TITLE + channel NAME (query-independent, so
+// the pinned unit tests keep their exact values). Higher ranks first among comparably-
+// authentic, comparably-relevant rows.
 //   4 — official audio (a "- Topic" upload or an "Official Audio" self-label).
-//   3 — an official music VIDEO, or a plainly official/verified channel.
+//   3 — an official music VIDEO, or a plainly official/verified channel (by name).
 //   2 — ordinary (neutral) — the default, incl. non-YouTube catalogue rows (Spotify).
 //   0 — a lyrics / cover / fan / Shorts / compilation / reaction upload.
 export function officialTier(track: TrackRef): number {
@@ -88,15 +142,15 @@ export function officialTier(track: TrackRef): number {
   const title = track.title ?? "";
   // Official audio (Topic / "Official Audio") is the top tier — above the official video.
   if (classifyYouTubeKind(title, track.artist) === "audio") return 4;
-  if (OFFICIAL_VIDEO_TITLE_RE.test(title) || looksOfficialChannel(track.artist)) return 3;
+  if (OFFICIAL_VIDEO_TITLE_RE.test(title) || looksOfficialChannelByName(track.artist)) return 3;
   if (NON_OFFICIAL_TITLE_RE.test(title)) return 0;
   return 2;
 }
 
 export type RankOptions = {
   // A gentle FINAL tiebreak (the user's "prefer audio versions" setting): among rows of
-  // equal relevance AND equal official tier, float audio above video. Never overrides
-  // relevance or official tier — those already order the important cases.
+  // equal match / authenticity / tier / relevance, float audio above video. Never overrides
+  // any of the ordering signals above — those already order the important cases.
   preferAudio?: boolean;
 };
 
@@ -106,6 +160,15 @@ function isAudioKind(track: TrackRef): boolean {
 
 // Rank a combined result list for a query. Stable: rows that tie on every key keep their
 // original (interleaved) order. Returns a new array; the input is never mutated.
+//
+// Sort keys, most significant first:
+//   1. coversQuery — real matches (query words covered by title+artist) above coincidences.
+//   2. authenticity — the artist's own / Topic / VEVO / official channel above re-uploads,
+//                     EVEN when the re-upload has a keyword-perfect title (the QA fix).
+//   3. officialTier — official audio > official video > ordinary > lyrics/cover/fan/junk.
+//   4. relevanceLevel — the fine title match (exact > prefix > all-words > partial).
+//   5. audio — the gentle prefer-audio tiebreak.
+//   6. index — stable within a full tie (keeps the source interleave).
 export function rankResults(
   query: string,
   results: readonly TrackRef[],
@@ -116,16 +179,20 @@ export function rankResults(
     .map((track, index) => ({
       track,
       index,
-      relevance: relevanceLevel(query, track.title ?? ""),
+      covers: coversQuery(query, track) ? 1 : 0,
+      authenticity: channelAuthenticity(query, track),
       tier: officialTier(track),
+      relevance: relevanceLevel(query, track.title ?? ""),
       audio: preferAudio && isAudioKind(track) ? 1 : 0,
     }))
     .sort(
       (a, b) =>
-        b.relevance - a.relevance || // 1. relevance beats keyword-stuffing
-        b.tier - a.tier || //           2. official / Topic first, junk last
-        b.audio - a.audio || //         3. gentle prefer-audio tiebreak
-        a.index - b.index, //           stable within a full tie
+        b.covers - a.covers || //         1. real match beats a keyword coincidence
+        b.authenticity - a.authenticity || // 2. the verified channel beats re-uploads
+        b.tier - a.tier || //              3. official / Topic first, junk last
+        b.relevance - a.relevance || //    4. finer title relevance
+        b.audio - a.audio || //            5. gentle prefer-audio tiebreak
+        a.index - b.index, //              stable within a full tie
     )
     .map((s) => s.track);
 }
