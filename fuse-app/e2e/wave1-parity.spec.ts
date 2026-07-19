@@ -140,7 +140,10 @@ test.describe("Wave 1 — settings journeys (signed-in robot)", () => {
     await sheet.getByTestId("sleep-trigger").click();
     await sheet.getByTestId("sleep-15").click();
 
-    // The armed chip appears in the top bar, visible app-wide.
+    // Close the settings sheet so its overlay no longer covers the top bar, then confirm the
+    // armed chip is visible app-wide.
+    await page.keyboard.press("Escape");
+    await expect(sheet).toHaveAttribute("aria-hidden", "true");
     const chip = page.getByTestId("topbar-sleep-chip");
     await expect(chip).toBeVisible();
 
