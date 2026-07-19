@@ -153,6 +153,57 @@ describe("runSearch — source status is NEVER cached (P1: no stale 'try again')
   });
 });
 
+describe("runSearch — audio preference shapes ORDER, never the cache (Complaint 1)", () => {
+  // A deterministic fake source pair: YouTube returns a mix of an ordinary video, a
+  // "- Topic" art-track, and an "Official Audio" upload; Spotify returns one row. With
+  // the interleave, the raw order is: ytVideo, sp, ytTopic, ytAudio.
+  function makeAudioDeps() {
+    const ytVideo: TrackRef = { source: "youtube", nativeId: "v1", title: "Song (Official Video)", artist: "Band", artUrl: null, durationSec: null };
+    const ytTopic: TrackRef = { source: "youtube", nativeId: "t1", title: "Song", artist: "Band - Topic", artUrl: null, durationSec: null };
+    const ytAudio: TrackRef = { source: "youtube", nativeId: "a1", title: "Song (Official Audio)", artist: "Band", artUrl: null, durationSec: null };
+    const spRow = sp("x");
+    const store = new Map<string, CachedSearch>();
+    const deps: SearchDeps = {
+      searchYouTube: vi.fn(async (): Promise<SourceOutcome> => ({ ok: true, tracks: [ytVideo, ytTopic, ytAudio] })),
+      searchSpotify: vi.fn(async (): Promise<SourceOutcome> => ({ ok: true, tracks: [spRow] })),
+      readCache: vi.fn(async (q: string) => store.get(q.trim().toLowerCase()) ?? null),
+      writeCache: vi.fn(async (q: string, cached: CachedSearch) => {
+        store.set(q.trim().toLowerCase(), cached);
+      }),
+      freshStatus: vi.fn((): SourceStatuses => FRESH_OK),
+    };
+    return { deps, store };
+  }
+
+  it("floats official audio versions to the top when preferAudio is on", async () => {
+    const { deps } = makeAudioDeps();
+    const res = await runSearch("song", deps, { preferAudio: true });
+    // Audio-first (Topic then Official Audio, each keeping its relative order), then the
+    // ordinary video, then the Spotify row.
+    expect(res.results.map((r) => r.nativeId)).toEqual(["t1", "a1", "v1", "spotify:track:x"]);
+  });
+
+  it("leaves the interleaved order untouched when preferAudio is off", async () => {
+    const { deps } = makeAudioDeps();
+    const res = await runSearch("song", deps, { preferAudio: false });
+    expect(res.results.map((r) => r.nativeId)).toEqual(["v1", "spotify:track:x", "t1", "a1"]);
+  });
+
+  it("caches RAW rows — a later query with the OTHER preference reorders from the same cache", async () => {
+    const { deps, store } = makeAudioDeps();
+    // First request (miss) with preferAudio ON populates the cache.
+    await runSearch("song", deps, { preferAudio: true });
+    // The stored rows are the raw interleave, NOT the audio-ordered view.
+    const stored = store.get("song")!;
+    expect(stored.results.map((r) => r.nativeId)).toEqual(["v1", "spotify:track:x", "t1", "a1"]);
+    // A second request (hit) with preferAudio OFF gets the raw order back — the first
+    // user's preference never leaked into the cache.
+    const off = await runSearch("song", deps, { preferAudio: false });
+    expect(off.cached).toBe(true);
+    expect(off.results.map((r) => r.nativeId)).toEqual(["v1", "spotify:track:x", "t1", "a1"]);
+  });
+});
+
 describe("runSearch — empty query", () => {
   it("short-circuits with no external calls", async () => {
     const { deps, searchYouTube, searchSpotify, readCache } = makeDeps();

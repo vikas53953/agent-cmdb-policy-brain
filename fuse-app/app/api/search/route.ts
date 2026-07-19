@@ -19,6 +19,8 @@ import { readSearchCache, writeSearchCache } from "@/lib/repos/search-cache";
 import { searchYouTube, hasYouTubeApiKey, YT_NOT_CONFIGURED } from "@/lib/youtube";
 import { searchSpotify, hasSpotifyAppCredentials, SP_NOT_CONFIGURED } from "@/lib/spotify";
 import { runSearch, type SearchDeps, type CachedSearch, type SourceStatuses } from "@/lib/search/orchestrate";
+import { getUser } from "@/lib/auth-session";
+import { getPreferAudio } from "@/lib/repos/settings";
 import type { TrackRef } from "@/lib/repos/track";
 
 // Prisma (Neon) needs the Node runtime, not Edge.
@@ -71,10 +73,25 @@ const deps: SearchDeps = {
   freshStatus,
 };
 
+// Read the caller's "prefer audio versions" setting (Complaint 1). Guarded like every
+// other read in this route: a signed-out / keyless / no-DATABASE_URL environment degrades
+// to the ON default (music-first) rather than throwing — search must never 500 over a
+// preference lookup. Never logs or exposes any secret.
+async function resolvePreferAudio(): Promise<boolean> {
+  try {
+    const user = await getUser();
+    if (!user) return true;
+    return await getPreferAudio(user.id);
+  } catch {
+    return true;
+  }
+}
+
 export async function GET(request: Request) {
   const query = new URL(request.url).searchParams.get("q") ?? "";
   try {
-    const response = await runSearch(query, deps);
+    const preferAudio = await resolvePreferAudio();
+    const response = await runSearch(query, deps, { preferAudio });
     return NextResponse.json(response);
   } catch {
     // Last-resort honesty: never leak a stack, never freeze the UI (R18).
