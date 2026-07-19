@@ -148,6 +148,35 @@ describe("equal-power crossfade curve", () => {
   });
 });
 
+describe("crossfader curve setting (DJ-1)", () => {
+  it("every curve honours the endpoints exactly (full A at 0, full B at 1)", () => {
+    for (const curve of ["smooth", "linear", "sharp"] as const) {
+      expect(crossfadeGains(0, curve).a).toBeCloseTo(1, 10);
+      expect(crossfadeGains(0, curve).b).toBeCloseTo(0, 10);
+      expect(crossfadeGains(1, curve).a).toBeCloseTo(0, 10);
+      expect(crossfadeGains(1, curve).b).toBeCloseTo(1, 10);
+    }
+  });
+
+  it("linear is a straight fade", () => {
+    expect(crossfadeGains(0.25, "linear")).toEqual({ a: 0.75, b: 0.25 });
+    expect(crossfadeGains(0.5, "linear")).toEqual({ a: 0.5, b: 0.5 });
+  });
+
+  it("sharp keeps both decks louder through the middle than smooth (a fast cut)", () => {
+    // Just off-centre: the sharp curve holds the outgoing deck near full while smooth has
+    // already pulled it well down — that is exactly what a cut curve does for scratching.
+    const sharp = crossfadeGains(0.3, "sharp");
+    const smooth = crossfadeGains(0.3, "smooth");
+    expect(sharp.a).toBeGreaterThan(smooth.a);
+    expect(sharp.a).toBe(1); // still fully on until past the plateau
+  });
+
+  it("defaults to the smooth equal-power curve when none is given", () => {
+    expect(crossfadeGains(0.5)).toEqual(crossfadeGains(0.5, "smooth"));
+  });
+});
+
 describe("parseYouTubeId accepts real ids and URLs, rejects junk", () => {
   it("takes a bare 11-char id", () => {
     expect(parseYouTubeId("dQw4w9WgXcQ")).toBe("dQw4w9WgXcQ");

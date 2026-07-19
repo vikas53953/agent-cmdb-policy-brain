@@ -1,21 +1,25 @@
 "use client";
 
-// A single DJ deck (U13 + U14, R12/R13/R14/R17, AE3/AE4, F3). One of the two decks in
-// the console. Its source picker and control set are driven entirely by the deck model
-// (deck-model.ts), which composes the capability matrix with what actually works in
-// THIS commit — so the deck can never show a control that does nothing.
+// A single DJ deck (U13 + U14 + DJ-1, R12/R13/R14/R17, AE3/AE4, F3). One of the two
+// decks in the console. Its source picker and control set are driven entirely by the
+// deck model (deck-model.ts), which composes the capability matrix with what actually
+// works in THIS commit — so the deck can never show a control that does nothing.
 //
 // What genuinely works here:
-//   - YouTube (U13): select YouTube, load a real video into a VISIBLE player (KTD-7 —
-//     never hidden), play / pause, change speed; the crossfader volume applies to it.
-//   - My Files (U14): pick a local audio file, decoded IN THE BROWSER and NEVER
-//     uploaded (R14), and drive the full Web Audio engine on it — 3-band EQ, loops,
-//     echo FX, scratch, speed — with the crossfader blending it against the other deck.
-// What is honestly disabled with a plain reason:
-//   - Spotify playback (lands in U15) — Spotify can still occupy the deck so the
-//     one-deck-at-a-time lock (AE4) is demonstrable, but its transport stays disabled.
+//   - YouTube (U13): select YouTube, load a real video into a VISIBLE player, play /
+//     pause, change speed; the crossfader volume applies to it. It is deliberately a
+//     SPEED-ONLY deck — the honesty matrix greys everything else, because YouTube hands
+//     us no audio to process. It shows no waveform (video preview only).
+//   - My Files (U14 + DJ-1): pick a local audio file, decoded IN THE BROWSER and NEVER
+//     uploaded (R14), and drive the FULL engine on it — scrolling + overview waveform,
+//     auto BPM with manual TAP, a beatgrid, 4 saved hot cues, on-grid beat loops, a
+//     HP/LP filter, 3-band EQ with kills, trim with a live level meter, echo and scratch.
+//   - Spotify playback (lands in U15) is honestly disabled with a plain reason.
+//
+// Every new DJ-1 control lives ONLY in the My Files branch — the one source that can
+// truly do it — so the honesty law holds by construction.
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { TrackRef, TrackSource } from "@/lib/repos/track";
 import { SOURCE_BADGES } from "@/lib/ui/shell";
 import { REASONS, LOCAL_RATE_RANGE } from "@/lib/player/capabilities";
@@ -26,9 +30,13 @@ import {
 import {
   createDjDeckEngine,
   EQ_GAIN_RANGE,
+  TRIM_RANGE,
   type DjDeckEngine,
   type EqBand,
 } from "@/lib/dj/engine";
+import { BEAT_LOOP_BARS, beatLoopRegion, tapTempo } from "@/lib/dj/analysis";
+import { localTrackKey } from "@/lib/dj/fingerprint";
+import { listCuesAction, setCueAction, deleteCueAction } from "@/lib/dj-actions";
 import {
   parseYouTubeId,
   resolveDeckControls,
@@ -36,24 +44,36 @@ import {
   type DeckId,
 } from "@/components/dj/deck-model";
 import CapabilityBadges from "@/components/dj/capability-badges";
+import DeckWaveform, { type CueMarker } from "@/components/dj/deck-waveform";
 import { PlayIcon, PauseIcon } from "@/components/ui/icons";
-
-// Deck-local player adapters must NOT drive the global player store (that is the main
-// mini-player's truth). Each deck instead gets its OWN bridge (built below) so the deck
-// keeps its clock to itself — the reported position drives only this deck's machine-
-// readable surface (data-deck-position), never the global store.
 
 const [RATE_MIN, RATE_MAX] = LOCAL_RATE_RANGE;
 const [EQ_MIN, EQ_MAX] = EQ_GAIN_RANGE;
+const [TRIM_MIN, TRIM_MAX] = TRIM_RANGE;
 
 type EqState = { low: number; mid: number; high: number };
+type KillState = { low: boolean; mid: boolean; high: boolean };
 const FLAT_EQ: EqState = { low: 0, mid: 0, high: 0 };
+const NO_KILL: KillState = { low: false, mid: false, high: false };
+
+// The four DJ-1 hot-cue pads.
+const CUE_SLOTS = [0, 1, 2, 3] as const;
+// A gap longer than this between taps starts a fresh TAP measurement.
+const TAP_RESET_SEC = 2;
 
 const EQ_BANDS: readonly { band: EqBand; label: string }[] = [
   { band: "low", label: "Low" },
   { band: "mid", label: "Mid" },
   { band: "high", label: "High" },
 ];
+
+type Analysis = {
+  peaks: readonly number[];
+  bpm: number;
+  bpmConfidence: number;
+  duration: number;
+};
+const NO_ANALYSIS: Analysis = { peaks: [], bpm: 0, bpmConfidence: 0, duration: 0 };
 
 export default function Deck({
   deckId,
@@ -68,23 +88,16 @@ export default function Deck({
   source: TrackSource | null;
   otherSource: TrackSource | null;
   onSelectSource: (source: TrackSource | null) => void;
-  // 0..1 gain from the crossfader; applied to this deck's live player.
   volume: number;
 }) {
   const adapterRef = useRef<YouTubeAdapter | null>(null);
   const engineRef = useRef<DjDeckEngine | null>(null);
   const hostRef = useRef<HTMLDivElement>(null);
 
-  // This deck's playback clock (seconds), surfaced as data-deck-position so the robot
-  // tester can assert a DJ deck is really advancing — the same honesty the mini-player
-  // gives for the main player. Fed by the deck-private bridge below; never touches the
-  // global store.
   const [deckPos, setDeckPos] = useState(0);
   const bridgeRef = useRef({
     reportPosition: (positionSec: number) => setDeckPos(positionSec > 0 ? positionSec : 0),
     next: async () => false,
-    // A DJ deck is preview-only and never touches the global recovery ladder; an engine
-    // error is just logged (R18) by the adapter, so this bridge no-ops it honestly.
     reportError: () => {},
   });
 
@@ -95,16 +108,31 @@ export default function Deck({
   const [loadError, setLoadError] = useState<string | null>(null);
   const [rate, setRate] = useState(1);
 
-  // Local-files (Web Audio) deck state (U14).
+  // Local-files (Web Audio) deck state (U14 + DJ-1).
   const [localName, setLocalName] = useState<string | null>(null);
   const [localLoaded, setLocalLoaded] = useState(false);
-  const [eq, setEq] = useState<EqState>(FLAT_EQ);
-  const [loopOn, setLoopOn] = useState(false);
+  const [trackKey, setTrackKey] = useState<string | null>(null);
+  const [analysis, setAnalysis] = useState<Analysis>(NO_ANALYSIS);
+  const [bpm, setBpm] = useState(0); // detected, or overridden by TAP
+  const [eq, setEqState] = useState<EqState>(FLAT_EQ);
+  const [kills, setKills] = useState<KillState>(NO_KILL);
+  const [filterAmt, setFilterAmt] = useState(0);
+  const [trim, setTrimState] = useState(1);
+  const [meter, setMeter] = useState(0);
+  const [beatLoopBars, setBeatLoopBars] = useState<number | null>(null);
   const [echoOn, setEchoOn] = useState(false);
   const [scratchVal, setScratchVal] = useState(0);
+  const [cues, setCues] = useState<CueMarker[]>([]);
+  const tapTimesRef = useRef<number[]>([]);
+
+  // The beatgrid starts at the track's beginning (firstBeat = 0) in DJ-1 — enough to
+  // snap loops/cues to the tempo; a movable grid anchor is DJ-2.
+  const firstBeatSec = 0;
 
   const options = resolveDeckSourceOptions({ deck: deckId, otherDeckSource: otherSource });
-  const controls = source ? resolveDeckControls(source, { deck: deckId, otherDeckSource: otherSource }) : null;
+  const controls = source
+    ? resolveDeckControls(source, { deck: deckId, otherDeckSource: otherSource })
+    : null;
 
   // Spin up (and tear down) a private YouTube player when this deck is on YouTube.
   useEffect(() => {
@@ -121,7 +149,6 @@ export default function Deck({
   }, [source]);
 
   // Spin up (and dispose) a private Web Audio engine when this deck is on My Files.
-  // dispose() frees the decoded buffer — the user's bytes leave memory (R14).
   useEffect(() => {
     if (source !== "local") return;
     const engine = createDjDeckEngine();
@@ -132,15 +159,32 @@ export default function Deck({
     };
   }, [source]);
 
-  // Keep the live player's volume in step with the crossfader — for whichever engine
-  // this deck currently runs (YouTube adapter or Web Audio engine).
+  // Keep the live player's volume in step with the crossfader.
   useEffect(() => {
     adapterRef.current?.setVolume(volume);
     engineRef.current?.setCrossfade(volume);
   }, [volume]);
 
-  // Switching (or clearing) this deck's source resets everything loaded on it, so the
-  // deck never carries a stale track/link across a source change (honest fresh state).
+  // While a local file is loaded, run an animation loop that reads the engine's REAL
+  // position and level so the waveform playhead moves and the meter breathes with the
+  // actual sound (never a faked animation).
+  useEffect(() => {
+    if (source !== "local" || !localLoaded) return;
+    let raf = 0;
+    const tick = () => {
+      const engine = engineRef.current;
+      if (engine) {
+        const pos = engine.position();
+        setDeckPos(pos > 0 ? pos : 0);
+        setMeter(engine.getLevel());
+      }
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [source, localLoaded]);
+
+  // Reset everything loaded on this deck when its source changes (honest fresh state).
   function selectSource(next: TrackSource) {
     setLinkInput("");
     setLoadedId(null);
@@ -150,10 +194,19 @@ export default function Deck({
     setDeckPos(0);
     setLocalName(null);
     setLocalLoaded(false);
-    setEq(FLAT_EQ);
-    setLoopOn(false);
+    setTrackKey(null);
+    setAnalysis(NO_ANALYSIS);
+    setBpm(0);
+    setEqState(FLAT_EQ);
+    setKills(NO_KILL);
+    setFilterAmt(0);
+    setTrimState(1);
+    setMeter(0);
+    setBeatLoopBars(null);
     setEchoOn(false);
     setScratchVal(0);
+    setCues([]);
+    tapTimesRef.current = [];
     onSelectSource(source === next ? null : next);
   }
 
@@ -207,34 +260,49 @@ export default function Deck({
     engineRef.current?.setRate(next);
   }
 
-  // ── My Files (Web Audio) handlers (U14) ────────────────────────────────────────
+  // ── My Files (Web Audio) handlers (U14 + DJ-1) ─────────────────────────────────
 
   async function pickFile(file: File | undefined) {
     const engine = engineRef.current;
     if (!engine || !file) return;
     if (!engine.available) {
-      // No Web Audio in this browser — say so plainly instead of faking a load (R17).
       setLoadError("Your browser can't play decoded audio, so files can't be loaded here.");
       return;
     }
     setLoadError(null);
     setLoading(true);
     try {
-      // Decode straight from the device — no network, ever (R14).
+      // Read the bytes once: decode them (never uploaded — R14) AND fingerprint them so
+      // this file's saved cues can be found (fingerprint is derived on-device).
+      const bytes = await file.arrayBuffer();
+      const key = localTrackKey(new Uint8Array(bytes), file.name);
       await engine.resume();
-      await engine.loadFile(file);
+      await engine.loadArrayBuffer(bytes);
       // Re-apply the current control values onto the freshly decoded buffer.
       engine.setRate(rate);
       engine.setCrossfade(volume);
       engine.setEq("low", eq.low);
       engine.setEq("mid", eq.mid);
       engine.setEq("high", eq.high);
-      engine.setLoop(loopOn);
+      engine.setEqKill("low", kills.low);
+      engine.setEqKill("mid", kills.mid);
+      engine.setEqKill("high", kills.high);
+      engine.setFilter(filterAmt);
+      engine.setTrim(trim);
       engine.setEcho(echoOn);
+      const a = engine.getAnalysis();
+      setAnalysis({ peaks: a.peaks, bpm: a.bpm, bpmConfidence: a.bpmConfidence, duration: a.duration });
+      setBpm(a.bpm);
+      setBeatLoopBars(null);
       engine.play();
       setLocalName(file.name);
       setLocalLoaded(true);
+      setTrackKey(key);
       setIsPlaying(true);
+      // Load this track's saved hot cues (empty on a keyless / signed-out run).
+      void listCuesAction({ source: "local", nativeId: key }).then((saved) => {
+        setCues(saved.map((c) => ({ slot: c.slot, positionSec: c.positionSec })));
+      });
     } catch {
       setLoadError("Couldn't read that audio file. Try another one.");
       setLocalLoaded(false);
@@ -252,14 +320,26 @@ export default function Deck({
   }
 
   function setEqBand(band: EqBand, db: number) {
-    setEq((prev) => ({ ...prev, [band]: db }));
+    setEqState((prev) => ({ ...prev, [band]: db }));
     engineRef.current?.setEq(band, db);
   }
 
-  function toggleLoop() {
-    const next = !loopOn;
-    setLoopOn(next);
-    engineRef.current?.setLoop(next);
+  function toggleKill(band: EqBand) {
+    setKills((prev) => {
+      const next = !prev[band];
+      engineRef.current?.setEqKill(band, next);
+      return { ...prev, [band]: next };
+    });
+  }
+
+  function changeFilter(amount: number) {
+    setFilterAmt(amount);
+    engineRef.current?.setFilter(amount);
+  }
+
+  function changeTrim(gain: number) {
+    setTrimState(gain);
+    engineRef.current?.setTrim(gain);
   }
 
   function toggleEcho() {
@@ -278,9 +358,63 @@ export default function Deck({
     engineRef.current?.endScratch();
   }
 
+  // TAP tempo: time the taps and average them into a BPM override for when auto-detection
+  // is unsure (or wrong). Resets after a pause so a fresh count starts clean.
+  function onTap() {
+    const now = performance.now() / 1000;
+    const taps = tapTimesRef.current;
+    if (taps.length > 0 && now - taps[taps.length - 1] > TAP_RESET_SEC) taps.length = 0;
+    taps.push(now);
+    if (taps.length > 8) taps.shift();
+    const tapped = tapTempo(taps);
+    if (tapped !== null) setBpm(tapped);
+  }
+
+  // The active beatgrid BPM (TAP override wins over auto-detection).
+  const gridBpm = bpm;
+
+  // Hot cue: set on an empty pad (at the live playhead), or jump to a set pad. Persisted
+  // per user+track via the server action.
+  const onCue = useCallback(
+    (slot: number) => {
+      const engine = engineRef.current;
+      if (!engine || !localLoaded || !trackKey) return;
+      const existing = cues.find((c) => c.slot === slot);
+      if (existing) {
+        engine.seek(existing.positionSec); // JUMP
+        return;
+      }
+      const pos = engine.position(); // SET at the live playhead
+      setCues((prev) => [...prev.filter((c) => c.slot !== slot), { slot, positionSec: pos }]);
+      void setCueAction({ source: "local", nativeId: trackKey }, slot, pos);
+    },
+    [cues, localLoaded, trackKey],
+  );
+
+  const onCueClear = useCallback(
+    (slot: number) => {
+      if (!trackKey) return;
+      setCues((prev) => prev.filter((c) => c.slot !== slot));
+      void deleteCueAction({ source: "local", nativeId: trackKey }, slot);
+    },
+    [trackKey],
+  );
+
+  // Beat loop: arm an on-grid loop of `bars` bars, or clear it if already active.
+  function onBeatLoop(bars: number) {
+    const engine = engineRef.current;
+    if (!engine || !localLoaded) return;
+    if (beatLoopBars === bars) {
+      engine.setBeatLoop(null);
+      setBeatLoopBars(null);
+      return;
+    }
+    const region = beatLoopRegion(engine.position(), analysis.duration, gridBpm, firstBeatSec, bars);
+    engine.setBeatLoop(region);
+    setBeatLoopBars(bars);
+  }
+
   const badge = source ? SOURCE_BADGES[source] : null;
-  // Speed is live for a YouTube deck with a track loaded, or a local deck with a file
-  // decoded — exactly when there is real audio for it to act on.
   const speedLive =
     (source === "youtube" && controls?.rate.available === true && loadedId !== null) ||
     (source === "local" && localLoaded);
@@ -293,9 +427,6 @@ export default function Deck({
           ? "Load a file to change speed"
           : null;
 
-  // Machine-readable deck lifecycle for the robot tester (mirrors the mini-player's
-  // surface): error if a load failed, loading while a load is in flight, playing when
-  // real audio is running, else idle.
   const deckState = loadError
     ? "error"
     : loading
@@ -304,6 +435,8 @@ export default function Deck({
         ? "playing"
         : "idle";
 
+  const bpmLabel = gridBpm > 0 ? gridBpm.toFixed(1) : "—";
+
   return (
     <section
       className={`deck deck-${accent}`}
@@ -311,13 +444,13 @@ export default function Deck({
       data-testid={`deck-${deckId}`}
       data-deck-state={deckState}
       data-deck-position={deckPos.toFixed(2)}
+      data-deck-bpm={gridBpm.toFixed(1)}
     >
       <div className="deck-head">
         <span className="deck-title">Deck {deckId}</span>
         {badge ? <span className={`badge ${badge.className}`}>{badge.label}</span> : null}
       </div>
 
-      {/* Source picker (prototype .source-pick). Disabled options carry their reason. */}
       <div className="source-pick" role="group" aria-label={`Deck ${deckId} source`}>
         {options.map((opt) => {
           const label = SOURCE_BADGES[opt.source].label;
@@ -347,6 +480,10 @@ export default function Deck({
       {source === "youtube" ? (
         <>
           <div className="deck-video" ref={hostRef} aria-label="Deck video" data-testid={`deck-${deckId}-video`} />
+          <p className="deck-speed-only">
+            YouTube is a speed-only deck — its sound is sealed in the player, so the
+            waveform, EQ, filter, cues and loops stay off. What it can do stays live.
+          </p>
           <div className="deck-load">
             <input
               type="text"
@@ -411,144 +548,276 @@ export default function Deck({
 
       {source === "local" ? (
         <>
-          {/* On-device promise, stated where files are loaded (R14). */}
           <p className="deck-local-promise">
-            Files stay on your device — decoded here in your browser, never uploaded.
+            Files stay on your device — decoded here in your browser, never uploaded. The
+            waveform, BPM and cues are all computed on your machine.
           </p>
 
           <div className="deck-load">
-                <label className="deck-filebtn">
-                  {localName ? "Swap file" : "Choose a file"}
-                  <input
-                    type="file"
-                    accept="audio/*"
-                    className="deck-file-input"
-                    onChange={(e) => pickFile(e.target.files?.[0])}
-                    aria-label={`Deck ${deckId} audio file`}
-                  />
-                </label>
-                {localName ? (
-                  <span className="deck-filename" title={localName}>
-                    {localName}
-                  </span>
-                ) : null}
-              </div>
-              {loadError ? <p className="deck-error">{loadError}</p> : null}
+            <label className="deck-filebtn">
+              {localName ? "Swap file" : "Choose a file"}
+              <input
+                type="file"
+                accept="audio/*"
+                className="deck-file-input"
+                onChange={(e) => pickFile(e.target.files?.[0])}
+                aria-label={`Deck ${deckId} audio file`}
+              />
+            </label>
+            {localName ? (
+              <span className="deck-filename" title={localName}>
+                {localName}
+              </span>
+            ) : null}
+          </div>
+          {loadError ? <p className="deck-error">{loadError}</p> : null}
 
-              <div className="deck-transport">
-                <button
-                  type="button"
-                  className="icon-btn primary deck-play"
-                  data-testid={`deck-${deckId}-play`}
-                  onClick={toggleLocalPlay}
-                  disabled={!localLoaded}
-                  aria-label={isPlaying ? "Pause deck" : "Play deck"}
-                  title={localLoaded ? undefined : "Load a file first"}
-                >
-                  {isPlaying ? <PauseIcon /> : <PlayIcon />}
-                </button>
+          {/* Waveform + overview — the "see the music" view (only local has samples). */}
+          {localLoaded ? (
+            <DeckWaveform
+              deckId={deckId}
+              accent={accent}
+              peaks={analysis.peaks}
+              durationSec={analysis.duration}
+              positionSec={deckPos}
+              bpm={gridBpm}
+              firstBeatSec={firstBeatSec}
+              cues={cues}
+              onSeek={(p) => engineRef.current?.seek(p)}
+            />
+          ) : null}
 
-                <div className="deck-speed">
-                  <label className="deck-speed-label" htmlFor={`deck-${deckId}-speed`}>
-                    Speed <span className="deck-speed-val">{rate.toFixed(2)}×</span>
-                  </label>
-                  <input
-                    id={`deck-${deckId}-speed`}
-                    type="range"
-                    className="deck-speed-range"
-                    min={RATE_MIN}
-                    max={RATE_MAX}
-                    step={0.05}
-                    value={rate}
-                    onChange={(e) => changeRate(Number(e.target.value))}
-                    disabled={!speedLive}
-                    title={speedLive ? undefined : (speedReason ?? undefined)}
-                    aria-label={`Deck ${deckId} playback speed`}
-                  />
-                  {!speedLive && speedReason ? (
-                    <span className="deck-speed-reason">{speedReason}</span>
+          <div className="deck-transport">
+            <button
+              type="button"
+              className="icon-btn primary deck-play"
+              data-testid={`deck-${deckId}-play`}
+              onClick={toggleLocalPlay}
+              disabled={!localLoaded}
+              aria-label={isPlaying ? "Pause deck" : "Play deck"}
+              title={localLoaded ? undefined : "Load a file first"}
+            >
+              {isPlaying ? <PauseIcon /> : <PlayIcon />}
+            </button>
+
+            {/* BPM readout + manual TAP override. */}
+            <div className="deck-bpm">
+              <span className="deck-bpm-val" data-testid={`deck-${deckId}-bpm`}>
+                {bpmLabel}
+                <small> BPM</small>
+              </span>
+              <button
+                type="button"
+                className="deck-tap"
+                data-testid={`deck-${deckId}-tap`}
+                onClick={onTap}
+                disabled={!localLoaded}
+                title={localLoaded ? "Tap the beat to set the tempo" : "Load a file first"}
+                aria-label={`Deck ${deckId} tap tempo`}
+              >
+                TAP
+              </button>
+            </div>
+
+            <div className="deck-speed">
+              <label className="deck-speed-label" htmlFor={`deck-${deckId}-speed`}>
+                Speed <span className="deck-speed-val">{rate.toFixed(2)}×</span>
+              </label>
+              <input
+                id={`deck-${deckId}-speed`}
+                type="range"
+                className="deck-speed-range"
+                min={RATE_MIN}
+                max={RATE_MAX}
+                step={0.05}
+                value={rate}
+                onChange={(e) => changeRate(Number(e.target.value))}
+                disabled={!speedLive}
+                title={speedLive ? undefined : (speedReason ?? undefined)}
+                aria-label={`Deck ${deckId} playback speed`}
+              />
+            </div>
+          </div>
+
+          {/* Hot cues — 4 pads, set at the playhead / jump back, saved per track. */}
+          <div className="deck-cues" role="group" aria-label={`Deck ${deckId} hot cues`}>
+            {CUE_SLOTS.map((slot) => {
+              const cue = cues.find((c) => c.slot === slot);
+              return (
+                <div key={slot} className={`deck-cue${cue ? " set" : ""}`}>
+                  <button
+                    type="button"
+                    className="deck-cue-btn"
+                    data-testid={`deck-${deckId}-cue-${slot}`}
+                    onClick={() => onCue(slot)}
+                    disabled={!localLoaded}
+                    title={localLoaded ? (cue ? "Jump to cue" : "Set cue here") : "Load a file first"}
+                    aria-label={`Deck ${deckId} cue ${slot + 1}${cue ? " (set — jump)" : " (empty — set)"}`}
+                  >
+                    CUE {slot + 1}
+                  </button>
+                  {cue ? (
+                    <button
+                      type="button"
+                      className="deck-cue-clear"
+                      data-testid={`deck-${deckId}-cue-${slot}-clear`}
+                      onClick={() => onCueClear(slot)}
+                      aria-label={`Clear cue ${slot + 1}`}
+                    >
+                      ×
+                    </button>
                   ) : null}
                 </div>
-              </div>
+              );
+            })}
+          </div>
 
-              {/* The full engine — every knob acts on real decoded audio (U14). All are
-                  disabled until a file is decoded, so none is ever a dead control (R17). */}
-              <div className="deck-eq" role="group" aria-label={`Deck ${deckId} EQ`}>
-                {EQ_BANDS.map(({ band, label }) => (
-                  <div className="deck-eq-band" key={band}>
-                    <label
-                      className="deck-eq-label"
-                      htmlFor={`deck-${deckId}-eq-${band}`}
-                    >
-                      {label}
-                      <span className="deck-eq-val">
-                        {eq[band] > 0 ? "+" : ""}
-                        {eq[band]} dB
-                      </span>
-                    </label>
-                    <input
-                      id={`deck-${deckId}-eq-${band}`}
-                      type="range"
-                      className="deck-eq-range"
-                      min={EQ_MIN}
-                      max={EQ_MAX}
-                      step={1}
-                      value={eq[band]}
-                      onChange={(e) => setEqBand(band, Number(e.target.value))}
-                      disabled={!localLoaded}
-                      title={localLoaded ? undefined : "Load a file first"}
-                      aria-label={`Deck ${deckId} ${label} EQ`}
-                    />
-                  </div>
-                ))}
-              </div>
+          {/* Beat loops — clean bar-length loops, quantised to the grid (replaces the old
+              fixed 2-second loop). */}
+          <div className="deck-loops" role="group" aria-label={`Deck ${deckId} beat loops`}>
+            <span className="deck-loops-label">Loop</span>
+            {BEAT_LOOP_BARS.map((bars) => (
+              <button
+                key={bars}
+                type="button"
+                className={`deck-loop-btn${beatLoopBars === bars ? " on" : ""}`}
+                data-testid={`deck-${deckId}-loop-${bars}`}
+                onClick={() => onBeatLoop(bars)}
+                disabled={!localLoaded}
+                aria-pressed={beatLoopBars === bars}
+                title={localLoaded ? `${bars}-bar loop` : "Load a file first"}
+              >
+                {bars < 1 ? `${Math.round(bars * 4)}/4` : bars}
+              </button>
+            ))}
+          </div>
 
-              <div className="deck-fx" role="group" aria-label={`Deck ${deckId} effects`}>
+          {/* 3-band EQ with kills. */}
+          <div className="deck-eq" role="group" aria-label={`Deck ${deckId} EQ`}>
+            {EQ_BANDS.map(({ band, label }) => (
+              <div className="deck-eq-band" key={band}>
+                <label className="deck-eq-label" htmlFor={`deck-${deckId}-eq-${band}`}>
+                  {label}
+                  <span className="deck-eq-val">
+                    {eq[band] > 0 ? "+" : ""}
+                    {eq[band]} dB
+                  </span>
+                </label>
+                <input
+                  id={`deck-${deckId}-eq-${band}`}
+                  type="range"
+                  className="deck-eq-range"
+                  min={EQ_MIN}
+                  max={EQ_MAX}
+                  step={1}
+                  value={eq[band]}
+                  onChange={(e) => setEqBand(band, Number(e.target.value))}
+                  disabled={!localLoaded || kills[band]}
+                  title={localLoaded ? undefined : "Load a file first"}
+                  aria-label={`Deck ${deckId} ${label} EQ`}
+                />
                 <button
                   type="button"
-                  className={`deck-fx-btn${loopOn ? " on" : ""}`}
-                  onClick={toggleLoop}
+                  className={`deck-eq-kill${kills[band] ? " on" : ""}`}
+                  data-testid={`deck-${deckId}-kill-${band}`}
+                  onClick={() => toggleKill(band)}
                   disabled={!localLoaded}
-                  aria-pressed={loopOn}
-                  title={localLoaded ? undefined : "Load a file first"}
+                  aria-pressed={kills[band]}
+                  title={localLoaded ? `Kill ${label}` : "Load a file first"}
                 >
-                  Loop
+                  Kill
                 </button>
-                <button
-                  type="button"
-                  className={`deck-fx-btn${echoOn ? " on" : ""}`}
-                  onClick={toggleEcho}
-                  disabled={!localLoaded}
-                  aria-pressed={echoOn}
-                  title={localLoaded ? undefined : "Load a file first"}
-                >
-                  Echo
-                </button>
-                <div className="deck-scratch">
-                  <label
-                    className="deck-scratch-label"
-                    htmlFor={`deck-${deckId}-scratch`}
-                  >
-                    Scratch
-                  </label>
-                  <input
-                    id={`deck-${deckId}-scratch`}
-                    type="range"
-                    className="deck-scratch-range"
-                    min={-1}
-                    max={1}
-                    step={0.02}
-                    value={scratchVal}
-                    onChange={(e) => onScratch(Number(e.target.value))}
-                    onPointerUp={releaseScratch}
-                    onPointerCancel={releaseScratch}
-                    onBlur={releaseScratch}
-                    disabled={!localLoaded}
-                    title={localLoaded ? undefined : "Load a file first"}
-                    aria-label={`Deck ${deckId} scratch`}
-                  />
-                </div>
               </div>
+            ))}
+          </div>
+
+          {/* Filter (HP/LP) + Trim with level meter. */}
+          <div className="deck-mix-row">
+            <div className="deck-filter">
+              <label className="deck-filter-label" htmlFor={`deck-${deckId}-filter`}>
+                Filter{" "}
+                <span className="deck-filter-val">
+                  {filterAmt === 0 ? "off" : filterAmt < 0 ? "LP" : "HP"}
+                </span>
+              </label>
+              <input
+                id={`deck-${deckId}-filter`}
+                type="range"
+                className="deck-filter-range"
+                data-testid={`deck-${deckId}-filter`}
+                min={-1}
+                max={1}
+                step={0.02}
+                value={filterAmt}
+                onChange={(e) => changeFilter(Number(e.target.value))}
+                onDoubleClick={() => changeFilter(0)}
+                disabled={!localLoaded}
+                title={localLoaded ? "Low-pass ↔ high-pass sweep" : "Load a file first"}
+                aria-label={`Deck ${deckId} filter`}
+              />
+            </div>
+
+            <div className="deck-trim">
+              <label className="deck-trim-label" htmlFor={`deck-${deckId}-trim`}>
+                Trim <span className="deck-trim-val">{Math.round(trim * 100)}%</span>
+              </label>
+              <input
+                id={`deck-${deckId}-trim`}
+                type="range"
+                className="deck-trim-range"
+                min={TRIM_MIN}
+                max={TRIM_MAX}
+                step={0.02}
+                value={trim}
+                onChange={(e) => changeTrim(Number(e.target.value))}
+                disabled={!localLoaded}
+                title={localLoaded ? "Match this deck's loudness" : "Load a file first"}
+                aria-label={`Deck ${deckId} trim`}
+              />
+              <div className="deck-meter" aria-hidden="true">
+                <div
+                  className="deck-meter-fill"
+                  data-testid={`deck-${deckId}-meter`}
+                  style={{ width: `${Math.min(100, Math.round(meter * 140))}%` }}
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Echo + scratch (kept from U14). */}
+          <div className="deck-fx" role="group" aria-label={`Deck ${deckId} effects`}>
+            <button
+              type="button"
+              className={`deck-fx-btn${echoOn ? " on" : ""}`}
+              onClick={toggleEcho}
+              disabled={!localLoaded}
+              aria-pressed={echoOn}
+              title={localLoaded ? undefined : "Load a file first"}
+            >
+              Echo
+            </button>
+            <div className="deck-scratch">
+              <label className="deck-scratch-label" htmlFor={`deck-${deckId}-scratch`}>
+                Scratch
+              </label>
+              <input
+                id={`deck-${deckId}-scratch`}
+                type="range"
+                className="deck-scratch-range"
+                min={-1}
+                max={1}
+                step={0.02}
+                value={scratchVal}
+                onChange={(e) => onScratch(Number(e.target.value))}
+                onPointerUp={releaseScratch}
+                onPointerCancel={releaseScratch}
+                onBlur={releaseScratch}
+                disabled={!localLoaded}
+                title={localLoaded ? undefined : "Load a file first"}
+                aria-label={`Deck ${deckId} scratch`}
+              />
+            </div>
+          </div>
         </>
       ) : null}
 

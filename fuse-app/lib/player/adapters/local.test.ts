@@ -35,6 +35,12 @@ function fakeEngine() {
       calls.push("seek");
     }),
     setEq: vi.fn(),
+    setEqKill: vi.fn(),
+    isEqKilled: vi.fn(() => false),
+    setFilter: vi.fn(),
+    setTrim: vi.fn(),
+    getLevel: vi.fn(() => 0),
+    getAnalysis: vi.fn(() => ({ peaks: [], bpm: 0, bpmConfidence: 0, sampleRate: 0, duration: 0 })),
     setRate: vi.fn(() => {
       calls.push("setRate");
     }),
@@ -42,6 +48,7 @@ function fakeEngine() {
       calls.push("setCrossfade");
     }),
     setLoop: vi.fn(),
+    setBeatLoop: vi.fn(),
     setEcho: vi.fn(),
     scratch: vi.fn(),
     endScratch: vi.fn(),
