@@ -88,3 +88,48 @@ test.describe("the Transition Moment — NOW / NEXT / fusing countdown (determin
     ).toBeLessThan(s0);
   });
 });
+
+// The LIVE-TOLERANT check — runs against production in the watchman (no fake engine there,
+// so it needs ONLY real search + embed). The block renders from the store's current + queue,
+// so it appears with a real NEXT track even if the embed is bot-gated and never advances.
+// Tolerant on the countdown: it is only present when the real duration is known, and if
+// present it must not GROW (a live clock only counts down or, if frozen, stays put).
+test.describe("the Transition Moment — live-tolerant (production)", () => {
+  test.skip(!E2E_READY, NOT_READY_REASON);
+  test.skip(!E2E_EXTERNAL, NO_EXTERNAL_REASON);
+
+  test("appears with a real NEXT track; any countdown never grows", async ({ page }) => {
+    await page.getByTestId("tab-search").click();
+    await page.getByTestId("search-input").fill(STABLE.query);
+    const ytRows = page.locator('[data-testid="search-result"][data-source="youtube"]');
+    await expect(ytRows.first()).toBeVisible({ timeout: 30_000 });
+    // Playing the first result hands the rest of the list to the queue, so there is a
+    // genuine NEXT track regardless of whether the embed actually starts on this network.
+    await ytRows.first().getByTestId("result-play").click();
+
+    await page.getByTestId("mini-open").click();
+    await expect(page.getByTestId("now-playing")).toHaveAttribute("data-np-open", "true");
+
+    const block = page.getByTestId("transition-moment");
+    await expect(block).toBeVisible({ timeout: 20_000 });
+    const nextTitle = (await block.getByTestId("tm-next-title").textContent())?.trim() ?? "";
+    expect(
+      nextTitle.length,
+      "The Transition Moment must name a real NEXT track from the queued results.",
+    ).toBeGreaterThan(0);
+
+    // If a live countdown is showing (duration known + a truly fusible pair), it must not
+    // grow over a few seconds — a real clock only counts down (or holds if position froze).
+    const s0raw = await block.getAttribute("data-fusing-seconds");
+    if (s0raw !== null) {
+      await page.waitForTimeout(4_000);
+      const s1raw = await block.getAttribute("data-fusing-seconds");
+      if (s1raw !== null) {
+        expect(
+          Number(s1raw),
+          `The live fusing countdown grew (s0=${s0raw}, s1=${s1raw}) — a countdown must only shrink.`,
+        ).toBeLessThanOrEqual(Number(s0raw));
+      }
+    }
+  });
+});
