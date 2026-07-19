@@ -287,6 +287,53 @@ describe("resolvePlayable substitution (U15 — Spotify → YouTube fallback, AE
   });
 });
 
+describe("user intent — the R1/R3/R4 gate (only the user's commands move intent)", () => {
+  it("play sets intent 'play'; pause sets intent 'pause' and clears any engine error", async () => {
+    const registry = createAdapterRegistry();
+    const { adapter } = makeFakeAdapter("youtube");
+    registry.register(adapter);
+    const store = new PlayerStore({ registry });
+
+    await store.play(track("youtube", "a"));
+    expect(store.getState().intent).toBe("play");
+
+    store.reportError({ message: "hiccup", kind: "soft", code: 5 });
+    expect(store.currentErrorKind()).toBe("soft");
+
+    store.pause();
+    expect(store.getState().intent).toBe("pause");
+    // Pausing drops the error flag so recovery can never re-arm the ladder on a paused track.
+    expect(store.currentErrorKind()).toBe("none");
+  });
+
+  it("next and previous keep intent 'play' (a user-driven advance still wants sound)", async () => {
+    const registry = createAdapterRegistry();
+    registry.register(makeFakeAdapter("youtube").adapter);
+    const store = new PlayerStore({ registry });
+
+    await store.play(track("youtube", "a"));
+    store.setQueue([track("youtube", "b")]);
+    await store.next();
+    expect(store.getState().intent).toBe("play");
+    await store.previous();
+    expect(store.getState().intent).toBe("play");
+  });
+
+  it("no adapter / unplayable resolution leaves intent 'idle' — never a manufactured play", async () => {
+    const store = new PlayerStore({ registry: createAdapterRegistry() }); // no engines
+    await store.play(track("spotify", "sp-1"));
+    expect(store.getState().intent).toBe("idle");
+  });
+
+  it("mirrors the engine state reported by the adapter", () => {
+    const store = new PlayerStore({ registry: createAdapterRegistry() });
+    store.reportEngineState("buffering");
+    expect(store.currentEngineState()).toBe("buffering");
+    store.reportEngineState("playing");
+    expect(store.currentEngineState()).toBe("playing");
+  });
+});
+
 describe("switching source stops the previous adapter", () => {
   it("pauses and unloads the old adapter before starting the new one", async () => {
     const registry = createAdapterRegistry();

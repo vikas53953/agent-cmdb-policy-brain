@@ -16,6 +16,29 @@ import type { TrackRef, TrackSource } from "@/lib/repos/track";
 // whole queue; "off" stops after the last track.
 export type RepeatMode = "off" | "one" | "all";
 
+// The USER'S intent for playback — the thing the recovery monitor must gate on so it
+// never "recovers" a track the listener has paused, minimised, or never started (the
+// exact R1/R3/R4 class of false stalls). It is written ONLY by user-driven store
+// commands (play/resume/next/previous → "play"; pause → "pause"; initial / honest
+// terminal → "idle"). It is NOT the fine-grained engine truth — `isPlaying` and
+// `engineState` stay that — so recovery can distinguish "the user wants sound but the
+// engine is wedged" (a real stall) from "the engine is not producing sound because the
+// user does not want it to right now" (never a stall).
+export type PlayerIntent = "play" | "pause" | "idle";
+
+// The engine's own reported lifecycle for the current track, mirrored from the source
+// adapter (for YouTube: YT.PlayerState). Distinct from PlayerIntent: this is what the
+// player IS doing, not what the user WANTS. The recovery monitor treats only
+// "playing"/"buffering" (with intent "play" and frozen position) as a possible stall;
+// "paused"/"unstarted"/"ended" are definitively-not-a-stall.
+export type EngineState =
+  | "unstarted"
+  | "buffering"
+  | "playing"
+  | "paused"
+  | "ended"
+  | "error";
+
 // The machine-readable playback lifecycle, exposed on the mini-player root as
 // data-player-state for the robot tester (and any diagnostics). "stalled" is NOT a
 // store field — it is derived by watching whether position advances while playing
@@ -75,6 +98,12 @@ export type PlayerState = {
   // The recovery-ladder health of the current track (single source of truth). The
   // app-wide recovery monitor writes it; every surface renders the honest phase from it.
   recovery: RecoveryState;
+  // The user's playback intent (see PlayerIntent). Written only by user-driven store
+  // commands; the recovery monitor gates on this so a paused/idle track is never a stall.
+  intent: PlayerIntent;
+  // The engine's own reported lifecycle for the current track (see EngineState), mirrored
+  // from the active adapter. Read by the recovery monitor together with `intent`.
+  engineState: EngineState;
 };
 
 // The DJ/player powers whose availability differs by source and context. These are
@@ -149,6 +178,11 @@ export type SourceAdapter = {
   setRate(rate: number): void;
   // Release the underlying player/resources for this adapter's current track.
   unload(): void;
+  // OPTIONAL engine-state seam: the adapter's own view of what the player is doing
+  // (backed by YT.PlayerState for YouTube). Adapters that cannot report it omit it; the
+  // store then falls back to its mirrored engineState. Read by the recovery monitor so a
+  // stall is judged from real engine state, not just whether a polled clock advanced.
+  getEngineState?(): EngineState;
 };
 
 // The result of resolvePlayable: either a playable track (optionally a SUBSTITUTE for

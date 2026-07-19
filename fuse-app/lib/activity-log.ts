@@ -50,6 +50,28 @@ const buffer: ActivityEvent[] = [];
 type ActivityListener = (event: ActivityEvent) => void;
 const listeners = new Set<ActivityListener>();
 
+// E2E test accessor (fail-closed, no secrets). Only when the deterministic-engine flag is
+// a STRONG value (>= 32 chars, mirroring the robot-door floor) do we mirror a tiny
+// TYPE/LEVEL-only view of the log onto window.__fuseActivityLog so a spec can assert, e.g.,
+// "zero stall-* events during 30s of playback". Never the message text or any detail —
+// only the machine tag, level, and timestamp. Unset / weak flag → no accessor in prod.
+declare global {
+  interface Window {
+    __fuseActivityLog?: Array<{ type: string; level: ActivityLevel; at: number }>;
+  }
+}
+
+function mirrorForE2E(event: ActivityEvent): void {
+  if (typeof window === "undefined") return;
+  const flag = process.env.NEXT_PUBLIC_E2E_FAKE_ENGINE;
+  if (typeof flag !== "string" || flag.length < 32) return;
+  (window.__fuseActivityLog ??= []).push({
+    type: event.type,
+    level: event.level,
+    at: event.at,
+  });
+}
+
 export function logActivity(input: ActivityInput): ActivityEvent {
   const event: ActivityEvent = {
     at: input.at ?? Date.now(),
@@ -61,6 +83,7 @@ export function logActivity(input: ActivityInput): ActivityEvent {
   buffer.push(event);
   if (buffer.length > MAX_EVENTS) buffer.splice(0, buffer.length - MAX_EVENTS);
   for (const listener of listeners) listener(event);
+  mirrorForE2E(event);
   return event;
 }
 

@@ -2,21 +2,25 @@
 
 // The single, app-wide playback recovery monitor (R2/R18/AE1).
 //
-// THE CLASS FIX. The old app (and the first rebuild) could hang in "Playback stalled —
-// retrying" forever, and the only recovery lived inside the Now Playing screen — so a
-// track played straight from search results, with Now Playing closed, had NO recovery at
-// all: it just sat frozen. This monitor is mounted ONCE in the app shell, so the bounded
-// recovery ladder runs everywhere a track can play, independent of which surface is open.
+// THE CLASS FIX. The old app (and the first two rebuilds) could hang in "Playback
+// stalled — retrying" forever, and its recovery lived inside the Now Playing screen — so
+// a track played straight from search, with Now Playing closed, had NO recovery at all.
+// This monitor is mounted ONCE in the app shell, so the bounded recovery ladder runs
+// everywhere a track can play, independent of which surface is open.
 //
-// It is the only thing that DRIVES recovery. It samples the single player truth each
-// tick, feeds it to the pure ladder machine (playback-health.ts), performs the returned
-// action against the store (retry → recreate → advance → honest terminal), publishes the
-// honest phase into the store so every surface renders one truth, and logs each rung. It
-// never loops forever: the ladder terminates, and once the store is at the honest
-// skip-offered terminal this monitor stands down.
+// WHAT CHANGED (the R1/R3/R4 fix). It now feeds the pure ladder machine the USER'S INTENT
+// and the ENGINE'S state, not just whether a polled clock advanced — so a paused,
+// minimised, idle, or never-started track is never treated as a stall. And it NO LONGER
+// auto-advances the queue: a false stall can no longer switch to a different track or race
+// the user's Next. The ladder is retry → recreate → honest terminal (error + Skip); the
+// user's Next and a REAL end-of-track engine event are the only things that change tracks.
+//
+// It reads the store IMPERATIVELY inside its interval and subscribes (via a narrow
+// selector) only to the current track's key — so the 500ms position poll never re-renders
+// the AppChrome shell (the R5 slowness fix).
 
 import { useEffect, useRef } from "react";
-import { usePlayerState } from "@/lib/player/use-player";
+import { usePlayerSelector } from "@/lib/player/use-player-selector";
 import { playerStore } from "@/lib/player/store";
 import { logActivity } from "@/lib/activity-log";
 import {
@@ -29,17 +33,8 @@ import type { RecoveryPhase as StoreRecoveryPhase } from "@/lib/player/types";
 // How often we sample the player clock to judge whether position is advancing.
 const TICK_MS = 1000;
 
-// How many times in a row we auto-advance to an alternate WITHOUT any track actually
-// playing before we stop and surface the honest terminal. If this many consecutive
-// results all refuse, it is an environment problem (e.g. a bot-gated network), not a bad
-// single video — so we give the user an honest error + Skip rather than silently walking
-// the whole queue. Reset the moment any track genuinely plays.
-const MAX_ADVANCE_STREAK = 2;
-
 const STALL_RETRY_MSG = "Playback stalled — retrying";
 const STALL_RECREATE_MSG = "Playback stalled — rebuilding the player";
-const STALL_ADVANCE_MSG = "This track won't play — trying the next one";
-const STALL_GIVEUP_MSG = "This track won't play right now — skip to keep listening";
 
 // Map the machine's phase to the store's surfaced recovery phase.
 function toStorePhase(phase: HealthState["phase"]): StoreRecoveryPhase {
@@ -49,43 +44,35 @@ function toStorePhase(phase: HealthState["phase"]): StoreRecoveryPhase {
 }
 
 export function usePlaybackRecovery(): void {
-  const { current } = usePlayerState();
+  // Subscribe ONLY to the current track's key via a narrow selector, so a position tick
+  // (which changes positionSec, not the key) never re-renders the shell this hook lives
+  // in. The key changes exactly when a new track loads — when the per-track ladder resets.
+  const currentKey = usePlayerSelector((s) =>
+    s.current ? `${s.current.source}:${s.current.nativeId}` : null,
+  );
   const healthRef = useRef<HealthState>(initHealth(0));
-  // Guards against a slow retry/recreate/advance overlapping the next tick.
+  // Guards against a slow retry/recreate overlapping the next tick.
   const busyRef = useRef(false);
-  // The last position we saw, and how many times we have auto-advanced in a row without
-  // any track actually playing. These persist ACROSS auto-advances (they are not reset by
-  // the per-track effect below) so the streak can bound a walk through a whole refusing
-  // queue; a track that genuinely plays resets the streak.
-  const lastPosRef = useRef(0);
-  const advanceStreakRef = useRef(0);
-
-  const currentKey = current ? `${current.source}:${current.nativeId}` : null;
+  // The track key we have already surfaced the honest terminal for, so failStalled fires
+  // exactly once per wedged episode (not every tick — which would re-render twice a sec).
+  const terminalKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
     // Re-baseline the per-track ladder clock so a new track never inherits the prior
-    // track's stall timer. The cross-track advance streak is deliberately NOT reset here.
+    // track's stall timer.
     healthRef.current = initHealth(Date.now());
-    lastPosRef.current = 0;
+    terminalKeyRef.current = null;
     if (!currentKey) return;
 
     const id = window.setInterval(() => {
       const s = playerStore.getState();
 
-      // Real forward progress anywhere means a track actually played — clear the streak.
-      if (s.isPlaying && s.positionSec > lastPosRef.current + 0.25) {
-        advanceStreakRef.current = 0;
-      }
-      lastPosRef.current = s.positionSec;
-
-      // At the honest terminal already — stand down (no infinite loop). A manual Skip or
-      // a new user-initiated track resets everything through the store's play path.
-      if (s.recovery.skipOffered) return;
       // An action is still in flight — let it finish before sampling again.
       if (busyRef.current) return;
 
       const outcome = stepHealth(healthRef.current, {
-        isPlaying: s.isPlaying,
+        intent: s.intent,
+        engineState: playerStore.currentEngineState(),
         positionSec: s.positionSec,
         nowMs: Date.now(),
         errorKind: playerStore.currentErrorKind(),
@@ -93,10 +80,20 @@ export function usePlaybackRecovery(): void {
       healthRef.current = outcome.state;
 
       // Publish the honest health so every surface (mini data-player-state, Now Playing
-      // banner, robot tester) reads one truth and can never disagree.
-      playerStore.setRecovery(toStorePhase(outcome.state.phase), outcome.state.skipOffered);
+      // banner, robot tester) reads one truth. skipOffered is queue-aware so the store and
+      // the health machine agree (a Skip only when there is something to skip to).
+      const skip = outcome.state.skipOffered && s.queue.length > 0;
+      playerStore.setRecovery(toStorePhase(outcome.state.phase), skip);
 
-      if (outcome.action === "none") return;
+      // The terminal outcome surfaces the honest error + Skip once; there is NO auto-
+      // advance. Only retry / recreate are ever performed here.
+      if (outcome.action === "none") {
+        if (outcome.state.skipOffered && terminalKeyRef.current !== currentKey) {
+          terminalKeyRef.current = currentKey;
+          playerStore.failStalled();
+        }
+        return;
+      }
 
       busyRef.current = true;
       void (async () => {
@@ -107,22 +104,6 @@ export function usePlaybackRecovery(): void {
           } else if (outcome.action === "recreate") {
             logActivity({ level: "info", type: "stall-recreate", message: STALL_RECREATE_MSG });
             await playerStore.recreate();
-          } else if (outcome.action === "advance") {
-            // If too many consecutive results have already refused, stop walking the
-            // queue and surface the honest terminal — this is an environment problem.
-            if (advanceStreakRef.current >= MAX_ADVANCE_STREAK) {
-              logActivity({ level: "error", type: "stall-giveup", message: STALL_GIVEUP_MSG });
-              playerStore.failStalled();
-              return;
-            }
-            logActivity({ level: "info", type: "stall-advance", message: STALL_ADVANCE_MSG });
-            advanceStreakRef.current += 1;
-            const advanced = await playerStore.next();
-            if (!advanced) {
-              // Nothing to advance to — the honest terminal, with a working Skip.
-              logActivity({ level: "error", type: "stall-giveup", message: STALL_GIVEUP_MSG });
-              playerStore.failStalled();
-            }
           }
         } finally {
           busyRef.current = false;
@@ -132,7 +113,7 @@ export function usePlaybackRecovery(): void {
 
     return () => window.clearInterval(id);
     // currentKey changes exactly when a new track loads — the per-track ladder resets.
-    // positionSec / isPlaying / errorKind are read live from the store inside the tick,
-    // so they intentionally are not dependencies.
+    // intent / positionSec / engineState / errorKind are read live from the store inside
+    // the tick, so they intentionally are not dependencies.
   }, [currentKey]);
 }

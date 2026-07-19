@@ -2,31 +2,47 @@
 //
 // This is the first concrete SourceAdapter to feed the unified store. It wraps the
 // YouTube IFrame Player API and reports position/duration back into the store so
-// every UI surface (mini-player now, Now Playing in U8) renders from one truth.
+// every UI surface (mini-player, Now Playing) renders from one truth.
 //
 // THE VISIBLE-PLAYER RULE (KTD-7) is the whole point of this file. YouTube's ToS
-// requires the playing video to be an on-screen element (min 200x200, >50% visible;
-// no hidden/background playback). The OLD app used a hidden 0x0 player — a ToS
-// violation and a throttling risk. Here the player lives inside a single owned host
-// element that is RE-PARENTED into whichever visible surface is on screen (the
-// mini-player art slot in U7; the full Now Playing art surface in U8). Re-parenting
-// moves the same <iframe> node, so playback is never torn down and never hidden.
+// requires the playing video to be an on-screen element (>50% visible; no hidden/
+// background playback). The player lives inside a single owned host element.
 //
-// HONESTY (R17): the adapter registers itself into the shared registry at module
-// load, which is exactly what flips YouTube search results from "Playback starts
-// once the player engine is connected" (disabled) to a real, enabled play button —
-// the control only becomes live because the capability behind it now works.
+// THE OWNERSHIP FIX (R1/R3/R4). The old model RE-PARENTED that host into whichever
+// screen surface was on screen (mini / Now Playing / melt) with container.appendChild.
+// That was fatal: re-inserting an <iframe> node RELOADS its src in every browser, so
+// opening/closing Now Playing, switching tabs, or a blend promotion silently reloaded
+// the video — it self-played (autoplay re-applied → R1), reset to 0 and switched track
+// (R3), and froze the polled clock so the recovery monitor cried "stall" (R4). The fix:
+// in the app the adapter is given a HOST COORDINATOR (lib/player/host-coordinator.ts)
+// that owns ONE never-re-parented, position:fixed host and moves it by GEOMETRY over the
+// active on-screen slot. The iframe never moves in the DOM, so it never reloads. A blend
+// promotion is a geometry swap (promoteIncoming), never an appendChild.
 //
-// SSR / no-DOM SAFETY: module load does nothing browser-specific beyond creating the
-// adapter object and registering it (both pure). Every DOM/API touch is deferred to
-// mount()/load() and guarded on `doc` being present, so `tsc`, `vitest` (node), and
-// `next build` all run with no window and no env vars.
+// TWO MODES. When a coordinator is injected (the app's shared singleton) the adapter runs
+// in geometry mode: it builds its player inside the coordinator's host and never touches
+// screen containers. When NO coordinator is injected (each DJ deck's private adapter, and
+// unit tests) it runs in DIRECT mode: mount()/unmount() appendChild the host into a
+// STABLE deck container that never moves — so the reparent-reload bug cannot occur there.
+//
+// HONESTY (R17): the adapter registers itself into the shared registry at module load,
+// which flips YouTube search results from disabled to a real, enabled play button.
+//
+// SSR / no-DOM SAFETY: module load only creates the adapter object and registers it (both
+// pure). Every DOM/API touch is deferred and guarded on `doc`, so tsc / vitest / next
+// build all run with no window and no env vars.
 
 import type { TrackRef } from "@/lib/repos/track";
-import type { SourceAdapter, SourceCapabilities } from "@/lib/player/types";
+import type {
+  EngineState,
+  SourceAdapter,
+  SourceCapabilities,
+} from "@/lib/player/types";
 import { adapterRegistry } from "@/lib/player/adapters";
 import { SOURCE_CAPABILITIES, YOUTUBE_RATE_RANGE } from "@/lib/player/capabilities";
 import { playerStore } from "@/lib/player/store";
+import { playerHostCoordinator, type PlayerHostCoordinator } from "@/lib/player/host-coordinator";
+import { fakeEngineFactory } from "@/lib/player/fake-engine";
 import { logPlaybackError } from "@/lib/activity-log";
 
 // Plain-English messages for the YouTube IFrame API error codes (R18 — errors say
@@ -62,8 +78,32 @@ export function clampPlaybackRate(rate: number): number {
 // The YouTube column of the DJ capability matrix (single source: capabilities.ts).
 export const YOUTUBE_CAPABILITIES: SourceCapabilities = SOURCE_CAPABILITIES.youtube;
 
-// YouTube IFrame player state codes we care about (YT.PlayerState).
+// YouTube IFrame player state codes (YT.PlayerState).
+const YT_STATE_UNSTARTED = -1;
 const YT_STATE_ENDED = 0;
+const YT_STATE_PLAYING = 1;
+const YT_STATE_PAUSED = 2;
+const YT_STATE_BUFFERING = 3;
+const YT_STATE_CUED = 5;
+
+// Map a raw YT.PlayerState code to our source-agnostic EngineState. Cued/unstarted both
+// read as "unstarted" (nothing has begun); anything unexpected as "unstarted" too.
+function toEngineState(code: number): EngineState {
+  switch (code) {
+    case YT_STATE_PLAYING:
+      return "playing";
+    case YT_STATE_PAUSED:
+      return "paused";
+    case YT_STATE_BUFFERING:
+      return "buffering";
+    case YT_STATE_ENDED:
+      return "ended";
+    case YT_STATE_UNSTARTED:
+    case YT_STATE_CUED:
+    default:
+      return "unstarted";
+  }
+}
 
 // How often we mirror the player's clock into the store.
 const POLL_MS = 500;
@@ -105,8 +145,12 @@ export type PlayerBridge = {
   reportPosition(positionSec: number, durationSec?: number): void;
   next(): Promise<boolean>;
   // Report a hard engine error for the current track so the store's recovery ladder can
-  // escalate honestly (advance to an alternate / offer Skip) instead of a silent freeze.
+  // escalate honestly (recreate / offer Skip) instead of a silent freeze.
   reportError(info: { message: string; kind: "soft" | "fatal"; code?: number }): void;
+  // OPTIONAL: mirror the engine's own lifecycle state into the store so the recovery
+  // monitor can gate a stall on real engine state, not just a polled clock. A deck's
+  // private bridge (preview-only, no global recovery) omits it.
+  reportEngineState?(state: EngineState): void;
 };
 
 // The DOM operations the adapter needs — injectable so node tests supply fakes.
@@ -120,16 +164,18 @@ export type Timers = {
   clearInterval(id: number): void;
 };
 
-// A YouTube adapter is a SourceAdapter PLUS the mount/unmount surface the visible
-// video component (video-surface.tsx) uses to hand it the on-screen container, PLUS
-// the two-player blend surface the auto-crossfade engine (U11) drives.
+// A YouTube adapter is a SourceAdapter PLUS the mount/unmount surface the DIRECT-mode
+// host (each DJ deck's stable video container) uses, PLUS the two-player blend surface
+// the auto-crossfade engine (U11) drives.
+//
+// In GEOMETRY mode (a coordinator is injected — the app's main player) mount/unmount are
+// no-ops: the on-screen home is chosen by the host coordinator via slots that the screen
+// components register directly, never by re-parenting the iframe.
 export type YouTubeAdapter = SourceAdapter & {
-  // Re-parent the owned PRIMARY player host into a visible container (KTD-7). Called
-  // by the video surface on mount; also remembers the container so a blend promotion
-  // can move the newly-primary player back into the same on-screen slot.
+  // DIRECT mode only: appendChild the owned host into a stable container (a DJ deck).
+  // Never used in geometry mode.
   mount(container: HTMLElement): void;
-  // Detach from a container without destroying the player, parking the host so React
-  // unmounting the surface never tears down live playback.
+  // DIRECT mode only: detach from a container without destroying the player.
   unmount(container: HTMLElement): void;
 
   // ── Auto-crossfade blend surface (U11) ──────────────────────────────────────
@@ -157,6 +203,9 @@ export type YouTubeAdapterDeps = {
   store?: PlayerBridge;
   doc?: DocumentLike | null;
   timers?: Timers;
+  // Inject the host coordinator to run in GEOMETRY mode (the app's main player). Omit for
+  // DIRECT mode (DJ decks, unit tests). Pass `null` to force direct mode explicitly.
+  coordinator?: PlayerHostCoordinator | null;
 };
 
 export function createYouTubeAdapter(deps: YouTubeAdapterDeps = {}): YouTubeAdapter {
@@ -166,6 +215,10 @@ export function createYouTubeAdapter(deps: YouTubeAdapterDeps = {}): YouTubeAdap
   // store.ts never imports this adapter, so there is no import cycle — the shared
   // playerStore is safe to reference directly as the default bridge.
   const store: PlayerBridge = deps.store ?? playerStore;
+  // Geometry mode when a coordinator is present; direct mode otherwise. `deps.coordinator`
+  // may be explicitly null (DJ / tests) — only `undefined` is unset, and even then direct
+  // mode is the safe default (tests never pass a coordinator).
+  const coordinator: PlayerHostCoordinator | null = deps.coordinator ?? null;
   const timers: Timers = deps.timers ?? {
     setInterval: (handler, ms) =>
       globalThis.setInterval(handler, ms) as unknown as number,
@@ -178,10 +231,10 @@ export function createYouTubeAdapter(deps: YouTubeAdapterDeps = {}): YouTubeAdap
   let ready = false;
   let readyResolvers: Array<() => void> = [];
   let pollId: number | null = null;
+  // The latest engine lifecycle state for the PRIMARY player, mirrored to the store.
+  let engineState: EngineState = "unstarted";
 
-  // The on-screen container the PRIMARY player currently lives in (mini-player art or
-  // Now Playing art). Remembered so a blend promotion can move the newly-primary
-  // player back into it without the visible surface having to re-mount.
+  // Direct-mode only: the on-screen container the PRIMARY player currently lives in.
   let primaryContainer: HTMLElement | null = null;
 
   // The SECOND player used only during an auto-crossfade (U11). It plays the incoming
@@ -190,7 +243,15 @@ export function createYouTubeAdapter(deps: YouTubeAdapterDeps = {}): YouTubeAdap
   let incoming: { player: YtPlayerHandle; host: HTMLElement } | null = null;
   let incomingContainer: HTMLElement | null = null;
 
+  function setEngineState(next: EngineState): void {
+    engineState = next;
+    store.reportEngineState?.(next);
+  }
+
+  // The host the PRIMARY player lives in. In geometry mode this is the coordinator's ONE
+  // never-re-parented host; in direct mode it is an internal element the deck mounts.
   function ensureHost(): HTMLElement | null {
+    if (coordinator) return coordinator.primaryHost();
     if (!doc) return null;
     if (!host) {
       host = doc.createElement("div");
@@ -248,8 +309,11 @@ export function createYouTubeAdapter(deps: YouTubeAdapterDeps = {}): YouTubeAdap
   }
 
   function onStateChange(state: number): void {
-    // When a track ends, advance the queue. The auto-crossfade blend (U11) will layer
-    // on top of this; the plain end-of-track advance keeps core listening honest now.
+    // Mirror the engine's own lifecycle into the store so the recovery monitor gates a
+    // stall on real engine state (playing/buffering) — never on a paused/ended track.
+    setEngineState(toEngineState(state));
+    // When a track genuinely ends, advance the queue. This is driven by the REAL engine
+    // 'ended' event (a legitimate end-of-track advance), never by a position-delta guess.
     if (state === YT_STATE_ENDED) void store.next();
   }
 
@@ -257,16 +321,24 @@ export function createYouTubeAdapter(deps: YouTubeAdapterDeps = {}): YouTubeAdap
     source: "youtube",
     capabilities: YOUTUBE_CAPABILITIES,
 
+    getEngineState(): EngineState {
+      return engineState;
+    },
+
     mount(container: HTMLElement): void {
+      // Geometry mode: the on-screen home is chosen by the coordinator via registered
+      // slots, never by re-parenting. mount is a no-op here.
+      if (coordinator) return;
       const h = ensureHost();
       if (!h) return;
-      // Remember where the primary lives so a blend promotion re-homes there.
+      // Direct mode (a DJ deck): the container is stable and mounts once, so this
+      // appendChild happens a single time and never triggers a reparent-reload.
       primaryContainer = container;
-      // Moving the host (and its iframe child) does not reload the video.
       container.appendChild(h);
     },
 
     unmount(container: HTMLElement): void {
+      if (coordinator) return; // geometry mode: nothing to detach
       if (host && host.parentElement === container) {
         const p = ensurePark();
         if (p) p.appendChild(host);
@@ -277,19 +349,25 @@ export function createYouTubeAdapter(deps: YouTubeAdapterDeps = {}): YouTubeAdap
     // ── Auto-crossfade blend surface (U11) ──────────────────────────────────────
 
     async beginBlend(track: TrackRef): Promise<void> {
-      if (!doc) return; // no DOM: honestly cannot overlap, caller falls back
+      if (!doc && !coordinator) return; // no DOM: honestly cannot overlap, caller falls back
       // A stale incoming from an abandoned blend is torn down first.
       if (incoming) {
         incoming.player.destroy();
         incoming = null;
       }
-      const ihost = doc.createElement("div");
-      ihost.className = "yt-host";
-      // Give the incoming host a home immediately: the melt panel's visible surface
-      // if it has already mounted (KTD-7 — the incoming video is on screen), else the
-      // park until mountIncoming hands us one.
-      if (incomingContainer) incomingContainer.appendChild(ihost);
-      else ensurePark()?.appendChild(ihost);
+      // The incoming player's home. In geometry mode it is the coordinator's second
+      // (incoming) host, positioned over the melt slot — never re-parented. In direct
+      // mode it is a fresh element parked/mounted the old way.
+      let ihost: HTMLElement | null;
+      if (coordinator) {
+        ihost = coordinator.incomingHost();
+      } else {
+        ihost = doc!.createElement("div");
+        ihost.className = "yt-host";
+        if (incomingContainer) incomingContainer.appendChild(ihost);
+        else ensurePark()?.appendChild(ihost);
+      }
+      if (!ihost || !doc) return;
 
       const target = doc.createElement("div");
       ihost.appendChild(target);
@@ -305,6 +383,7 @@ export function createYouTubeAdapter(deps: YouTubeAdapterDeps = {}): YouTubeAdap
         },
       });
       incoming = { player: iplayer, host: ihost };
+      if (coordinator) coordinator.setPlaybackLive("incoming", true);
       // The real factory resolves only after the player is ready, so it is safe to
       // start playback now. It begins silent (setBlendVolumes(…, 0) precedes this).
       iplayer.playVideo();
@@ -322,16 +401,26 @@ export function createYouTubeAdapter(deps: YouTubeAdapterDeps = {}): YouTubeAdap
       // Retire the outgoing (old primary) and stop its poll.
       stopPolling();
       if (player) player.destroy();
-      if (host) ensurePark()?.appendChild(host); // park the now-empty old host
       // Promote the incoming player to primary — NO reload, so its audio continues.
       player = incoming.player;
       host = incoming.host;
       ready = true;
       readyResolvers = [];
-      // Move the new primary back onto the on-screen primary surface, or park it if no
-      // surface is mounted right now (its poll still feeds the store either way).
-      if (primaryContainer) primaryContainer.appendChild(host);
-      else ensurePark()?.appendChild(host);
+      // The incoming was already playing, so mirror that as the primary engine state (its
+      // own onStateChange no longer fires into the store after promotion).
+      setEngineState("playing");
+      if (coordinator) {
+        // Geometry swap, NOT a DOM reparent: the element that holds the still-playing
+        // iframe becomes the primary geometry-follower; the emptied old primary becomes
+        // the reusable incoming host. The iframe never moves → never reloads.
+        coordinator.promoteIncoming();
+        coordinator.setPlaybackLive("primary", true);
+        coordinator.setPlaybackLive("incoming", false);
+      } else {
+        // Direct mode: re-home the promoted host onto the primary container (or park it).
+        if (primaryContainer) primaryContainer.appendChild(host);
+        else ensurePark()?.appendChild(host);
+      }
       incoming = null;
       incomingContainer = null;
       startPolling();
@@ -340,17 +429,22 @@ export function createYouTubeAdapter(deps: YouTubeAdapterDeps = {}): YouTubeAdap
     cancelBlend(): void {
       if (!incoming) return;
       incoming.player.destroy();
-      if (incoming.host) ensurePark()?.appendChild(incoming.host);
+      if (coordinator) coordinator.setPlaybackLive("incoming", false);
+      else if (incoming.host) ensurePark()?.appendChild(incoming.host);
       incoming = null;
       incomingContainer = null;
     },
 
     mountIncoming(container: HTMLElement): void {
+      // Geometry mode: the melt slot is registered directly with the coordinator by the
+      // melt panel; nothing to move here.
+      if (coordinator) return;
       incomingContainer = container;
       if (incoming?.host) container.appendChild(incoming.host);
     },
 
     unmountIncoming(container: HTMLElement): void {
+      if (coordinator) return;
       if (incoming?.host && incoming.host.parentElement === container) {
         ensurePark()?.appendChild(incoming.host);
       }
@@ -363,15 +457,18 @@ export function createYouTubeAdapter(deps: YouTubeAdapterDeps = {}): YouTubeAdap
       if (!h) return;
 
       if (!player) {
-        // Give the host a home in the DOM so the player can initialise even if the
-        // visible surface has not mounted yet; mount() re-parents it on screen next.
-        if (!h.parentElement) {
+        // Direct mode: give the host a home in the DOM so the player can initialise even if
+        // no deck container has mounted yet. Geometry mode: the coordinator's host is
+        // already parented to <body> once and never moves, so there is nothing to do.
+        if (!coordinator && !h.parentElement) {
           const p = ensurePark();
           p?.appendChild(h);
         }
         const target = doc!.createElement("div");
         h.appendChild(target);
         ready = false;
+        engineState = "unstarted";
+        if (coordinator) coordinator.setPlaybackLive("primary", true);
         player = await factory(target, track.nativeId, {
           onReady: () => {
             ready = true;
@@ -381,8 +478,9 @@ export function createYouTubeAdapter(deps: YouTubeAdapterDeps = {}): YouTubeAdap
           onStateChange,
           onError: (code) => {
             // Propagate the error into the store so the recovery ladder can act (R18,
-            // AE1): a fatal embed refusal advances to an alternate; a soft error tries a
-            // recreate first. reportError also records it to the activity log.
+            // AE1): a fatal embed refusal offers Skip; a soft error tries a recreate first.
+            // reportError also records it to the activity log.
+            setEngineState("error");
             store.reportError({
               message: YT_ERROR_MESSAGES[code] ?? "YouTube playback error",
               kind: classifyYtError(code),
@@ -405,6 +503,9 @@ export function createYouTubeAdapter(deps: YouTubeAdapterDeps = {}): YouTubeAdap
 
     pause(): void {
       player?.pauseVideo();
+      // Reflect the pause immediately (the engine's own 'paused' event also confirms it),
+      // so the recovery monitor sees "not playing" without waiting for the state event.
+      if (player) setEngineState("paused");
     },
 
     seek(positionSec: number): void {
@@ -428,6 +529,8 @@ export function createYouTubeAdapter(deps: YouTubeAdapterDeps = {}): YouTubeAdap
       }
       ready = false;
       readyResolvers = [];
+      engineState = "unstarted";
+      if (coordinator) coordinator.setPlaybackLive("primary", false);
     },
   };
 }
@@ -483,12 +586,21 @@ function loadYouTubeIframeApi(): Promise<YTNamespace> {
 }
 
 const defaultFactory: YtPlayerFactory = async (target, videoId, callbacks) => {
+  // Deterministic-test gate (fail-closed, mirrors robot-door): only when a STRONG flag is
+  // present does the app swap in the in-DOM fake engine, so specs assert exact positions
+  // without YouTube network flakiness. Unset / weak → the real IFrame API, always.
+  const fake = fakeEngineFactory();
+  if (fake) return fake(target, videoId, callbacks);
+
   const YT = await loadYouTubeIframeApi();
   return new Promise<YtPlayerHandle>((resolve) => {
     const player = new YT.Player(target, {
       videoId,
       playerVars: {
-        autoplay: 1, // first play is inside the tap gesture; blends (U11) start muted
+        // autoplay:0 (belt-and-suspenders for R1): with no reparent-reloads possible, a
+        // reload can never self-start audio. First play is issued explicitly by the store
+        // inside the user's tap gesture (adapter.play → playVideo); blends start muted.
+        autoplay: 0,
         controls: 0,
         rel: 0,
         modestbranding: 1,
@@ -506,8 +618,8 @@ const defaultFactory: YtPlayerFactory = async (target, videoId, callbacks) => {
   });
 };
 
-// The app's single YouTube adapter. Registering it here is what makes YouTube search
-// results genuinely playable (R17 honesty): the control is enabled only because this
-// working engine is now wired into the shared registry.
-export const youtubeAdapter = createYouTubeAdapter();
+// The app's single YouTube adapter. It runs in GEOMETRY mode (the shared host coordinator)
+// so its ONE iframe never re-parents and never reloads. Registering it here is what makes
+// YouTube search results genuinely playable (R17 honesty).
+export const youtubeAdapter = createYouTubeAdapter({ coordinator: playerHostCoordinator });
 adapterRegistry.register(youtubeAdapter);

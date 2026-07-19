@@ -7,15 +7,17 @@
 // let you scrub an unknown timeline.
 
 import { playerStore } from "@/lib/player/store";
+import { usePlayerSelector } from "@/lib/player/use-player-selector";
 import { formatTime } from "@/lib/player/format-time";
 
-export default function Scrub({
-  positionSec,
-  durationSec,
-}: {
-  positionSec: number;
-  durationSec: number;
-}) {
+// Scrub owns its OWN subscription to position/duration, so the 500ms position poll
+// re-renders ONLY this bar — not the whole Now Playing screen (R5). Everything else in
+// Now Playing subscribes to a slice that excludes positionSec and so stays still.
+export default function Scrub() {
+  const { positionSec, durationSec } = usePlayerSelector((s) => ({
+    positionSec: s.positionSec,
+    durationSec: s.durationSec,
+  }));
   const known = durationSec > 0;
   const position = known ? Math.min(Math.max(0, positionSec), durationSec) : 0;
   const pct = known ? (position / durationSec) * 100 : 0;

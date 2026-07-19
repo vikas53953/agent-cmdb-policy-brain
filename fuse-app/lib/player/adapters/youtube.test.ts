@@ -348,3 +348,137 @@ describe("two-player blend surface (U11 — real overlap, seamless promotion)", 
     expect(factory).not.toHaveBeenCalled();
   });
 });
+
+// A fake host coordinator that records the geometry calls, so we can prove GEOMETRY mode
+// (the app's main player) never re-parents: it builds the player in the coordinator's host
+// and promotes a blend by swapping refs, not by appendChild across containers.
+function fakeCoordinator() {
+  const primary = fakeEl();
+  const inc = fakeEl();
+  const live: Array<{ role: string; live: boolean }> = [];
+  let promoted = 0;
+  const coordinator = {
+    start: () => () => {},
+    primaryHost: () => primary as unknown as HTMLElement,
+    incomingHost: () => inc as unknown as HTMLElement,
+    promoteIncoming: () => {
+      promoted += 1;
+    },
+    registerSlot: () => {},
+    releaseSlot: () => {},
+    setPlaybackLive: (role: string, isLive: boolean) => live.push({ role, live: isLive }),
+    activeSlot: () => null,
+  };
+  return { coordinator, primary, inc, live, promoted: () => promoted };
+}
+
+describe("geometry mode (the reparent-reload fix) — coordinator-driven host", () => {
+  function setup() {
+    const players: Array<{ p: ReturnType<typeof fakePlayer>; videoId: string }> = [];
+    const store = fakeStore();
+    const timers = manualTimers();
+    const coord = fakeCoordinator();
+    const factory = vi.fn(
+      async (_target: HTMLElement, videoId: string, cb: YtPlayerCallbacks) => {
+        const p = fakePlayer();
+        p.bind(cb);
+        cb.onReady();
+        players.push({ p, videoId });
+        return p.handle;
+      },
+    );
+    const adapter = createYouTubeAdapter({
+      factory,
+      store: store.bridge,
+      doc: fakeDoc(),
+      timers: timers.timers,
+      coordinator: coord.coordinator as never,
+    });
+    return { adapter, players, coord, store };
+  }
+
+  it("builds the player inside the coordinator's primary host and marks playback live", async () => {
+    const { adapter, coord } = setup();
+    await adapter.load(track("aaa"));
+    // The target the player was built in is a child of the coordinator's primary host — the
+    // ONE never-re-parented element.
+    expect((coord.primary as unknown as { children: unknown[] }).children.length).toBe(1);
+    expect(coord.live).toContainEqual({ role: "primary", live: true });
+  });
+
+  it("mount/unmount are no-ops in geometry mode (slots own on-screen placement)", async () => {
+    const { adapter } = setup();
+    await adapter.load(track("aaa"));
+    const container = fakeEl() as unknown as HTMLElement;
+    adapter.mount(container);
+    adapter.unmount(container);
+    // The container is never used as a host — no reparent path exists.
+    expect((container as unknown as { children: unknown[] }).children.length).toBe(0);
+  });
+
+  it("completeBlend promotes by a geometry swap, never an appendChild reparent", async () => {
+    const { adapter, coord, players } = setup();
+    await adapter.load(track("aaa"));
+    await adapter.beginBlend(track("bbb"));
+    expect(coord.live).toContainEqual({ role: "incoming", live: true });
+
+    adapter.completeBlend();
+    expect(coord.promoted()).toBe(1); // the seamless swap happened
+    expect(players[0].p.calls).toContain("destroy"); // old primary retired
+    expect(players[1].p.calls).not.toContain("destroy"); // incoming continues, no reload
+    expect(players[1].p.calls).not.toContain("loadVideoById:bbb"); // never reloaded
+    // Primary controls now route to the promoted incoming player.
+    adapter.setVolume(0.5);
+    expect(players[1].p.calls).toContain("setVolume:50");
+  });
+
+  it("unload clears the primary and tells the coordinator playback is no longer live", async () => {
+    const { adapter, coord } = setup();
+    await adapter.load(track("aaa"));
+    adapter.unload();
+    expect(coord.live).toContainEqual({ role: "primary", live: false });
+  });
+});
+
+describe("engine state seam (intent-gated recovery reads this)", () => {
+  function setup() {
+    const player = fakePlayer();
+    const engineStates: string[] = [];
+    const store: PlayerBridge = {
+      reportPosition: () => {},
+      next: async () => true,
+      reportError: () => {},
+      reportEngineState: (s) => engineStates.push(s),
+    };
+    const timers = manualTimers();
+    const factory = vi.fn(
+      async (_t: HTMLElement, _v: string, cb: YtPlayerCallbacks) => {
+        player.bind(cb);
+        cb.onReady();
+        return player.handle;
+      },
+    );
+    const adapter = createYouTubeAdapter({ factory, store, doc: fakeDoc(), timers: timers.timers });
+    return { adapter, player, engineStates };
+  }
+
+  it("mirrors YT.PlayerState codes into the store as EngineState", async () => {
+    const { adapter, player, engineStates } = setup();
+    await adapter.load(track("aaa"));
+    player.fireState(1); // PLAYING
+    player.fireState(2); // PAUSED
+    player.fireState(3); // BUFFERING
+    expect(engineStates).toContain("playing");
+    expect(engineStates).toContain("paused");
+    expect(engineStates).toContain("buffering");
+    // getEngineState reflects the latest.
+    expect(adapter.getEngineState?.()).toBe("buffering");
+  });
+
+  it("reports 'paused' on pause() so recovery sees the engine is not playing", async () => {
+    const { adapter, engineStates } = setup();
+    await adapter.load(track("aaa"));
+    adapter.pause();
+    expect(engineStates).toContain("paused");
+  });
+});

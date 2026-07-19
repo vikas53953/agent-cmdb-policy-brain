@@ -50,6 +50,18 @@ export const NO_EXTERNAL_REASON =
   "External integrations not declared for this run (set E2E_EXTERNAL=1 with a real " +
   "YOUTUBE_API_KEY). YouTube search + embed playback need them; the live watchman does.";
 
+// The deterministic-playback specs (playback-intent.spec.ts) run the app against an in-DOM
+// FAKE engine so exact positions and exact activity-log contents can be asserted without
+// YouTube flakiness. That engine is armed only when NEXT_PUBLIC_E2E_FAKE_ENGINE is a strong
+// value (>= 32 chars, mirroring the door floor) in BOTH the app build and this process.
+// Without it those specs SKIP — they never pretend to have exercised the fake engine.
+export const E2E_FAKE_ENGINE =
+  (process.env.NEXT_PUBLIC_E2E_FAKE_ENGINE ?? "").length >= ROBOT_SECRET_MIN_LENGTH;
+
+export const NO_FAKE_REASON =
+  "Deterministic fake engine not armed — set NEXT_PUBLIC_E2E_FAKE_ENGINE (>= 32 chars) so " +
+  "the app swaps in the in-DOM fake YouTube engine. Fail-closed: never armed in production.";
+
 // Sign the robot in through the door, programmatically (no UI): fetch the Auth.js CSRF
 // token, POST the secret to the e2e-robot Credentials callback, and confirm a session
 // landed. Cookies live in the shared browser context, so every subsequent page load in

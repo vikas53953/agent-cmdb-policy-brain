@@ -124,6 +124,8 @@ function makeFakeStore(initial: Partial<PlayerState> = {}) {
     notice: null,
     status: "idle",
     recovery: { phase: "ok", skipOffered: false },
+    intent: "idle",
+    engineState: "unstarted",
     ...initial,
   };
   const listeners = new Set<() => void>();

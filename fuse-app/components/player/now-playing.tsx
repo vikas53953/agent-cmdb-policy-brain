@@ -15,7 +15,7 @@
 // queued, Skip only when there is a track to skip to.
 
 import { useEffect } from "react";
-import { usePlayerState } from "@/lib/player/use-player";
+import { usePlayerSelector } from "@/lib/player/use-player-selector";
 import { playerStore } from "@/lib/player/store";
 import { adapterRegistry } from "@/lib/player/adapters";
 import { SOURCE_BADGES } from "@/lib/ui/shell";
@@ -52,17 +52,20 @@ export default function NowPlaying({
   // profile sheet shows/hides this screen's lyrics panel instantly.
   lyricsEnabled: boolean;
 }) {
-  const {
-    current,
-    isPlaying,
-    queue,
-    positionSec,
-    durationSec,
-    shuffle,
-    repeat,
-    notice,
-    recovery,
-  } = usePlayerState();
+  // Subscribe to the rarely-changing slice — deliberately NOT positionSec/durationSec, so
+  // the 500ms position poll never re-renders this whole screen. The scrub bar owns those
+  // itself (R5).
+  const { current, isPlaying, queue, shuffle, repeat, notice, recovery } = usePlayerSelector(
+    (s) => ({
+      current: s.current,
+      isPlaying: s.isPlaying,
+      queue: s.queue,
+      shuffle: s.shuffle,
+      repeat: s.repeat,
+      notice: s.notice,
+      recovery: s.recovery,
+    }),
+  );
 
   // Close on Escape while open (accessibility parity with the profile sheet).
   useEffect(() => {
@@ -187,7 +190,7 @@ export default function NowPlaying({
               </div>
             ) : null}
 
-            <Scrub positionSec={positionSec} durationSec={durationSec} />
+            <Scrub />
 
             <div className="transport" data-testid="np-transport">
               <button
