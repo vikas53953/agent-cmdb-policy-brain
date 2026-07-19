@@ -600,40 +600,47 @@ body {
   padding: 0 2px;
 }
 
-/* --- Stage placeholder (honest "not built yet" panel) ------------------------ */
-.stage {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  text-align: center;
-  gap: 12px;
-  min-height: 52dvh;
-  padding: 24px;
-}
-.stage-badge {
-  font-size: 0.7rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--teal);
-  border: 1px solid rgba(52, 228, 198, 0.4);
+/* --- Write status (the one "did the save work?" pill) ------------------------
+   Every save in the app reports through components/ui/write-status.tsx, which
+   renders this pill inside a role="status" live region. Three tones only:
+   ok (it worked), problem (it did not — act), note (a plain fact). */
+.write-status {
+  display: inline-block;
+  max-width: 34ch;
+  font-size: 0.74rem;
+  line-height: 1.4;
   border-radius: var(--r-pill);
-  padding: 4px 12px;
-}
-.stage-title {
-  font-family: var(--font-display);
-  font-size: 1.6rem;
-  font-weight: 700;
-  letter-spacing: -0.02em;
-  margin: 0;
-}
-.stage-body {
+  padding: 4px 11px;
+  background: var(--ink-2);
+  border: 1px solid var(--line);
   color: var(--txt-mid);
-  max-width: 30ch;
-  line-height: 1.55;
-  margin: 0;
-  font-size: 0.9rem;
+}
+.write-status.ok {
+  color: var(--teal);
+  border-color: rgba(52, 228, 198, 0.4);
+}
+.write-status.problem {
+  color: var(--ember);
+  border-color: rgba(255, 122, 69, 0.45);
+}
+.write-status.note {
+  color: var(--txt-mid);
+}
+/* A pane-level status sits on its own line under the controls it reports on. */
+.write-status-block {
+  align-self: flex-start;
+  max-width: 100%;
+  margin: 2px 0;
+}
+/* The shell-level one (volume persistence) floats clear of the dock so it can never
+   cover the transport. */
+.write-status-shell {
+  position: fixed;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: calc(var(--dock-h, 132px) + 12px);
+  z-index: 50;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
 }
 
 .hero-wordmark {
@@ -1420,18 +1427,14 @@ body {
   cursor: not-allowed;
   filter: grayscale(0.4);
 }
+/* Anchors the shared .write-status pill under the add-to-playlist control. Colour and
+   tone come from .write-status — this class only places it. */
 .add-pl-status {
   position: absolute;
   right: 0;
   top: calc(100% + 4px);
   z-index: 20;
-  white-space: nowrap;
-  font-size: 0.74rem;
-  color: var(--teal);
-  background: var(--ink-2);
-  border: 1px solid var(--line);
-  border-radius: var(--r-pill);
-  padding: 3px 10px;
+  max-width: 24ch;
 }
 
 /* --- Library screen ----------------------------------------------------------- */

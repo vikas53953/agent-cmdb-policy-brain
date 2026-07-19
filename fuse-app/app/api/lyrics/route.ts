@@ -18,6 +18,7 @@ import {
   type CachedLyrics,
 } from "@/lib/repos/lyrics-cache";
 import { fetchLyricsFromLrclib, parseLyricsQuery, toLyricsPayload, type LyricsPayload } from "@/lib/lyrics";
+import { logActivity } from "@/lib/activity-log";
 
 // LRCLIB fetch runs server-side (Node runtime), and the cache uses Prisma/Neon.
 export const runtime = "nodejs";
@@ -61,7 +62,17 @@ export async function GET(request: Request) {
     const outcome = await fetchLyricsFromLrclib({ title, artist, durationSec }, { fetch: realFetch });
     if (!outcome.ok) {
       // Transient failure: do NOT cache. Answer honestly without lyrics this time.
-      return NextResponse.json(HONEST_EMPTY);
+      // AUDIT 28: record it (R18) so a run of LRCLIB failures is visible as evidence.
+      // Lengths only — never the title or artist text, never any key.
+      logActivity({
+        level: "error",
+        type: "lyrics-api",
+        message: "Lyrics lookup couldn't be completed",
+        detail: { titleLength: title.length, artistLength: artist ? artist.length : 0 },
+      });
+      // 503, not 200: a 200 with found:false is how the caller is told "this song has no
+      // lyrics", and we do not know that. The status is the difference between the two.
+      return NextResponse.json(HONEST_EMPTY, { status: 503 });
     }
 
     // 3) Cache the definitive result (hit or confirmed miss), then return it.
@@ -74,8 +85,16 @@ export async function GET(request: Request) {
     );
     return NextResponse.json({ ...toLyricsPayload(outcome.data), cached: false });
   } catch {
-    // Last-resort honesty: never leak a stack, never freeze the panel (R18).
-    return NextResponse.json(HONEST_EMPTY);
+    // Last-resort honesty: never leak a stack, never freeze the panel (R18) — and, per
+    // AUDIT 28, leave a record. Lengths only; no lyric text, no query text, no secret.
+    logActivity({
+      level: "error",
+      type: "lyrics-api",
+      message: "Lyrics request failed",
+      detail: { titleLength: title.length, artistLength: artist ? artist.length : 0 },
+    });
+    // Same reasoning as above: we could not find out, so we must not answer as if we did.
+    return NextResponse.json(HONEST_EMPTY, { status: 503 });
   }
 }
 

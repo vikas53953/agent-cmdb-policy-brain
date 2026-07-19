@@ -1,6 +1,14 @@
 import { describe, it, expect } from "vitest";
 import type { TrackRef } from "@/lib/repos/track";
-import { recommend, chooseTrending, dedupeTracks, trackKey, TRENDING_GRADUATE_MIN } from "./recommend";
+import {
+  recommend,
+  chooseTrending,
+  dedupeTracks,
+  trackKey,
+  trendingRowLabel,
+  isRealTrending,
+  TRENDING_GRADUATE_MIN,
+} from "./recommend";
 
 function t(nativeId: string, artist: string | null, source: TrackRef["source"] = "youtube"): TrackRef {
   return { source, nativeId, title: nativeId, artist, artUrl: null, durationSec: null };
@@ -45,6 +53,69 @@ describe("home trending graduation (KTD-4)", () => {
     const counts = Array.from({ length: TRENDING_GRADUATE_MIN }, (_, i) => t(`c${i}`, `C${i}`));
     const out = chooseTrending(seed, counts);
     expect(out.map((x) => x.nativeId)).toEqual(counts.map((x) => x.nativeId));
+  });
+});
+
+// Audit 8: the seeded row must NOT call itself "Trending". It is a hand-picked
+// starter list, and only real aggregated play data earns the trending name.
+describe("home trending row label is honest (audit 8, R17)", () => {
+  const seed = [t("s1", "S1"), t("s2", "S2")];
+
+  it("calls the row Starter picks while it is still showing the seed", () => {
+    const counts = Array.from({ length: TRENDING_GRADUATE_MIN - 1 }, (_, i) => t(`c${i}`, `C${i}`));
+    expect(isRealTrending(counts)).toBe(false);
+
+    const label = trendingRowLabel(isRealTrending(counts));
+    expect(label.title).toBe("Starter picks");
+    expect(label.title).not.toMatch(/trending/i);
+    // And the shown tracks really are the seed, so label and contents agree.
+    expect(chooseTrending(seed, counts).map((x) => x.nativeId)).toEqual(["s1", "s2"]);
+  });
+
+  it("calls the row Trending only once real play counts back it", () => {
+    const counts = Array.from({ length: TRENDING_GRADUATE_MIN }, (_, i) => t(`c${i}`, `C${i}`));
+    expect(isRealTrending(counts)).toBe(true);
+
+    const label = trendingRowLabel(isRealTrending(counts));
+    expect(label.title).toBe("Trending");
+    expect(chooseTrending(seed, counts).map((x) => x.nativeId)).toEqual(counts.map((x) => x.nativeId));
+  });
+
+  it("defaults to the modest label when we do not know (never claims Trending)", () => {
+    expect(trendingRowLabel(false).title).toBe("Starter picks");
+  });
+});
+
+// Audit 36: the row must use a second, real signal — not just "more by artists you
+// already played".
+describe("home recommend — co-play is a real second signal (audit 36)", () => {
+  it("surfaces a NEW artist that people listen to alongside what the user loves", () => {
+    // The user loves Aurora. Nothing in the pool is by Aurora, so artist affinity
+    // alone would leave the pool in its given order.
+    const likes = [t("aurA", "Aurora")];
+    const pool = [t("n", "Nova"), t("o", "Orbit"), t("p", "Pulse")];
+
+    const withoutCoPlay = recommend({ likes, recent: [], pool });
+    expect(withoutCoPlay[0].nativeId).toBe("n");
+
+    // But other people keep playing Pulse in the same sitting as Aurora.
+    const coPlay = new Map([[trackKey(t("p", "Pulse")), 3]]);
+    const withCoPlay = recommend({ likes, recent: [], pool, coPlay });
+    expect(withCoPlay[0].nativeId).toBe("p");
+  });
+
+  it("does not let co-play outvote a strongly loved artist", () => {
+    // Two likes by Aurora = artist score 2 x 10 = 20. Co-play of 3 = 12. Artist wins.
+    const likes = [t("aurA", "Aurora"), t("aurB", "Aurora")];
+    const pool = [t("n", "Nova"), t("aur2", "Aurora")];
+    const coPlay = new Map([[trackKey(t("n", "Nova")), 3]]);
+    expect(recommend({ likes, recent: [], pool, coPlay })[0].nativeId).toBe("aur2");
+  });
+
+  it("changes nothing when there is no co-play data", () => {
+    const pool = [t("a", "A"), t("b", "B")];
+    const out = recommend({ likes: [], recent: [], pool, coPlay: new Map() });
+    expect(out.map((x) => x.nativeId)).toEqual(["a", "b"]);
   });
 });
 

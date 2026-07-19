@@ -28,25 +28,31 @@ import {
   ArrowDownIcon,
   ChevronDownIcon,
 } from "@/components/ui/icons";
+import WriteStatus, { useWriteStatus } from "@/components/ui/write-status";
+import { couldNot } from "@/lib/ui/write-status";
 
 export default function PlaylistsPane({ initial }: { initial: PlaylistDTO[] }) {
   const [playlists, setPlaylists] = useState<PlaylistDTO[]>(initial);
   const [newName, setNewName] = useState("");
   const [creating, setCreating] = useState(false);
+  // AUDIT 14: creating a playlist used to fail into an empty catch — the core save path
+  // gave the user nothing at all. Every write in this pane now reports through the one
+  // shared status (lib/ui/write-status.ts).
+  const { message, report } = useWriteStatus();
 
   async function create() {
     const name = newName.trim();
     if (creating || !name) return;
     setCreating(true);
-    try {
-      const created = await createPlaylistAction(name);
-      setPlaylists((prev) => [created, ...prev]);
-      setNewName("");
-    } catch {
-      // no-op: nothing was created, so nothing to undo.
-    } finally {
-      setCreating(false);
-    }
+    await report(() => createPlaylistAction(name), {
+      ok: (created) => `Created ${created.name}`,
+      failed: couldNot("create the playlist"),
+      onOk: (created) => {
+        setPlaylists((prev) => [created, ...prev]);
+        setNewName("");
+      },
+    });
+    setCreating(false);
   }
 
   function replace(updated: PlaylistDTO) {
@@ -86,6 +92,8 @@ export default function PlaylistsPane({ initial }: { initial: PlaylistDTO[] }) {
         </button>
       </div>
 
+      <WriteStatus message={message} className="write-status-block" testId="playlists-status" />
+
       {playlists.length === 0 ? (
         <p className="lib-empty">
           No playlists yet. Name one above, then add songs from Search or your liked
@@ -117,6 +125,10 @@ function PlaylistCard({
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(playlist.name);
   const [busy, setBusy] = useState(false);
+  // AUDIT 15/16/17/18: delete, remove-track, rename and reorder all used to fail
+  // silently — the row stayed, the name snapped back, the order jumped back, and the
+  // user was told nothing. Each now reports through the one shared status.
+  const { message, report } = useWriteStatus();
 
   async function saveName() {
     const trimmed = name.trim();
@@ -126,29 +138,25 @@ function PlaylistCard({
       return;
     }
     setBusy(true);
-    try {
-      const updated = await renamePlaylistAction(playlist.id, trimmed);
-      if (updated) onReplace(updated);
-      else setName(playlist.name); // rename failed / not owned — revert the field
-    } catch {
-      setName(playlist.name);
-    } finally {
-      setBusy(false);
-      setEditing(false);
-    }
+    await report(() => renamePlaylistAction(playlist.id, trimmed), {
+      ok: (updated) => `Renamed to ${updated.name}`,
+      failed: couldNot("save the new name"),
+      onOk: (updated) => onReplace(updated),
+      onFail: () => setName(playlist.name), // put the old name back — it is what is saved
+    });
+    setBusy(false);
+    setEditing(false);
   }
 
   async function remove() {
     if (busy) return;
     setBusy(true);
-    try {
-      const ok = await deletePlaylistAction(playlist.id);
-      if (ok) onDelete(playlist.id);
-    } catch {
-      // leave it in place on failure
-    } finally {
-      setBusy(false);
-    }
+    await report(() => deletePlaylistAction(playlist.id), {
+      ok: `Deleted ${playlist.name}`,
+      failed: couldNot("delete this playlist"),
+      onOk: () => onDelete(playlist.id),
+    });
+    setBusy(false);
   }
 
   async function reorder(index: number, direction: "up" | "down") {
@@ -158,31 +166,27 @@ function PlaylistCard({
     const optimistic: PlaylistDTO = { ...playlist, tracks: reordered };
     onReplace(optimistic);
     setBusy(true);
-    try {
-      const updated = await reorderPlaylistTracksAction(
-        playlist.id,
-        reordered.map((t) => t.itemId),
-      );
-      if (updated) onReplace(updated);
-      else onReplace(playlist); // revert to the last known-good order
-    } catch {
-      onReplace(playlist);
-    } finally {
-      setBusy(false);
-    }
+    await report(
+      () => reorderPlaylistTracksAction(playlist.id, reordered.map((t) => t.itemId)),
+      {
+        ok: "New order saved",
+        failed: couldNot("save the new order"),
+        onOk: (updated) => onReplace(updated),
+        onFail: () => onReplace(playlist), // back to the last order that is actually saved
+      },
+    );
+    setBusy(false);
   }
 
   async function removeTrack(item: PlaylistTrackDTO) {
     if (busy) return;
     setBusy(true);
-    try {
-      const updated = await removeTrackFromPlaylistAction(playlist.id, item.itemId);
-      if (updated) onReplace(updated);
-    } catch {
-      // leave in place on failure
-    } finally {
-      setBusy(false);
-    }
+    await report(() => removeTrackFromPlaylistAction(playlist.id, item.itemId), {
+      ok: `Removed ${item.title}`,
+      failed: couldNot("remove that song"),
+      onOk: (updated) => onReplace(updated),
+    });
+    setBusy(false);
   }
 
   const count = playlist.tracks.length;
@@ -248,6 +252,8 @@ function PlaylistCard({
           <TrashIcon size={18} />
         </button>
       </div>
+
+      <WriteStatus message={message} className="write-status-block" testId="playlist-card-status" />
 
       {open ? (
         count === 0 ? (

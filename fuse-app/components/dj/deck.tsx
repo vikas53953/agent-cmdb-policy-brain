@@ -22,7 +22,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { TrackRef, TrackSource } from "@/lib/repos/track";
 import { SOURCE_BADGES } from "@/lib/ui/shell";
-import { REASONS, LOCAL_RATE_RANGE } from "@/lib/player/capabilities";
+import { LOCAL_RATE_RANGE } from "@/lib/player/capabilities";
 import {
   createYouTubeAdapter,
   type YouTubeAdapter,
@@ -34,10 +34,11 @@ import {
   type DjDeckEngine,
   type EqBand,
 } from "@/lib/dj/engine";
-import { BEAT_LOOP_BARS, beatLoopRegion, tapTempo } from "@/lib/dj/analysis";
+import { BEAT_LOOP_BARS, beatLoopRegion, bpmTrustLabel, tapTempo } from "@/lib/dj/analysis";
 import { localTrackKey } from "@/lib/dj/fingerprint";
 import { listCuesAction, setCueAction, deleteCueAction } from "@/lib/dj-actions";
 import {
+  DJ_SPOTIFY_NOTICE,
   parseYouTubeId,
   resolveDeckControls,
   resolveDeckSourceOptions,
@@ -95,10 +96,31 @@ export default function Deck({
   const hostRef = useRef<HTMLDivElement>(null);
 
   const [deckPos, setDeckPos] = useState(0);
+  // The slice of the player bridge a DJ deck genuinely implements. A deck is NOT a queue:
+  // it holds one loaded track that the DJ chose, so there is nothing to "advance" to. We
+  // say that out loud (return false = nothing was advanced) but still act on the reason:
+  // when the video truly ends, the deck stops showing Pause.
+  //
+  // reportError is the deck's honest failure path. The adapter reports every runtime
+  // playback problem here — a blocked embed, a video pulled mid-play, an iframe error —
+  // and the deck must show it instead of sitting there with a Pause button over dead
+  // sound. A fatal problem also drops the loaded id, because that video can never play.
   const bridgeRef = useRef({
     reportPosition: (positionSec: number) => setDeckPos(positionSec > 0 ? positionSec : 0),
-    next: async () => false,
-    reportError: () => {},
+    next: async (reason?: "ended" | "user") => {
+      if (reason === "ended") setIsPlaying(false);
+      return false; // a deck has no next track — nothing to advance to
+    },
+    reportError: (info: { message: string; kind: "soft" | "fatal"; code?: number }) => {
+      setIsPlaying(false);
+      setLoading(false);
+      if (info.kind === "fatal") {
+        setLoadedId(null);
+        setLoadError(`${info.message}. Paste another link to keep going.`);
+      } else {
+        setLoadError(`${info.message}. Press play to try it again.`);
+      }
+    },
   });
 
   const [linkInput, setLinkInput] = useState("");
@@ -123,6 +145,11 @@ export default function Deck({
   const [echoOn, setEchoOn] = useState(false);
   const [scratchVal, setScratchVal] = useState(0);
   const [cues, setCues] = useState<CueMarker[]>([]);
+  // Whether the BPM on screen came from the DJ's own taps rather than auto-detection.
+  const [bpmTapped, setBpmTapped] = useState(false);
+  // A plain line under the cue pads when a save or a clear did not stick. Kept separate
+  // from loadError so a cue problem never makes the whole deck read as broken.
+  const [cueNotice, setCueNotice] = useState<string | null>(null);
   const tapTimesRef = useRef<number[]>([]);
 
   // The beatgrid starts at the track's beginning (firstBeat = 0) in DJ-1 — enough to
@@ -206,6 +233,8 @@ export default function Deck({
     setEchoOn(false);
     setScratchVal(0);
     setCues([]);
+    setBpmTapped(false);
+    setCueNotice(null);
     tapTimesRef.current = [];
     onSelectSource(source === next ? null : next);
   }
@@ -249,6 +278,9 @@ export default function Deck({
       adapter.pause();
       setIsPlaying(false);
     } else {
+      // Retrying after a soft error: clear the old message so the deck doesn't keep
+      // showing a failure it is actively trying again.
+      setLoadError(null);
       await adapter.play();
       setIsPlaying(true);
     }
@@ -293,6 +325,8 @@ export default function Deck({
       const a = engine.getAnalysis();
       setAnalysis({ peaks: a.peaks, bpm: a.bpm, bpmConfidence: a.bpmConfidence, duration: a.duration });
       setBpm(a.bpm);
+      setBpmTapped(false);
+      setCueNotice(null);
       setBeatLoopBars(null);
       engine.play();
       setLocalName(file.name);
@@ -300,9 +334,15 @@ export default function Deck({
       setTrackKey(key);
       setIsPlaying(true);
       // Load this track's saved hot cues (empty on a keyless / signed-out run).
-      void listCuesAction({ source: "local", nativeId: key }).then((saved) => {
-        setCues(saved.map((c) => ({ slot: c.slot, positionSec: c.positionSec })));
-      });
+      void listCuesAction({ source: "local", nativeId: key })
+        .then((saved) => {
+          setCues(saved.map((c) => ({ slot: c.slot, positionSec: c.positionSec })));
+        })
+        .catch(() => {
+          // The pads stay empty rather than pretending nothing was ever saved.
+          setCues([]);
+          setCueNotice("Your saved cues didn't load. Reload the page to try again.");
+        });
     } catch {
       setLoadError("Couldn't read that audio file. Try another one.");
       setLocalLoaded(false);
@@ -367,7 +407,10 @@ export default function Deck({
     taps.push(now);
     if (taps.length > 8) taps.shift();
     const tapped = tapTempo(taps);
-    if (tapped !== null) setBpm(tapped);
+    if (tapped !== null) {
+      setBpm(tapped);
+      setBpmTapped(true);
+    }
   }
 
   // The active beatgrid BPM (TAP override wins over auto-detection).
@@ -375,8 +418,11 @@ export default function Deck({
 
   // Hot cue: set on an empty pad (at the live playhead), or jump to a set pad. Persisted
   // per user+track via the server action.
+  // A pad shows as set only once the server confirms the save. If the save comes back
+  // empty (nothing was written), the pad goes back to empty and the DJ is told — a cue
+  // that did not save must never look saved.
   const onCue = useCallback(
-    (slot: number) => {
+    async (slot: number) => {
       const engine = engineRef.current;
       if (!engine || !localLoaded || !trackKey) return;
       const existing = cues.find((c) => c.slot === slot);
@@ -386,18 +432,49 @@ export default function Deck({
       }
       const pos = engine.position(); // SET at the live playhead
       setCues((prev) => [...prev.filter((c) => c.slot !== slot), { slot, positionSec: pos }]);
-      void setCueAction({ source: "local", nativeId: trackKey }, slot, pos);
+      setCueNotice(null);
+      let saved: Awaited<ReturnType<typeof setCueAction>> = null;
+      try {
+        saved = await setCueAction({ source: "local", nativeId: trackKey }, slot, pos);
+      } catch {
+        saved = null;
+      }
+      if (!saved) {
+        setCues((prev) => prev.filter((c) => c.slot !== slot));
+        setCueNotice(`Cue ${slot + 1} didn't save. Set it again.`);
+        return;
+      }
+      // Trust the saved row's position over the optimistic one.
+      const row = saved;
+      setCues((prev) => [
+        ...prev.filter((c) => c.slot !== slot),
+        { slot: row.slot, positionSec: row.positionSec },
+      ]);
     },
     [cues, localLoaded, trackKey],
   );
 
+  // Clearing is the same deal in reverse: if the row survives on the server, put the pad
+  // back so it matches what is really saved (it would return on the next reload anyway).
   const onCueClear = useCallback(
-    (slot: number) => {
+    async (slot: number) => {
       if (!trackKey) return;
+      const removed = cues.find((c) => c.slot === slot);
+      if (!removed) return;
       setCues((prev) => prev.filter((c) => c.slot !== slot));
-      void deleteCueAction({ source: "local", nativeId: trackKey }, slot);
+      setCueNotice(null);
+      let ok = false;
+      try {
+        ok = await deleteCueAction({ source: "local", nativeId: trackKey }, slot);
+      } catch {
+        ok = false;
+      }
+      if (!ok) {
+        setCues((prev) => [...prev.filter((c) => c.slot !== slot), removed]);
+        setCueNotice(`Cue ${slot + 1} is still saved. Try clearing it again.`);
+      }
     },
-    [trackKey],
+    [cues, trackKey],
   );
 
   // Beat loop: arm an on-grid loop of `bars` bars, or clear it if already active.
@@ -436,6 +513,13 @@ export default function Deck({
         : "idle";
 
   const bpmLabel = gridBpm > 0 ? gridBpm.toFixed(1) : "—";
+  // How much the BPM on screen can be trusted, in plain words — the auto-detector hands
+  // back a real confidence score, and hiding it would let a shaky guess look certain.
+  const bpmTrustText = bpmTrustLabel({
+    bpm: gridBpm,
+    confidence: analysis.bpmConfidence,
+    tapped: bpmTapped,
+  });
 
   return (
     <section
@@ -617,6 +701,15 @@ export default function Deck({
               >
                 TAP
               </button>
+              {bpmTrustText ? (
+                <span
+                  className="deck-bpm-trust"
+                  data-testid={`deck-${deckId}-bpm-trust`}
+                  style={{ fontSize: "0.68rem", opacity: 0.75, display: "block" }}
+                >
+                  {bpmTrustText}
+                </span>
+              ) : null}
             </div>
 
             <div className="deck-speed">
@@ -671,6 +764,16 @@ export default function Deck({
               );
             })}
           </div>
+          {cueNotice ? (
+            <p
+              className="deck-cue-notice"
+              data-testid={`deck-${deckId}-cue-notice`}
+              role="status"
+              style={{ fontSize: "0.75rem", color: "#e7b34a", margin: "0.25rem 0 0" }}
+            >
+              {cueNotice}
+            </p>
+          ) : null}
 
           {/* Beat loops — clean bar-length loops, quantised to the grid (replaces the old
               fixed 2-second loop). */}
@@ -823,7 +926,7 @@ export default function Deck({
 
       {source === "spotify" ? (
         <>
-          <p className="deck-notice">{REASONS.spPlaybackSoon}</p>
+          <p className="deck-notice">{DJ_SPOTIFY_NOTICE}</p>
           {controls ? <CapabilityBadges controls={controls} /> : null}
         </>
       ) : null}

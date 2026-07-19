@@ -25,6 +25,8 @@ import { CROSSFADE_MIN_SEC, CROSSFADE_MAX_SEC } from "@/lib/repos/settings";
 import DiagnosticsPanel from "@/components/settings/diagnostics-panel";
 import SleepTimerControl from "@/components/player/sleep-timer-control";
 import type { ShellUser } from "@/components/ui/app-chrome";
+import WriteStatus, { useWriteStatus } from "@/components/ui/write-status";
+import { couldNot } from "@/lib/ui/write-status";
 
 type Props = {
   open: boolean;
@@ -96,6 +98,9 @@ function readSpotifyConnected(): boolean {
 function SpotifyRow() {
   const [connected, setConnected] = useState(false);
   const [working, setWorking] = useState(false);
+  // AUDIT 21: disconnect was a try/finally with NO catch — a failed disconnect threw
+  // into nothing and the row kept saying "Connected". Now it reports honestly.
+  const { message, report } = useWriteStatus();
 
   // Read the non-secret `sp_connected` marker cookie after mount. Deferred to a
   // microtask (not a synchronous effect setState) so server and first client render
@@ -117,21 +122,26 @@ function SpotifyRow() {
   async function disconnect() {
     if (working) return;
     setWorking(true);
-    try {
-      await disconnectSpotifyAction();
-      setConnected(false);
-    } finally {
-      setWorking(false);
-    }
+    await report(() => disconnectSpotifyAction(), {
+      succeeded: () => true, // resolves with nothing; a throw is the only failure
+      ok: "Spotify disconnected",
+      failed: couldNot("disconnect Spotify"),
+      onOk: () => setConnected(false),
+    });
+    setWorking(false);
   }
 
   if (connected) {
     return (
-      <div className="setting-row">
+      <div className="setting-row setting-row-stack">
         <div className="setting-main">
           <div className="setting-label">Spotify</div>
+          {/* AUDIT 33 — say plainly what Spotify does here and what it does not. Spotify
+              is where the songs are FOUND; the sound comes from a matched YouTube version.
+              No jargon, no apology, and no promise of Spotify playback. */}
           <div className="setting-reason">
-            Connected — Spotify songs play as their YouTube version
+            Connected — search includes your Spotify. Each song plays as its matched
+            YouTube version.
           </div>
         </div>
         <div className="setting-actions">
@@ -146,6 +156,7 @@ function SpotifyRow() {
             Disconnect
           </button>
         </div>
+        <WriteStatus message={message} className="write-status-block" testId="spotify-status" />
       </div>
     );
   }
@@ -154,7 +165,10 @@ function SpotifyRow() {
     <div className="setting-row">
       <div className="setting-main">
         <div className="setting-label">Spotify</div>
-        <div className="setting-reason">Link your account to search with your Spotify</div>
+        <div className="setting-reason">
+          Link your account to search your Spotify. Songs are found on Spotify and play
+          as their matched YouTube version.
+        </div>
       </div>
       {/* A real navigation to the PKCE start route — does something the moment it is
           tapped (redirects to Spotify's sign-in), so it is never a decorative button. */}
@@ -179,25 +193,46 @@ export default function ProfileSheet({
   onAutoplaySimilarChange,
 }: Props) {
   const closeRef = useRef<HTMLButtonElement>(null);
+  // The crossfade length last sent to the server, so a commit event with no change is a
+  // no-op rather than a repeated save + repeated status line.
+  const lastCommitted = useRef(crossfadeSec);
   // While a persist is in flight the toggle is disabled so a rapid double-tap can't
   // race two writes. Optimistic: the UI flips immediately; if the server write fails
   // we revert so the control never lies about what was saved.
   const [saving, setSaving] = useState(false);
   const [savingAudio, setSavingAudio] = useState(false);
   const [savingAutoplay, setSavingAutoplay] = useState(false);
+  // AUDIT 22/23: every settings write in this sheet reverted in silence — the switch
+  // flicked back (or the slider snapped at the next sign-in) with no word about why.
+  // One shared status for the whole sheet; each write reports through it.
+  const { message, report } = useWriteStatus();
+
+  // All four settings writes share one shape: flip it on screen now, save, and put it
+  // back with a plain line if the save did not land.
+  async function saveSetting(
+    op: () => Promise<unknown>,
+    copy: { ok: string; failed: string },
+    revert: () => void,
+  ) {
+    await report(op, {
+      succeeded: () => true, // these actions resolve with nothing; a throw means failure
+      ok: copy.ok,
+      failed: copy.failed,
+      onFail: revert,
+    });
+  }
 
   async function toggleLyrics() {
     if (saving) return;
     const next = !lyricsEnabled;
     setSaving(true);
     onLyricsChange(next); // optimistic — the panel shows/hides instantly
-    try {
-      await setLyricsEnabledAction(next);
-    } catch {
-      onLyricsChange(!next); // revert on failure — honest state
-    } finally {
-      setSaving(false);
-    }
+    await saveSetting(
+      () => setLyricsEnabledAction(next),
+      { ok: next ? "Lyrics on" : "Lyrics off", failed: couldNot("save that") },
+      () => onLyricsChange(!next),
+    );
+    setSaving(false);
   }
 
   async function togglePreferAudio() {
@@ -205,13 +240,15 @@ export default function ProfileSheet({
     const next = !preferAudio;
     setSavingAudio(true);
     onPreferAudioChange(next); // optimistic — the next search reorders instantly
-    try {
-      await setPreferAudioAction(next);
-    } catch {
-      onPreferAudioChange(!next); // revert on failure — honest state
-    } finally {
-      setSavingAudio(false);
-    }
+    await saveSetting(
+      () => setPreferAudioAction(next),
+      {
+        ok: next ? "Audio versions first" : "Mixed order",
+        failed: couldNot("save that"),
+      },
+      () => onPreferAudioChange(!next),
+    );
+    setSavingAudio(false);
   }
 
   async function toggleAutoplaySimilar() {
@@ -219,13 +256,15 @@ export default function ProfileSheet({
     const next = !autoplaySimilar;
     setSavingAutoplay(true);
     onAutoplaySimilarChange(next); // optimistic — the player's consent flips instantly
-    try {
-      await setAutoplaySimilarAction(next);
-    } catch {
-      onAutoplaySimilarChange(!next); // revert on failure — honest state
-    } finally {
-      setSavingAutoplay(false);
-    }
+    await saveSetting(
+      () => setAutoplaySimilarAction(next),
+      {
+        ok: next ? "Autoplay similar on" : "Autoplay similar off",
+        failed: couldNot("save that"),
+      },
+      () => onAutoplaySimilarChange(!next),
+    );
+    setSavingAutoplay(false);
   }
 
   // Dragging the slider updates the live blend length instantly (real, audible effect
@@ -236,15 +275,22 @@ export default function ProfileSheet({
     onCrossfadeChange(seconds);
   }
 
+  // AUDIT 22: a failed save used to be swallowed here, leaving the slider showing a
+  // length that would silently snap back at the next sign-in. The saved value the
+  // server hands back is applied, and a failure says so.
   function commitCrossfade() {
-    void setCrossfadeSecAction(crossfadeSec)
-      .then((stored) => {
-        if (stored !== crossfadeSec) onCrossfadeChange(stored);
-      })
-      .catch(() => {
-        // Persist failed: keep the live value; the next sign-in reload reconciles from
-        // the stored setting. Never claim a save that did not happen.
-      });
+    const attempted = crossfadeSec;
+    // Pointer-up, key-up and blur all commit, so skip when nothing moved — otherwise a
+    // simple tap on the slider would announce a save that was never needed.
+    if (attempted === lastCommitted.current) return;
+    lastCommitted.current = attempted;
+    void report(() => setCrossfadeSecAction(attempted), {
+      ok: (stored) => `Crossfade saved at ${stored}s`,
+      failed: couldNot("save the crossfade length"),
+      onOk: (stored) => {
+        if (stored !== attempted) onCrossfadeChange(stored);
+      },
+    });
   }
 
   // Close on Escape; move focus into the sheet when it opens (accessibility).
@@ -299,6 +345,10 @@ export default function ProfileSheet({
             ✕
           </button>
         </div>
+
+        {/* One live region for every save this sheet makes — toggles, the crossfade
+            slider, Spotify disconnect. role="status" so it is announced, not just seen. */}
+        <WriteStatus message={message} className="write-status-block" testId="settings-status" />
 
         {/* Account — the one live group. Sign out is a real server action. */}
         <section className="sheet-group">

@@ -36,6 +36,15 @@ function peakAt(peaks: readonly number[], timeSec: number, durationSec: number):
   return peaks[idx];
 }
 
+// A spoken-friendly position ("1 minute 4 seconds" reads badly; "1:04 of 3:20" is what a
+// screen reader user actually wants from a seek control).
+export function clockLabel(seconds: number): string {
+  const s = Math.max(0, Math.floor(seconds));
+  const mm = Math.floor(s / 60);
+  const ss = s % 60;
+  return `${mm}:${ss < 10 ? "0" : ""}${ss}`;
+}
+
 function paintLane(
   canvas: HTMLCanvasElement,
   peaks: readonly number[],
@@ -153,6 +162,45 @@ export default function DeckWaveform({
     onSeek(Math.max(0, Math.min(1, frac)) * durationSec);
   }
 
+  // Both strips are real seek controls, so they are real sliders: focusable, arrow-key
+  // driven, and announced with a time rather than a raw number. Promising "click to seek"
+  // to someone who cannot click was the lie this fixes.
+  const STEP_SEC = 1;
+  const BIG_STEP_SEC = 5;
+
+  function seekBy(deltaSec: number) {
+    onSeek(Math.max(0, Math.min(durationSec, positionSec + deltaSec)));
+  }
+
+  function onSeekKeyDown(e: React.KeyboardEvent<HTMLCanvasElement>) {
+    let handled = true;
+    switch (e.key) {
+      case "ArrowLeft":
+        seekBy(-STEP_SEC);
+        break;
+      case "ArrowRight":
+        seekBy(STEP_SEC);
+        break;
+      case "ArrowDown":
+      case "PageDown":
+        seekBy(-BIG_STEP_SEC);
+        break;
+      case "ArrowUp":
+      case "PageUp":
+        seekBy(BIG_STEP_SEC);
+        break;
+      case "Home":
+        onSeek(0);
+        break;
+      case "End":
+        onSeek(durationSec);
+        break;
+      default:
+        handled = false;
+    }
+    if (handled) e.preventDefault();
+  }
+
   function seekFromLane(e: React.MouseEvent<HTMLCanvasElement>) {
     const el = e.currentTarget;
     const rect = el.getBoundingClientRect();
@@ -163,21 +211,43 @@ export default function DeckWaveform({
 
   return (
     <div className="deck-wave" data-testid={`deck-${deckId}-waveform`}>
+      {/* Focus ring for the two seek strips. Scoped to this component's own class so it
+          needs no change to the shared stylesheet. */}
+      <style
+        dangerouslySetInnerHTML={{
+          __html:
+            ".deck-wave-seek:focus-visible{outline:2px solid #ffffff;outline-offset:2px;}",
+        }}
+      />
       <canvas
         ref={overviewRef}
-        className="deck-wave-overview"
+        className="deck-wave-overview deck-wave-seek"
         width={640}
         height={36}
         onClick={seekFromOverview}
-        aria-label={`Deck ${deckId} track overview — click to seek`}
+        onKeyDown={onSeekKeyDown}
+        role="slider"
+        tabIndex={0}
+        aria-label={`Deck ${deckId} track position`}
+        aria-valuemin={0}
+        aria-valuemax={Math.max(0, Math.round(durationSec))}
+        aria-valuenow={Math.max(0, Math.round(positionSec))}
+        aria-valuetext={`${clockLabel(positionSec)} of ${clockLabel(durationSec)}`}
       />
       <canvas
         ref={laneRef}
-        className="deck-wave-lane"
+        className="deck-wave-lane deck-wave-seek"
         width={640}
         height={96}
         onClick={seekFromLane}
-        aria-label={`Deck ${deckId} waveform — click to seek`}
+        onKeyDown={onSeekKeyDown}
+        role="slider"
+        tabIndex={0}
+        aria-label={`Deck ${deckId} waveform position`}
+        aria-valuemin={0}
+        aria-valuemax={Math.max(0, Math.round(durationSec))}
+        aria-valuenow={Math.max(0, Math.round(positionSec))}
+        aria-valuetext={`${clockLabel(positionSec)} of ${clockLabel(durationSec)}`}
       />
     </div>
   );

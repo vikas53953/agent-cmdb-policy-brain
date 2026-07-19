@@ -5,8 +5,9 @@
 //      Owned data — scoped to ownerId.
 //   2. Trending (KTD-4): `trendingByPlayCount` aggregates ANONYMOUS play counts
 //      across ALL users (no ownerId filter — trending is intentionally global and
-//      not attributable to anyone). `trendingSeed` returns the curated seed Home
-//      shows until enough real play data accumulates.
+//      not attributable to anyone). `trendingSeed` returns the starter-picks seed Home
+//      shows (labelled "Starter picks", never "Trending") until enough real play data
+//      accumulates. `listRecentPlayEvents` feeds the co-play signal.
 //
 // U3 provides this skeleton; U12 builds the Home carousels on top. Kept minimal and
 // DI'd (db injectable) so it unit-tests without a database.
@@ -51,6 +52,30 @@ export function listRecentPlays(userId: string, limit = 20, db: PrismaClient = p
   });
 }
 
+// Raw play events for the co-play signal (audit 36). Returns the minimum needed to
+// reconstruct listening sessions — who played it (to keep one person's sitting from
+// bleeding into another's), what it was, and when — and nothing else: no title, no
+// artist, no user rows. `lib/home/coplay.ts` turns these into sessions and per-track
+// co-occurrence counts; only the counts reach the UI, so no individual's history is
+// exposed.
+//
+// Bounded on purpose. `sinceDays` keeps the window recent (what people pair together
+// now, not two years ago) and `limit` caps the row count so this can never turn into
+// an unbounded table scan. Newest-first, because when the cap bites we want the most
+// recent listening, not the oldest.
+export function listRecentPlayEvents(
+  { sinceDays = 30, limit = 5000 }: { sinceDays?: number; limit?: number } = {},
+  db: PrismaClient = prisma,
+) {
+  const since = new Date(Date.now() - sinceDays * 24 * 60 * 60 * 1000);
+  return db.play.findMany({
+    where: { playedAt: { gte: since } },
+    select: { ownerId: true, source: true, nativeId: true, playedAt: true },
+    orderBy: { playedAt: "desc" },
+    take: limit,
+  });
+}
+
 // A trending entry: a track plus how many times it has been played across everyone.
 export type TrendingEntry = {
   source: string;
@@ -72,8 +97,9 @@ export async function trendingByPlayCount(limit = 20, db: PrismaClient = prisma)
   return groups.map((g) => ({ source: g.source, nativeId: g.nativeId, playCount: g._count._all }));
 }
 
-// The curated trending seed (KTD-4), ordered by rank. Global/un-owned; populated by
-// prisma/seed.ts. Home shows this until `trendingByPlayCount` has enough to graduate.
+// The starter-picks seed (KTD-4), ordered by rank. Global/un-owned; populated by
+// prisma/seed.ts. Home shows this — under its own honest "Starter picks" heading —
+// until `trendingByPlayCount` has enough to graduate to real trending.
 export function trendingSeed(limit = 20, db: PrismaClient = prisma) {
   return db.trendingSeed.findMany({ orderBy: { rank: "asc" }, take: limit });
 }

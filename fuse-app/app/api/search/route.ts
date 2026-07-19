@@ -22,6 +22,7 @@ import { runSearch, type SearchDeps, type CachedSearch, type SourceStatuses } fr
 import { getUser } from "@/lib/auth-session";
 import { getPreferAudio } from "@/lib/repos/settings";
 import type { TrackRef } from "@/lib/repos/track";
+import { logActivity } from "@/lib/activity-log";
 
 // Prisma (Neon) needs the Node runtime, not Edge.
 export const runtime = "nodejs";
@@ -95,6 +96,15 @@ export async function GET(request: Request) {
     return NextResponse.json(response);
   } catch {
     // Last-resort honesty: never leak a stack, never freeze the UI (R18).
+    // AUDIT 28: also RECORD it, so a search outage is diagnosable from evidence instead
+    // of guessed at. The query's LENGTH only — never the text the user typed, and never
+    // any key.
+    logActivity({
+      level: "error",
+      type: "search-api",
+      message: "Search couldn't be completed",
+      detail: { queryLength: query.trim().length },
+    });
     return NextResponse.json({
       query: query.trim(),
       cached: false,

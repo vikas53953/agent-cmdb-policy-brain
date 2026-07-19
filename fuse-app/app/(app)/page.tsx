@@ -14,10 +14,23 @@
 
 import { getUser } from "@/lib/auth-session";
 import { listLikes } from "@/lib/repos/likes";
-import { listRecentPlays, trendingSeed, trendingTracks } from "@/lib/repos/plays";
+import {
+  listRecentPlayEvents,
+  listRecentPlays,
+  trendingSeed,
+  trendingTracks,
+} from "@/lib/repos/plays";
 import { isTrackSource, type TrackRef } from "@/lib/repos/track";
-import { recommend, chooseTrending, dedupeTracks } from "@/lib/home/recommend";
+import {
+  recommend,
+  chooseTrending,
+  dedupeTracks,
+  isRealTrending,
+  trackKey,
+} from "@/lib/home/recommend";
+import { coPlayAffinity } from "@/lib/home/coplay";
 import HomeScreen, { type HomeData } from "@/components/home/home-screen";
+import SpotifyConnectStatus from "@/components/ui/spotify-connect-status";
 
 // Coerce any stored track-bearing row (seed / play / like) into the source-agnostic
 // TrackRef the UI renders. A corrupt/unknown source defaults to "youtube" so a bad row
@@ -59,6 +72,8 @@ async function loadHome(): Promise<HomeData> {
         trending: seedTracks,
         recommended: seedTracks.slice(0, 12),
         personalised: false,
+        // Seed data by definition — the row says "Starter picks", never "Trending".
+        trendingIsReal: false,
       };
     }
 
@@ -75,19 +90,30 @@ async function loadHome(): Promise<HomeData> {
     const recent = dedupeTracks([recentRows.map(toHomeTrack)]).slice(0, 12);
 
     // KTD-4: real aggregate trending once it has grown enough, else the curated seed.
+    // The SAME predicate decides the contents and the row's name, so the two can never
+    // disagree — the row only calls itself "Trending" when real play data backs it.
+    const trendingIsReal = isRealTrending(countTracks);
     const trending = chooseTrending(seedTracks, countTracks);
+
+    // Co-play signal (AUDIT 36): what people actually play in the same sitting as the
+    // tracks this user loves. Fetched separately and allowed to fail — a recommendation
+    // signal going missing must degrade the ranking, never blank the whole home feed.
+    const coPlay = await listRecentPlayEvents()
+      .then((events) => coPlayAffinity(events, [...likes, ...recent].map(trackKey)))
+      .catch(() => undefined);
 
     // The candidate pool for "more like what you love": trending plus the user's own
     // tracks, deduped. With no history this is just the seed (generic); as history
     // grows, the user's loved artists appear in the pool and recommend() ranks them up.
     const pool = dedupeTracks([trending, recent, likes]);
-    const recommended = recommend({ likes, recent, pool, limit: 12 });
+    const recommended = recommend({ likes, recent, pool, coPlay, limit: 12 });
 
     return {
       recentlyPlayed: recent,
       trending,
       recommended,
       personalised: likes.length > 0 || recent.length > 0,
+      trendingIsReal,
     };
   } catch {
     // No DB / keyless — degrade to an honest empty home, never a crash.
@@ -97,5 +123,12 @@ async function loadHome(): Promise<HomeData> {
 
 export default async function HomePage() {
   const data = await loadHome();
-  return <HomeScreen data={data} />;
+  return (
+    <>
+      {/* The Spotify routes land the user back here with `?spotify=...`. This is the
+          consumer that finally says what happened (AUDIT 1) and clears the parameter. */}
+      <SpotifyConnectStatus />
+      <HomeScreen data={data} />
+    </>
+  );
 }

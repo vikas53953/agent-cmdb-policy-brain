@@ -125,6 +125,14 @@ export const TEXT = {
   // The one-line capability-difference pointer under a non-local deck's greyed chips
   // (Complaint 3): the missing powers read as "a My Files thing", not breakage.
   fullEnginePointer: "Full engine works with My Files",
+  // AE5 — the honest label a listener sees while a Spotify track is heard as its matched
+  // YouTube version (lib/player/adapters/spotify.ts SPOTIFY_FALLBACK_NOTICE). Asserted
+  // verbatim: this sentence IS the honesty contract, so rewording it must fail a test.
+  spotifyFallbackNotice: "Spotify needs Premium — playing the YouTube version",
+  // The disabled-state reason a Spotify row shows when NO Spotify adapter is registered
+  // (lib/search/playability.ts SPOTIFY_SOON_REASON). Its presence is the fingerprint of
+  // the fallback having been unwired — AE5 asserts it is ABSENT.
+  spotifySoonReason: "Plays after Spotify support arrives",
 } as const;
 
 // A known-stable search query and a known-stable YouTube video id the specs lean on.

@@ -18,14 +18,22 @@ import { useEffect, useState } from "react";
 import type { TrackRef } from "@/lib/repos/track";
 import { isTrackLikedAction, setTrackLikedAction } from "@/lib/library-actions";
 import { HeartIcon } from "@/components/ui/icons";
+import WriteStatus, { useWriteStatus } from "@/components/ui/write-status";
+import { couldNot } from "@/lib/ui/write-status";
 
 // The liked status for one specific track key. `key` lets render tell whether this
 // status is for the track currently showing.
-type LikeStatus = { key: string; liked: boolean };
+//
+// AUDIT 26: `liked` was a plain boolean, and a FAILED status check was recorded as
+// `false`. That is the exact lie this app forbids: an already-liked song showed an
+// empty heart, and the user's next tap issued an UNLIKE-shaped write against a like
+// they never made. `null` is the third, honest answer — "we don't know yet".
+type LikeStatus = { key: string; liked: boolean | null };
 
 export default function LikeButton({ track }: { track: TrackRef }) {
   const [status, setStatus] = useState<LikeStatus | null>(null);
   const [saving, setSaving] = useState(false);
+  const { message, report } = useWriteStatus();
   const key = `${track.source}:${track.nativeId}`;
 
   useEffect(() => {
@@ -35,52 +43,70 @@ export default function LikeButton({ track }: { track: TrackRef }) {
         if (alive) setStatus({ key, liked });
       })
       .catch(() => {
-        // Status unknown (e.g. no DB) — treat as not-liked but still allow toggling;
-        // a failed toggle simply reverts, so the control never lies.
-        if (alive) setStatus({ key, liked: false });
+        // We could not find out. Say so and stay out of the way, rather than guessing
+        // "not liked" and letting the next tap write the wrong thing.
+        if (alive) setStatus({ key, liked: null });
       });
     return () => {
       alive = false;
     };
   }, [key, track.source, track.nativeId]);
 
-  // Is the loaded status for the track currently showing?
-  const known = status?.key === key;
-  const isLiked = known && status.liked;
+  // Is the loaded status for the track currently showing, and did it actually answer?
+  const forThisTrack = status?.key === key;
+  const known = forThisTrack && status.liked !== null;
+  const unknown = forThisTrack && status.liked === null;
+  const isLiked = known && status.liked === true;
 
   async function toggle() {
     if (saving || !known) return;
     const next = !status.liked;
     setSaving(true);
     setStatus({ key, liked: next }); // optimistic
-    try {
-      await setTrackLikedAction(track, next);
-    } catch {
-      setStatus({ key, liked: !next }); // revert — the write did not stick
-    } finally {
-      setSaving(false);
-    }
+    // AUDIT 27: a failed toggle used to revert with no word — the heart flicked and
+    // sprang back like a bug. It still reverts (that IS the saved truth) and now says why.
+    await report(() => setTrackLikedAction(track, next), {
+      succeeded: () => true, // resolves with nothing; a throw is the only failure
+      ok: next ? "Added to liked" : "Removed from liked",
+      failed: couldNot(next ? "add this to liked" : "remove this from liked"),
+      onFail: () => setStatus({ key, liked: !next }),
+    });
+    setSaving(false);
   }
 
+  const label = unknown
+    ? `Couldn't check whether ${track.title} is liked`
+    : !known
+      ? `Checking whether ${track.title} is liked`
+      : isLiked
+        ? `Remove ${track.title} from liked songs`
+        : `Add ${track.title} to liked songs`;
+
   return (
-    <button
-      type="button"
-      className={isLiked ? "icon-btn liked on" : "icon-btn liked"}
-      data-testid="like-button"
-      data-liked={isLiked ? "true" : "false"}
-      onClick={() => void toggle()}
-      disabled={!known || saving}
-      aria-pressed={isLiked}
-      title={!known ? "Checking…" : isLiked ? "Remove from liked" : "Add to liked"}
-      aria-label={
-        !known
-          ? `Checking whether ${track.title} is liked`
-          : isLiked
-            ? `Remove ${track.title} from liked songs`
-            : `Add ${track.title} to liked songs`
-      }
-    >
-      <HeartIcon filled={isLiked} />
-    </button>
+    <>
+      <button
+        type="button"
+        className={isLiked ? "icon-btn liked on" : "icon-btn liked"}
+        data-testid="like-button"
+        data-liked={isLiked ? "true" : "false"}
+        data-like-known={unknown ? "unknown" : known ? "yes" : "checking"}
+        onClick={() => void toggle()}
+        disabled={!known || saving}
+        aria-pressed={known ? isLiked : undefined}
+        title={
+          unknown
+            ? "Couldn't check if this is liked — reopen this screen to try again"
+            : !known
+              ? "Checking…"
+              : isLiked
+                ? "Remove from liked"
+                : "Add to liked"
+        }
+        aria-label={label}
+      >
+        <HeartIcon filled={isLiked} />
+      </button>
+      <WriteStatus message={message} testId="like-status" />
+    </>
   );
 }
