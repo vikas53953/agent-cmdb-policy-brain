@@ -66,6 +66,30 @@ export function isAudioTrack(track: TrackRef): boolean {
   return trackKind(track) === "audio";
 }
 
+// The result-filter chips a person can narrow by (Wave 1 — search extras): everything,
+// just songs, or just videos. Built directly on the audio-vs-video classifier above so
+// the filter and the row labels can never disagree about what a track is.
+export type ResultFilter = "all" | "songs" | "videos";
+
+// Does a track count as a "song" (audio-first) for the filter? A YouTube video is the
+// only thing that is NOT a song here: Topic-channel / official-audio YouTube uploads,
+// Spotify tracks (heard as their matched YouTube audio), and local files are all songs.
+// This keeps the filter HONEST — "Videos" shows exactly the rows the app also labels
+// VIDEO, and "Songs" shows everything else.
+export function isSongResult(track: TrackRef): boolean {
+  return trackKind(track) !== "video";
+}
+
+// Apply a result filter, preserving order. "all" returns the list unchanged.
+export function filterByKind(
+  results: readonly TrackRef[],
+  filter: ResultFilter,
+): TrackRef[] {
+  if (filter === "all") return [...results];
+  if (filter === "songs") return results.filter((t) => isSongResult(t));
+  return results.filter((t) => trackKind(t) === "video");
+}
+
 // Stable audio-first reordering of a combined result list. Preserves each track's
 // relative order within its group (a stable partition), so the reorder is fully
 // deterministic and testable: audio-first when `preferAudio`, otherwise the list is

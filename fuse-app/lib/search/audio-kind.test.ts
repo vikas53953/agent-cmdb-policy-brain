@@ -4,6 +4,8 @@ import {
   trackKind,
   isAudioTrack,
   orderByAudioPreference,
+  filterByKind,
+  isSongResult,
   KIND_LABEL,
 } from "./audio-kind";
 import type { TrackRef } from "@/lib/repos/track";
@@ -100,5 +102,26 @@ describe("orderByAudioPreference — deterministic, stable audio-first partition
     const before = list.map((t) => t.title);
     orderByAudioPreference(list, true);
     expect(list.map((t) => t.title)).toEqual(before);
+  });
+});
+
+describe("filterByKind — the All / Songs / Videos result filter (Wave 1)", () => {
+  const audioYt: TrackRef = { source: "youtube", nativeId: "a1", title: "Song (Official Audio)", artist: "X", artUrl: null, durationSec: null };
+  const videoYt: TrackRef = { source: "youtube", nativeId: "v1", title: "Song (Official Video)", artist: "X", artUrl: null, durationSec: null };
+  const spotify: TrackRef = { source: "spotify", nativeId: "s1", title: "Song", artist: "X", artUrl: null, durationSec: null };
+  const list = [videoYt, audioYt, spotify];
+
+  it("'all' returns the list unchanged", () => {
+    expect(filterByKind(list, "all").map((t) => t.nativeId)).toEqual(["v1", "a1", "s1"]);
+  });
+
+  it("'videos' keeps only YouTube video-kind rows", () => {
+    expect(filterByKind(list, "videos").map((t) => t.nativeId)).toEqual(["v1"]);
+  });
+
+  it("'songs' keeps audio YouTube AND non-YouTube (Spotify) rows — everything that is not a video", () => {
+    expect(filterByKind(list, "songs").map((t) => t.nativeId)).toEqual(["a1", "s1"]);
+    expect(isSongResult(spotify)).toBe(true);
+    expect(isSongResult(videoYt)).toBe(false);
   });
 });

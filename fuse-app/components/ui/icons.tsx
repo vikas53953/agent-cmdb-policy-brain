@@ -227,6 +227,46 @@ export function ArrowDownIcon({ size = 20, className }: IconProps) {
   );
 }
 
+// Queue — the up-next list (Wave 1). A stack of lines with a play cue, opening the queue
+// screen. The button it sits in actually opens that screen, so it is a real control (R17).
+export function QueueIcon({ size = 20, className }: IconProps) {
+  return svg(
+    <>
+      <path d="M4 6h11" />
+      <path d="M4 12h11" />
+      <path d="M4 18h7" />
+      <path d="M16 14v6l4-3-4-3Z" fill="currentColor" stroke="none" />
+    </>,
+    size,
+    className,
+  );
+}
+
+// More — a compact overflow trigger (three dots) for a row's Play-next / Add-to-queue menu.
+export function MoreIcon({ size = 20, className }: IconProps) {
+  return svg(
+    <>
+      <circle cx="12" cy="5" r="1.4" fill="currentColor" stroke="none" />
+      <circle cx="12" cy="12" r="1.4" fill="currentColor" stroke="none" />
+      <circle cx="12" cy="19" r="1.4" fill="currentColor" stroke="none" />
+    </>,
+    size,
+    className,
+  );
+}
+
+// Clock — the sleep timer control + its armed countdown chip (Wave 1).
+export function ClockIcon({ size = 20, className }: IconProps) {
+  return svg(
+    <>
+      <circle cx="12" cy="12" r="8.5" />
+      <path d="M12 7.5V12l3 2" />
+    </>,
+    size,
+    className,
+  );
+}
+
 const ICONS = {
   home: HomeIcon,
   search: SearchIcon,

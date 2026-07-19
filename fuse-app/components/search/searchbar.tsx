@@ -1,22 +1,32 @@
 "use client";
 
-// As-you-type search (U6, R1/R5, KTD-8).
+// As-you-type search (U6, R1/R5, KTD-8) + search extras (Wave 1).
 //
 // Owns the query input, a DEBOUNCED fetch to /api/search, and the honest render of
 // results. Debounce + in-flight cancellation are the client half of the quota
 // defence: a burst of keystrokes collapses to ONE request (KTD-8), and a newer
 // query aborts an older in-flight one so results never arrive out of order.
 //
-// Honesty (R17): each result decides its own play button state (see result-row).
-// When a whole source is unavailable (not configured on the server, or a transient
-// failure), its plain-English reason is shown once above the list — never a silent
-// gap that looks like "no results".
+// Wave 1 adds two extras, both honest:
+//   • RECENT SEARCHES — the last few queries this user ran, shown as tappable chips when
+//     the box is empty, with a Clear control. Per-user (namespaced by userKey) and stored
+//     in localStorage so they survive across sessions; a private/blocked store degrades to
+//     none rather than breaking search.
+//   • RESULT FILTERS — All / Songs / Videos chips, built on the audio-vs-video classifier
+//     so the filter can never disagree with a row's own AUDIO/VIDEO label.
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { TrackRef } from "@/lib/repos/track";
 import type { SearchResponse } from "@/lib/search/orchestrate";
 import { adapterRegistry } from "@/lib/player/adapters";
 import { loadSearchQuery, saveSearchQuery } from "@/lib/session-state";
+import { filterByKind, type ResultFilter } from "@/lib/search/audio-kind";
+import {
+  browserStorage,
+  loadRecentSearches,
+  addRecentSearch,
+  clearRecentSearches,
+} from "@/lib/search/recent-searches";
 import ResultRow from "@/components/search/result-row";
 
 const DEBOUNCE_MS = 350;
@@ -30,10 +40,21 @@ type Status = "idle" | "loading" | "done" | "error";
 type Outcome = { query: string; data: SearchResponse | null; error: boolean };
 const EMPTY_OUTCOME: Outcome = { query: "", data: null, error: false };
 
-export default function SearchBar() {
+const FILTERS: { id: ResultFilter; label: string }[] = [
+  { id: "all", label: "All" },
+  { id: "songs", label: "Songs" },
+  { id: "videos", label: "Videos" },
+];
+
+export default function SearchBar({ userKey = "anon" }: { userKey?: string }) {
   const [query, setQuery] = useState("");
   const [outcome, setOutcome] = useState<Outcome>(EMPTY_OUTCOME);
+  const [filter, setFilter] = useState<ResultFilter>("all");
+  const [recent, setRecent] = useState<string[]>([]);
   const abortRef = useRef<AbortController | null>(null);
+
+  // The browser store for recent searches (null in SSR / private mode → no history).
+  const store = useMemo(() => browserStorage(), []);
 
   // Restore the last query after a reload (FIX 2). Deliberately done in a mount effect, not
   // in the initial state: sessionStorage is browser-only, so seeding initial state from it
@@ -45,7 +66,9 @@ export default function SearchBar() {
     const restored = loadSearchQuery();
     // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional one-shot restore from browser storage on mount
     if (restored) setQuery(restored);
-  }, []);
+    // Load this user's recent searches once on mount (browser-only, post-hydration).
+    setRecent(loadRecentSearches(store, userKey));
+  }, [store, userKey]);
 
   // Persist the query on every change so the next reload can restore it (cleared when empty).
   useEffect(() => {
@@ -82,8 +105,21 @@ export default function SearchBar() {
     return () => clearTimeout(handle);
   }, [query]);
 
-  // Which sources have a live playback adapter right now (empty until U7/U15 land).
-  // Read once per render; result rows use it to stay honest about what can play.
+  // Record a query into recent searches — on the user's intent signals (Enter, or the box
+  // losing focus), not on every keystroke, so the list stays a short set of real searches.
+  function remember(q: string) {
+    const trimmed = q.trim();
+    if (trimmed === "") return;
+    setRecent(addRecentSearch(store, userKey, trimmed));
+  }
+
+  function runRecent(q: string) {
+    setQuery(q);
+    setRecent(addRecentSearch(store, userKey, q)); // bump it to the top
+  }
+
+  // Which sources have a live playback adapter right now. Read once per render; result
+  // rows use it to stay honest about what can play.
   const registered = new Set(adapterRegistry.registeredSources());
 
   const trimmed = query.trim();
@@ -97,7 +133,8 @@ export default function SearchBar() {
           ? "error"
           : "done";
   const data = status === "done" ? outcome.data : null;
-  const results = data?.results ?? [];
+  const allResults = data?.results ?? [];
+  const results = filterByKind(allResults, filter);
   const sources = data?.sources;
   // Source-level honesty lines: show a reason only when that source failed AND we
   // are not still loading (so a momentary "unavailable" doesn't flash mid-type).
@@ -119,6 +156,10 @@ export default function SearchBar() {
           placeholder="Search songs, artists…"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
+          onBlur={() => remember(query)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") remember(query);
+          }}
           aria-label="Search for songs and artists"
           autoComplete="off"
           autoCorrect="off"
@@ -126,7 +167,40 @@ export default function SearchBar() {
         />
       </div>
 
-      {status === "idle" ? (
+      {/* Recent searches — shown only when the box is empty and there is history. Tappable
+          to re-run, with an honest Clear control (per-user). */}
+      {status === "idle" && recent.length > 0 ? (
+        <div className="recent" data-testid="recent-searches">
+          <div className="recent-head">
+            <span className="recent-title">Recent searches</span>
+            <button
+              type="button"
+              className="recent-clear"
+              data-testid="recent-clear"
+              onClick={() => setRecent(clearRecentSearches(store, userKey))}
+              aria-label="Clear recent searches"
+            >
+              Clear
+            </button>
+          </div>
+          <div className="recent-chips">
+            {recent.map((q) => (
+              <button
+                key={q}
+                type="button"
+                className="recent-chip"
+                data-testid="recent-chip"
+                onClick={() => runRecent(q)}
+                aria-label={`Search again for ${q}`}
+              >
+                {q}
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
+      {status === "idle" && recent.length === 0 ? (
         <p className="search-hint">Type to find songs from YouTube and Spotify.</p>
       ) : null}
 
@@ -148,8 +222,36 @@ export default function SearchBar() {
         </p>
       ))}
 
-      {status === "done" && results.length === 0 && sourceNotices.length === 0 ? (
+      {/* Result filters — only shown once there are results to narrow. Built on the same
+          audio/video classifier the rows label with, so All / Songs / Videos never lie. */}
+      {status === "done" && allResults.length > 0 ? (
+        <div className="sfilters" role="tablist" aria-label="Filter results" data-testid="result-filters">
+          {FILTERS.map((f) => (
+            <button
+              key={f.id}
+              type="button"
+              role="tab"
+              aria-selected={filter === f.id}
+              className={filter === f.id ? "sfilter on" : "sfilter"}
+              data-testid={`filter-${f.id}`}
+              onClick={() => setFilter(f.id)}
+            >
+              {f.label}
+            </button>
+          ))}
+        </div>
+      ) : null}
+
+      {status === "done" && allResults.length === 0 && sourceNotices.length === 0 ? (
         <p className="search-hint">No songs found for “{data?.query}”.</p>
+      ) : null}
+
+      {status === "done" && allResults.length > 0 && results.length === 0 ? (
+        <p className="search-hint" data-testid="filter-empty">
+          {filter === "videos"
+            ? "No videos in these results."
+            : "No songs in these results."}
+        </p>
       ) : null}
 
       {results.length > 0 ? (

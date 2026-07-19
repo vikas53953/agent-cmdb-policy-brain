@@ -143,7 +143,10 @@ export type YtPlayerFactory = (
 // lets a fake stand in for it in tests.
 export type PlayerBridge = {
   reportPosition(positionSec: number, durationSec?: number): void;
-  next(): Promise<boolean>;
+  // `reason` lets a GENUINE end-of-track advance ("ended") be told apart from a manual skip
+  // so the store can honour the sleep timer's "stop at end of track" (Wave 1). Optional so
+  // existing callers/fakes that pass nothing still type-check.
+  next(reason?: "ended" | "user"): Promise<boolean>;
   // Report a hard engine error for the current track so the store's recovery ladder can
   // escalate honestly (recreate / offer Skip) instead of a silent freeze.
   reportError(info: { message: string; kind: "soft" | "fatal"; code?: number }): void;
@@ -314,7 +317,7 @@ export function createYouTubeAdapter(deps: YouTubeAdapterDeps = {}): YouTubeAdap
     setEngineState(toEngineState(state));
     // When a track genuinely ends, advance the queue. This is driven by the REAL engine
     // 'ended' event (a legitimate end-of-track advance), never by a position-delta guess.
-    if (state === YT_STATE_ENDED) void store.next();
+    if (state === YT_STATE_ENDED) void store.next("ended");
   }
 
   return {

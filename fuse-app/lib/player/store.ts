@@ -17,6 +17,7 @@
 import type {
   EngineState,
   PlayerState,
+  RadioProvider,
   RecoveryPhase,
   RepeatMode,
   SourceAdapter,
@@ -24,7 +25,20 @@ import type {
 import type { TrackRef } from "@/lib/repos/track";
 import type { EngineErrorKind } from "@/lib/player/playback-health";
 import { adapterRegistry, type AdapterRegistry } from "@/lib/player/adapters";
+import { playNext, addToQueue, removeAt, moveTrack } from "@/lib/player/queue-ops";
 import { logActivity } from "@/lib/activity-log";
+
+// How many tracks the Previous back-stack keeps. Bounded so a long session cannot grow
+// history without limit; well beyond any realistic "go back" reach.
+const HISTORY_MAX = 50;
+
+// How far into a track Previous counts as "restart this track" rather than "go back a
+// song" — the industry-standard threshold every major player uses.
+export const PREVIOUS_RESTART_THRESHOLD_SEC = 3;
+
+function sameTrack(a: TrackRef, b: TrackRef): boolean {
+  return a.source === b.source && a.nativeId === b.nativeId;
+}
 
 export type PlayerListener = (state: PlayerState) => void;
 
@@ -44,6 +58,9 @@ const INITIAL_STATE: PlayerState = {
   recovery: { phase: "ok", skipOffered: false },
   intent: "idle",
   engineState: "unstarted",
+  history: [],
+  radioActive: false,
+  sleepStopAfterTrack: false,
 };
 
 export type PlayerStoreOptions = {
@@ -72,6 +89,13 @@ export class PlayerStore {
   // moment play() runs, so it applies exactly once — the honest "restore paused, then play
   // continues from where you left off" behaviour, never a silent auto-play.
   private pendingResume: { source: string; nativeId: string; positionSec: number } | null = null;
+  // RADIO CONTINUATION (Wave 1). The provider seeds similar tracks when the queue runs
+  // out; the app wires one that reuses the search engine, tests pass a fake. Null = no
+  // provider, so continuation simply never happens (the honest "stops at the end" default
+  // for a build with no provider). `autoplaySimilar` mirrors the user's visible setting —
+  // continuation fires ONLY when it is true, so this one auto-play is always user-consented.
+  private radioProvider: RadioProvider | null = null;
+  private autoplaySimilar = true;
 
   constructor(options: PlayerStoreOptions = {}) {
     this.registry = options.registry ?? adapterRegistry;
@@ -96,9 +120,65 @@ export class PlayerStore {
     for (const listener of this.listeners) listener(this.state);
   }
 
-  // Replace the upcoming queue (does not touch the current track).
+  // Replace the upcoming queue (does not touch the current track). This is the signal of a
+  // FRESH listening context — a row tap that hands over "this track + the rest of the list"
+  // — so it also ends any radio continuation (the new choice supersedes the auto-stream) and
+  // clears the back-stack does NOT happen here (history is about tracks you played, not the
+  // queue you lined up).
   setQueue(tracks: readonly TrackRef[]): void {
-    this.set({ queue: [...tracks] });
+    this.set({ queue: [...tracks], radioActive: false });
+  }
+
+  // "Add to queue" (Wave 1) — append to the end. A real, honest action available on every
+  // track row app-wide; the pure array math lives in queue-ops so it is unit-tested.
+  addToQueue(track: TrackRef): void {
+    this.set({ queue: addToQueue(this.state.queue, track) });
+  }
+
+  // "Play next" (Wave 1) — insert at the FRONT so it plays right after the current track.
+  playNext(track: TrackRef): void {
+    this.set({ queue: playNext(this.state.queue, track) });
+  }
+
+  // Remove the queued track at `index` (the queue screen's remove control). No-op if out
+  // of range (queue-ops treats a stale index as an honest no-op).
+  removeFromQueue(index: number): void {
+    this.set({ queue: removeAt(this.state.queue, index) });
+  }
+
+  // Reorder the queue: move the track at `from` to `to` (a drag, or the up/down controls).
+  moveInQueue(from: number, to: number): void {
+    this.set({ queue: moveTrack(this.state.queue, from, to) });
+  }
+
+  // Wire the radio-continuation provider + the user's "autoplay similar" consent (Wave 1).
+  // Called by the app shell from the persisted setting; tests inject a deterministic fake.
+  setRadioProvider(provider: RadioProvider | null): void {
+    this.radioProvider = provider;
+  }
+
+  setAutoplaySimilar(enabled: boolean): void {
+    this.autoplaySimilar = enabled;
+    // Turning it off mid-stream does not stop the current radio track (that would cut sound
+    // the user is enjoying), but the banner should stop claiming radio will continue once
+    // the user has withdrawn consent — so drop the flag; the stream simply won't RE-seed.
+    if (!enabled && this.state.radioActive) this.set({ radioActive: false });
+  }
+
+  // Arm/clear the sleep timer's "stop at the end of the current track" flag (Wave 1). The
+  // SleepTimer owns the visible chip; the store owns the flag it consumes at a genuine
+  // end-of-track advance (see next()).
+  setStopAfterTrack(stop: boolean): void {
+    if (this.state.sleepStopAfterTrack === stop) return;
+    this.set({ sleepStopAfterTrack: stop });
+  }
+
+  // Push a track onto the bounded Previous back-stack (never a duplicate of the top).
+  private pushHistory(track: TrackRef): void {
+    const top = this.state.history[this.state.history.length - 1];
+    if (top && sameTrack(top, track)) return;
+    const next = [...this.state.history, track];
+    this.set({ history: next.slice(Math.max(0, next.length - HISTORY_MAX)) });
   }
 
   // Restore a track + queue from a persisted session after a page reload (FIX 2), PAUSED
@@ -112,6 +192,7 @@ export class PlayerStore {
     queue?: readonly TrackRef[];
     positionSec?: number;
     durationSec?: number;
+    history?: readonly TrackRef[];
   }): void {
     if (this.state.current) return;
     const positionSec = Math.max(0, snapshot.positionSec ?? 0);
@@ -123,6 +204,7 @@ export class PlayerStore {
     this.set({
       current: snapshot.current,
       queue: snapshot.queue ? [...snapshot.queue] : [],
+      history: snapshot.history ? [...snapshot.history] : [],
       positionSec,
       durationSec: Math.max(0, snapshot.durationSec ?? 0),
       isPlaying: false,
@@ -137,9 +219,18 @@ export class PlayerStore {
   // Play a track (or resume the current one). Resolves the adapter for the track's
   // source and delegates; only marks `isPlaying` true once an adapter has acted, so
   // the state never lies about producing sound. Returns whether playback started.
-  async play(track?: TrackRef): Promise<boolean> {
+  async play(track?: TrackRef, opts: { recordHistory?: boolean } = {}): Promise<boolean> {
     const requested = track ?? this.state.current;
     if (!requested) return false;
+
+    // TRUE PREVIOUS back-stack (Wave 1): when we move to a DIFFERENT track, the one we are
+    // leaving joins history so Previous can return to it. `recordHistory: false` is passed
+    // by previous() itself (replaying a track off the stack must not re-push it) and by a
+    // same-track restart. A fresh row tap or a Next advance records normally.
+    const leaving = this.state.current;
+    if (opts.recordHistory !== false && leaving && !sameTrack(leaving, requested)) {
+      this.pushHistory(leaving);
+    }
 
     // Consume any one-shot resume offset from a rehydrated session (FIX 2). It applies
     // ONLY when this play is for the same track that was restored; a fresh play of a
@@ -399,8 +490,20 @@ export class PlayerStore {
   }
 
   // Advance to the next queued track (honouring repeat and shuffle). Returns false
-  // when the queue is exhausted and repeat is off.
-  async next(): Promise<boolean> {
+  // when the queue is exhausted and neither repeat nor radio continuation carries on.
+  //
+  // `reason` distinguishes a GENUINE end-of-track advance ("ended", fired by the engine's
+  // own ended event) from a user's manual Next ("user"). Only a genuine end honours the
+  // sleep timer's "stop at end of track" — a manual skip means the user wants the next
+  // track, so the timer stays armed for the NEXT track's end.
+  async next(reason: "ended" | "user" = "user"): Promise<boolean> {
+    // SLEEP TIMER (Wave 1): stop at the end of THIS track. Consumed once, honestly pauses
+    // instead of advancing or continuing radio. Only on a real end, never a manual skip.
+    if (reason === "ended" && this.state.sleepStopAfterTrack) {
+      this.set({ sleepStopAfterTrack: false });
+      this.pause();
+      return false;
+    }
     if (this.state.repeat === "one" && this.state.current) {
       return this.play(this.state.current);
     }
@@ -408,7 +511,9 @@ export class PlayerStore {
       if (this.state.repeat === "all" && this.state.current) {
         return this.play(this.state.current);
       }
-      return false;
+      // Queue exhausted, repeat off: continue with similar tracks if the user consented
+      // (RADIO CONTINUATION, Wave 1) — otherwise stop honestly (return false).
+      return this.continueRadio();
     }
     // Shuffle picks a random track from the queue instead of the head, so the shuffle
     // control does something REAL (R17) — not a flag that changes nothing. With
@@ -427,11 +532,60 @@ export class PlayerStore {
     return this.play(head);
   }
 
-  // Restart the current track from the top (prototype prev behaviour).
+  // RADIO CONTINUATION (Wave 1): seed similar tracks from the last-played track and keep
+  // listening going, once the queue has run out. This is the ONE sanctioned auto-play —
+  // it fires ONLY when the user's "autoplay similar" setting is on (consent) and a provider
+  // is wired, and it announces itself via `radioActive` (the Now Playing banner). When no
+  // provider is wired, consent is off, or nothing similar is found, it stops honestly.
+  private async continueRadio(): Promise<boolean> {
+    const seed = this.state.current;
+    if (!seed || !this.autoplaySimilar || !this.radioProvider) return false;
+    let similar: readonly TrackRef[] = [];
+    try {
+      similar = await this.radioProvider(seed);
+    } catch {
+      return false; // a failed lookup stops honestly rather than faking continuation
+    }
+    // Drop the seed itself and anything already in the back-stack so radio never
+    // immediately repeats a song the listener just heard.
+    const fresh = similar.filter(
+      (t) =>
+        !sameTrack(t, seed) && !this.state.history.some((h) => sameTrack(h, t)),
+    );
+    if (fresh.length === 0) return false;
+    const [head, ...rest] = fresh;
+    // Set the queue directly (NOT via setQueue, which would clear radioActive) and mark the
+    // stream active before playing so the banner shows the instant the first radio track loads.
+    this.set({ queue: rest, radioActive: true });
+    return this.play(head);
+  }
+
+  // TRUE PREVIOUS (Wave 1). Industry-standard behaviour: if we are more than a few seconds
+  // into the current track, Previous RESTARTS it; otherwise it goes BACK a song through the
+  // history stack. When there is nothing to go back to it honestly restarts. Going back puts
+  // the current track at the FRONT of the queue so Next still returns to it (a real back /
+  // forward pair), and replays the popped track WITHOUT re-recording history.
   async previous(): Promise<boolean> {
-    if (!this.state.current) return false;
-    this.seek(0);
-    return this.play(this.state.current);
+    const current = this.state.current;
+    if (!current) return false;
+    // Deep into the track, or nothing to go back to → restart the current track.
+    if (this.state.positionSec > PREVIOUS_RESTART_THRESHOLD_SEC || this.state.history.length === 0) {
+      this.seek(0);
+      return this.play(current, { recordHistory: false });
+    }
+    const history = [...this.state.history];
+    const prev = history.pop()!;
+    this.set({ history, queue: [current, ...this.state.queue] });
+    return this.play(prev, { recordHistory: false });
+  }
+
+  // Whether Previous would go back a song (true) versus restart the current track (false),
+  // for an honest control label. Restart when deep into the track or the stack is empty.
+  canGoBack(): boolean {
+    return (
+      this.state.history.length > 0 &&
+      this.state.positionSec <= PREVIOUS_RESTART_THRESHOLD_SEC
+    );
   }
 
   // Seek to an absolute position; delegates to the active adapter and mirrors it in
@@ -482,6 +636,10 @@ export class PlayerStore {
   // swapped inside the one adapter) and does NOT re-issue playback (no restart), so
   // the audio the user already hears simply continues.
   promoteBlended(track: TrackRef): void {
+    // The outgoing track (the one we crossfaded away from) joins the Previous back-stack,
+    // just as a Next advance would — a blended transition is still a forward move.
+    const leaving = this.state.current;
+    if (leaving && !sameTrack(leaving, track)) this.pushHistory(leaving);
     const idx = this.state.queue.findIndex(
       (t) => t.source === track.source && t.nativeId === track.nativeId,
     );

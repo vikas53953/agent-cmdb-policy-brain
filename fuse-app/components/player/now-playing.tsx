@@ -25,6 +25,7 @@ import Scrub from "@/components/player/scrub";
 import Lyrics from "@/components/player/lyrics";
 import MeltPanel from "@/components/player/melt-panel";
 import LikeButton from "@/components/player/like-button";
+import SleepTimerControl from "@/components/player/sleep-timer-control";
 import {
   PlayIcon,
   PauseIcon,
@@ -34,6 +35,7 @@ import {
   RepeatIcon,
   ChevronDownIcon,
   MusicIcon,
+  QueueIcon,
 } from "@/components/ui/icons";
 
 const STALL_MSG = "Playback stalled — retrying";
@@ -45,10 +47,14 @@ const NO_SKIP_REASON = "Nothing queued to skip to";
 export default function NowPlaying({
   open,
   onClose,
+  onQueue,
   lyricsEnabled,
 }: {
   open: boolean;
   onClose: () => void;
+  // Open the queue screen (Wave 1) — the second place, besides the mini-player, a listener
+  // reaches the up-next list.
+  onQueue?: () => void;
   // Lyrics on/off setting (U9, R16). Threaded from the shell so the toggle in the
   // profile sheet shows/hides this screen's lyrics panel instantly.
   lyricsEnabled: boolean;
@@ -56,8 +62,8 @@ export default function NowPlaying({
   // Subscribe to the rarely-changing slice — deliberately NOT positionSec/durationSec, so
   // the 500ms position poll never re-renders this whole screen. The scrub bar owns those
   // itself (R5).
-  const { current, isPlaying, queue, shuffle, repeat, notice, recovery } = usePlayerSelector(
-    (s) => ({
+  const { current, isPlaying, queue, shuffle, repeat, notice, recovery, radioActive } =
+    usePlayerSelector((s) => ({
       current: s.current,
       isPlaying: s.isPlaying,
       queue: s.queue,
@@ -65,8 +71,8 @@ export default function NowPlaying({
       repeat: s.repeat,
       notice: s.notice,
       recovery: s.recovery,
-    }),
-  );
+      radioActive: s.radioActive,
+    }));
 
   // Theater/maximize toggle for VIDEO tracks (Complaint 2): expands the video to fill the
   // full width of the Now Playing surface, still inline. Off by default; reset whenever the
@@ -150,6 +156,22 @@ export default function NowPlaying({
               </button>
               <span className="np-head-label">Now Playing</span>
               <span className={`badge ${badge.className}`}>{badge.label}</span>
+              {/* Now Playing overflow (Wave 1): the sleep timer and the queue screen. */}
+              <span className="np-head-actions">
+                <SleepTimerControl />
+                <button
+                  type="button"
+                  className="icon-btn"
+                  data-testid="np-queue"
+                  onClick={onQueue}
+                  disabled={!onQueue}
+                  aria-disabled={!onQueue}
+                  title="Open the queue"
+                  aria-label="Open the queue"
+                >
+                  <QueueIcon />
+                </button>
+              </span>
               {/* Honest kind chip: says plainly whether you're hearing an audio version or
                   watching a video (Complaint 1). */}
               {isYouTube ? (
@@ -218,6 +240,21 @@ export default function NowPlaying({
               <LikeButton track={current} />
             </div>
 
+            {/* RADIO CONTINUATION banner (Wave 1). Shown only while radio is truly carrying
+                listening past the end of the queue. It announces the one sanctioned auto-play
+                on screen and points to the setting that turns it off — user-consented and
+                honest, never a silent surprise. */}
+            {radioActive ? (
+              <p
+                className="np-radio-banner"
+                role="status"
+                aria-live="polite"
+                data-testid="np-radio-banner"
+              >
+                Autoplay: playing similar tracks — turn off in settings
+              </p>
+            ) : null}
+
             {/* Auto-crossfade visual (U11, R3/F2): shown only while a blend is truly
                 under way — the incoming track melting in with a progress bar. */}
             <MeltPanel />
@@ -269,14 +306,22 @@ export default function NowPlaying({
                 <ShuffleIcon />
               </button>
 
+              {/* TRUE PREVIOUS (Wave 1): goes back a song when near the start of the track,
+                  or restarts it when you are further in — the industry-standard behaviour.
+                  The label is honest about doing both, never claiming "restart" only. */}
               <button
                 type="button"
                 className="icon-btn"
+                data-testid="np-prev"
                 onClick={hasEngine ? () => void playerStore.previous() : undefined}
                 disabled={!hasEngine}
                 aria-disabled={!hasEngine}
-                title={hasEngine ? "Restart track" : NO_ENGINE_REASON}
-                aria-label={hasEngine ? "Restart track" : `Previous — ${NO_ENGINE_REASON}`}
+                title={hasEngine ? "Previous — back a song, or restart if you're further in" : NO_ENGINE_REASON}
+                aria-label={
+                  hasEngine
+                    ? "Previous — go back a song, or restart the track if you're further in"
+                    : `Previous — ${NO_ENGINE_REASON}`
+                }
               >
                 <PrevIcon />
               </button>

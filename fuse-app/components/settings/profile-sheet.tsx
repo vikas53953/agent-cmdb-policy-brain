@@ -18,10 +18,12 @@ import {
   setLyricsEnabledAction,
   setCrossfadeSecAction,
   setPreferAudioAction,
+  setAutoplaySimilarAction,
   disconnectSpotifyAction,
 } from "@/lib/actions";
 import { CROSSFADE_MIN_SEC, CROSSFADE_MAX_SEC } from "@/lib/repos/settings";
 import DiagnosticsPanel from "@/components/settings/diagnostics-panel";
+import SleepTimerControl from "@/components/player/sleep-timer-control";
 import type { ShellUser } from "@/components/ui/app-chrome";
 
 type Props = {
@@ -40,6 +42,10 @@ type Props = {
   // toggle reflects and persists the choice the search route reads (Complaint 1, R16).
   preferAudio: boolean;
   onPreferAudioChange: (enabled: boolean) => void;
+  // The current "autoplay similar when queue ends" value and a setter, owned by the shell so
+  // this toggle reflects/persists it AND drives the player's radio consent (Wave 1, R16).
+  autoplaySimilar: boolean;
+  onAutoplaySimilarChange: (enabled: boolean) => void;
 };
 
 function initialOf(user: ShellUser | null): string {
@@ -169,6 +175,8 @@ export default function ProfileSheet({
   onCrossfadeChange,
   preferAudio,
   onPreferAudioChange,
+  autoplaySimilar,
+  onAutoplaySimilarChange,
 }: Props) {
   const closeRef = useRef<HTMLButtonElement>(null);
   // While a persist is in flight the toggle is disabled so a rapid double-tap can't
@@ -176,6 +184,7 @@ export default function ProfileSheet({
   // we revert so the control never lies about what was saved.
   const [saving, setSaving] = useState(false);
   const [savingAudio, setSavingAudio] = useState(false);
+  const [savingAutoplay, setSavingAutoplay] = useState(false);
 
   async function toggleLyrics() {
     if (saving) return;
@@ -202,6 +211,20 @@ export default function ProfileSheet({
       onPreferAudioChange(!next); // revert on failure — honest state
     } finally {
       setSavingAudio(false);
+    }
+  }
+
+  async function toggleAutoplaySimilar() {
+    if (savingAutoplay) return;
+    const next = !autoplaySimilar;
+    setSavingAutoplay(true);
+    onAutoplaySimilarChange(next); // optimistic — the player's consent flips instantly
+    try {
+      await setAutoplaySimilarAction(next);
+    } catch {
+      onAutoplaySimilarChange(!next); // revert on failure — honest state
+    } finally {
+      setSavingAutoplay(false);
     }
   }
 
@@ -342,6 +365,46 @@ export default function ProfileSheet({
             >
               <span className="switch-knob" aria-hidden="true" />
             </button>
+          </div>
+          {/* Autoplay similar when queue ends (Wave 1). A REAL control and the ONLY
+              sanctioned auto-play: when on, the player keeps listening going with similar
+              tracks once the queue runs out (seeded from the last song), instead of stopping
+              dead. Honest about exactly what it does; the Now Playing banner announces it on
+              screen while it is streaming, and turning it off here stops it. */}
+          <div className="setting-row">
+            <div className="setting-main">
+              <div className="setting-label">Autoplay similar when queue ends</div>
+              <div className="setting-reason">
+                {autoplaySimilar
+                  ? "When the queue runs out, Fuse keeps playing similar songs and tells you on the Now Playing screen"
+                  : "When the queue runs out, the music stops — nothing plays on its own"}
+              </div>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={autoplaySimilar}
+              aria-label="Autoplay similar when queue ends"
+              data-testid="autoplay-similar-toggle"
+              className={autoplaySimilar ? "switch on" : "switch"}
+              onClick={toggleAutoplaySimilar}
+              disabled={savingAutoplay}
+            >
+              <span className="switch-knob" aria-hidden="true" />
+            </button>
+          </div>
+
+          {/* Sleep timer (Wave 1). A REAL control: stop after 15/30/45/60 minutes or at the
+              end of the current track. An armed timer shows a live countdown chip here and in
+              the top bar; Cancel truly disarms. */}
+          <div className="setting-row">
+            <div className="setting-main">
+              <div className="setting-label">Sleep timer</div>
+              <div className="setting-reason">
+                Stop playback after a while, or at the end of this track
+              </div>
+            </div>
+            <SleepTimerControl variant="row" />
           </div>
           {pendingFor("Playback").map((c) => (
             <PendingRow key={c.id} label={c.label} reason={c.reason} />

@@ -32,6 +32,9 @@ export type PlayerSession = {
   queue: TrackRef[];
   positionSec: number;
   durationSec: number;
+  // The Previous back-stack (Wave 1), so "go back a song" survives an accidental reload
+  // within the tab session. Optional/absent on older snapshots — restored as [] then.
+  history?: TrackRef[];
 };
 
 function storage(): Storage | null {
@@ -73,6 +76,7 @@ export function savePlayerSession(session: PlayerSession | null): void {
       queue: session.queue ?? [],
       positionSec: Math.max(0, session.positionSec || 0),
       durationSec: Math.max(0, session.durationSec || 0),
+      history: session.history ?? [],
     };
     s.setItem(PLAYER_KEY, JSON.stringify(snapshot));
   } catch {
@@ -94,11 +98,15 @@ export function loadPlayerSession(): PlayerSession | null {
     const queue = Array.isArray(parsed.queue)
       ? parsed.queue.map(asTrack).filter((t): t is TrackRef => t !== null)
       : [];
+    const history = Array.isArray(parsed.history)
+      ? parsed.history.map(asTrack).filter((t): t is TrackRef => t !== null)
+      : [];
     return {
       current,
       queue,
       positionSec: typeof parsed.positionSec === "number" ? Math.max(0, parsed.positionSec) : 0,
       durationSec: typeof parsed.durationSec === "number" ? Math.max(0, parsed.durationSec) : 0,
+      history,
     };
   } catch {
     return null;

@@ -21,12 +21,44 @@ import { showsMiniPlayer } from "@/lib/ui/shell";
 import { blendController, setLiveCrossfadeSec } from "@/lib/player/blend-controller";
 import { playerHostCoordinator } from "@/lib/player/host-coordinator";
 import { usePlaybackRecovery } from "@/lib/player/use-playback-recovery";
+import { playerStore } from "@/lib/player/store";
+import { createRadioProvider } from "@/lib/player/radio";
+import {
+  useSleepTimer,
+  formatSleepRemaining,
+  sleepTimer,
+} from "@/lib/player/sleep-timer-controller";
 import TabBar from "@/components/ui/tab-bar";
 import MiniPlayer from "@/components/player/mini-player";
 import NowPlaying from "@/components/player/now-playing";
+import QueuePanel from "@/components/player/queue-panel";
 import ProfileSheet from "@/components/settings/profile-sheet";
 import PlayRecorder from "@/components/home/play-recorder";
 import PlayerPersistence from "@/components/player/player-persistence";
+import { ClockIcon } from "@/components/ui/icons";
+
+// A small armed-sleep-timer chip in the top bar, visible on every screen so the listener
+// always knows a stop is scheduled (not only inside Now Playing). Tapping it cancels the
+// timer — a real, honest control. Renders nothing when no timer is armed.
+function SleepChip() {
+  const state = useSleepTimer();
+  if (state.mode === "off") return null;
+  const label =
+    state.mode === "minutes" ? formatSleepRemaining(state.remainingSec) : "Ends with track";
+  return (
+    <button
+      type="button"
+      className="topbar-sleep-chip"
+      data-testid="topbar-sleep-chip"
+      onClick={() => sleepTimer.cancel()}
+      title={`Sleep timer: ${label} — tap to cancel`}
+      aria-label={`Sleep timer armed, ${label}. Tap to cancel`}
+    >
+      <ClockIcon size={15} />
+      <span>{label}</span>
+    </button>
+  );
+}
 
 // The subset of the signed-in user the shell needs. Serializable so it can cross
 // the server→client boundary from the layout.
@@ -46,6 +78,7 @@ export default function AppChrome({
   lyricsEnabled: initialLyricsEnabled,
   crossfadeSec: initialCrossfadeSec,
   preferAudio: initialPreferAudio,
+  autoplaySimilar: initialAutoplaySimilar,
   children,
 }: {
   user: ShellUser | null;
@@ -59,6 +92,9 @@ export default function AppChrome({
   // The persisted "prefer audio versions" setting (Complaint 1, R16). Owned here so the
   // profile-sheet toggle reflects and persists the choice the search route reads.
   preferAudio: boolean;
+  // The persisted "autoplay similar when queue ends" setting (Wave 1, R16). Owned here so
+  // the profile-sheet toggle reflects/persists it AND the player's radio provider honours it.
+  autoplaySimilar: boolean;
   children: React.ReactNode;
 }) {
   const [sheetOpen, setSheetOpen] = useState(false);
@@ -66,9 +102,13 @@ export default function AppChrome({
   // here so the mini-player's expand tap and the overlay stay in sync, and so the mini
   // can hand the single visible YouTube video up to Now Playing while it is open.
   const [npOpen, setNpOpen] = useState(false);
+  // Whether the queue screen is open (Wave 1). Owned here so both the mini-player and
+  // Now Playing can open the same single queue sheet.
+  const [queueOpen, setQueueOpen] = useState(false);
   const [lyricsEnabled, setLyricsEnabled] = useState(initialLyricsEnabled);
   const [crossfadeSec, setCrossfadeSec] = useState(initialCrossfadeSec);
   const [preferAudio, setPreferAudio] = useState(initialPreferAudio);
+  const [autoplaySimilar, setAutoplaySimilar] = useState(initialAutoplaySimilar);
   const pathname = usePathname() ?? "/";
   const withMiniPlayer = showsMiniPlayer(pathname);
 
@@ -90,6 +130,20 @@ export default function AppChrome({
     setLiveCrossfadeSec(initialCrossfadeSec);
     return blendController.start();
   }, [initialCrossfadeSec]);
+
+  // Wire the RADIO CONTINUATION provider once (Wave 1): it reuses the real search engine to
+  // find similar tracks when the queue ends. Registering it is inert until the queue runs
+  // out AND the user's consent (autoplaySimilar) is on — so this never causes uninvited music.
+  useEffect(() => {
+    playerStore.setRadioProvider(createRadioProvider());
+    return () => playerStore.setRadioProvider(null);
+  }, []);
+
+  // Keep the player's live consent flag in step with the persisted setting + the toggle, so
+  // the one sanctioned auto-play only ever fires when the user has it on.
+  useEffect(() => {
+    playerStore.setAutoplaySimilar(autoplaySimilar);
+  }, [autoplaySimilar]);
 
   // Keep the live blend length in step with the slider between renders.
   function changeCrossfade(seconds: number) {
@@ -115,6 +169,8 @@ export default function AppChrome({
 
       <header className="topbar">
         <span className="brand">Fuse</span>
+        {/* Armed sleep-timer chip — visible app-wide so the scheduled stop is never hidden. */}
+        <SleepChip />
         <button
           type="button"
           className="avatar"
@@ -139,7 +195,10 @@ export default function AppChrome({
 
       <div className="dock">
         {withMiniPlayer ? (
-          <MiniPlayer onExpand={() => setNpOpen(true)} />
+          <MiniPlayer
+            onExpand={() => setNpOpen(true)}
+            onQueue={() => setQueueOpen(true)}
+          />
         ) : null}
         <TabBar />
       </div>
@@ -147,8 +206,11 @@ export default function AppChrome({
       <NowPlaying
         open={npOpen}
         onClose={() => setNpOpen(false)}
+        onQueue={() => setQueueOpen(true)}
         lyricsEnabled={lyricsEnabled}
       />
+
+      <QueuePanel open={queueOpen} onClose={() => setQueueOpen(false)} />
 
       <ProfileSheet
         open={sheetOpen}
@@ -160,6 +222,8 @@ export default function AppChrome({
         onCrossfadeChange={changeCrossfade}
         preferAudio={preferAudio}
         onPreferAudioChange={setPreferAudio}
+        autoplaySimilar={autoplaySimilar}
+        onAutoplaySimilarChange={setAutoplaySimilar}
       />
     </div>
   );

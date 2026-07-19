@@ -35,6 +35,7 @@ export default function PlayerPersistence() {
         queue: saved.queue,
         positionSec: saved.positionSec,
         durationSec: saved.durationSec,
+        history: saved.history,
       });
     }
 
@@ -47,6 +48,7 @@ export default function PlayerPersistence() {
             queue: [...state.queue],
             positionSec: state.positionSec,
             durationSec: state.durationSec,
+            history: [...state.history],
           }
         : null;
       savePlayerSession(snapshot);

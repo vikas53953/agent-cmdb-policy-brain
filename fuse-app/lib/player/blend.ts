@@ -274,6 +274,11 @@ export class BlendController {
       return; // while blending, the ramp interval owns gains/progress
     }
 
+    // Sleep timer "stop at end of track" (Wave 1): do NOT start a crossfade — a blend would
+    // promote the next track before this one truly ends and slip past the stop. Skipping the
+    // blend lets the track hard-end so the store's end-of-track pause is honoured honestly.
+    if (state.sleepStopAfterTrack) return;
+
     const current = state.current;
     const next = state.queue[0] ?? null;
     const crossfadeSec = clampCrossfadeSec(this.getCrossfadeSec());
