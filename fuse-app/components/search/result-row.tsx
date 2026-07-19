@@ -16,6 +16,7 @@ import { resultPlayability } from "@/lib/search/playability";
 import { trackKind, KIND_LABEL } from "@/lib/search/audio-kind";
 import { playerStore } from "@/lib/player/store";
 import AddToPlaylist from "@/components/library/add-to-playlist";
+import QueueActions from "@/components/player/queue-actions";
 import { PlayIcon, MusicIcon } from "@/components/ui/icons";
 
 export default function ResultRow({
@@ -84,6 +85,9 @@ export default function ResultRow({
         {/* Add to a playlist (U10, R9). Works for any source — adding a Spotify or
             YouTube track to a playlist is real even before Spotify playback lands. */}
         <AddToPlaylist track={result} />
+
+        {/* Play next / Add to queue (Wave 1) — offered on every result row. */}
+        <QueueActions track={result} />
 
         <button
           type="button"

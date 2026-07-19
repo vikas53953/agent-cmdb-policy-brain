@@ -21,7 +21,7 @@ import { usePlayerPhase } from "@/lib/player/use-player-phase";
 import { playerStore } from "@/lib/player/store";
 import { adapterRegistry } from "@/lib/player/adapters";
 import VideoSurface from "@/components/player/video-surface";
-import { MusicIcon, PlayIcon, PauseIcon, NextIcon } from "@/components/ui/icons";
+import { MusicIcon, PlayIcon, PauseIcon, NextIcon, QueueIcon } from "@/components/ui/icons";
 
 const NOT_WIRED_REASON = "Playback starts once the player engine is connected";
 const NO_NEXT_REASON = "Nothing queued up next";
@@ -96,8 +96,12 @@ function EmptyMini() {
 
 export default function MiniPlayer({
   onExpand,
+  onQueue,
 }: {
   onExpand?: () => void;
+  // Open the queue screen (Wave 1). The mini-player is one of the two places a listener
+  // reaches for the up-next list.
+  onQueue?: () => void;
 }) {
   // Subscribe only to the rarely-changing slice — NOT positionSec — so the 500ms position
   // poll does not re-render the controls; the position attribute below comes from
@@ -154,6 +158,18 @@ export default function MiniPlayer({
       </button>
 
       <div className="mini-controls">
+        <button
+          type="button"
+          className="icon-btn"
+          data-testid="mini-queue"
+          onClick={onQueue}
+          disabled={!onQueue}
+          aria-disabled={!onQueue}
+          title="Open the queue"
+          aria-label="Open the queue"
+        >
+          <QueueIcon />
+        </button>
         <button
           type="button"
           className="icon-btn primary"

@@ -17,6 +17,7 @@ import { SOURCE_BADGES } from "@/lib/ui/shell";
 import { resultPlayability } from "@/lib/search/playability";
 import { adapterRegistry } from "@/lib/player/adapters";
 import { playerStore } from "@/lib/player/store";
+import QueueActions from "@/components/player/queue-actions";
 import { PlayIcon, MusicIcon } from "@/components/ui/icons";
 
 export default function LibraryTrackRow({
@@ -80,6 +81,8 @@ export default function LibraryTrackRow({
         >
           <PlayIcon />
         </button>
+        {/* Play next / Add to queue (Wave 1) — offered on every library row. */}
+        <QueueActions track={track} />
         {actions}
       </div>
     </div>

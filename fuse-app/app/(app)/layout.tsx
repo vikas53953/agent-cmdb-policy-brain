@@ -1,6 +1,6 @@
 import AppChrome, { type ShellUser } from "@/components/ui/app-chrome";
 import { getUser } from "@/lib/auth-session";
-import { getLyricsEnabled, getCrossfadeSec, getPreferAudio, CROSSFADE_DEFAULT_SEC } from "@/lib/repos/settings";
+import { getLyricsEnabled, getCrossfadeSec, getPreferAudio, getAutoplaySimilar, CROSSFADE_DEFAULT_SEC } from "@/lib/repos/settings";
 
 // The signed-in app shell (U4): the phone-frame layout, the top bar (brand + profile
 // avatar), the fixed bottom dock (persistent mini-player + bottom tabs), and the
@@ -67,6 +67,20 @@ async function resolvePreferAudio(user: ShellUser | null): Promise<boolean> {
   }
 }
 
+// Read the user's "autoplay similar when queue ends" setting (Wave 1) so the profile-sheet
+// toggle and the player's radio consent start from the persisted value. Guarded like the
+// reads above: a signed-out / keyless environment degrades to the ON default, never throws.
+async function resolveAutoplaySimilar(user: ShellUser | null): Promise<boolean> {
+  if (!user) return true;
+  try {
+    const session = await getUser();
+    if (!session) return true;
+    return await getAutoplaySimilar(session.id);
+  } catch {
+    return true;
+  }
+}
+
 export default async function AppLayout({
   children,
 }: Readonly<{
@@ -76,6 +90,7 @@ export default async function AppLayout({
   const lyricsEnabled = await resolveLyricsEnabled(user);
   const crossfadeSec = await resolveCrossfadeSec(user);
   const preferAudio = await resolvePreferAudio(user);
+  const autoplaySimilar = await resolveAutoplaySimilar(user);
 
   return (
     <AppChrome
@@ -83,6 +98,7 @@ export default async function AppLayout({
       lyricsEnabled={lyricsEnabled}
       crossfadeSec={crossfadeSec}
       preferAudio={preferAudio}
+      autoplaySimilar={autoplaySimilar}
     >
       {children}
     </AppChrome>

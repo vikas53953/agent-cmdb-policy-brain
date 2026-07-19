@@ -3095,3 +3095,411 @@ body {
   outline: 2px solid var(--teal);
   outline-offset: 2px;
 }
+
+/* ============================================================================
+ * Wave 1 — queue screen, radio banner, sleep timer, search extras, tap-to-seek
+ * lyrics. Built from the existing design tokens so light/dark stay in step.
+ * ==========================================================================*/
+
+/* ---- per-row queue actions (Play next / Add to queue overflow) ---- */
+.qmenu {
+  position: relative;
+  display: inline-flex;
+}
+.qmenu-pop {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 6px);
+  z-index: 45;
+  min-width: 168px;
+  background: var(--ink-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  box-shadow: 0 12px 34px rgba(0, 0, 0, 0.45);
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.qmenu-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 9px 10px;
+  border: none;
+  background: transparent;
+  color: var(--txt-hi);
+  font: inherit;
+  font-size: 0.86rem;
+  text-align: left;
+  border-radius: var(--r-sm);
+  cursor: pointer;
+}
+.qmenu-item:hover,
+.qmenu-item:focus-visible {
+  background: var(--ink-3);
+  outline: none;
+}
+
+/* ---- queue screen (slides up, above Now Playing) ---- */
+.q-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 42;
+  background: rgba(3, 5, 8, 0.55);
+  backdrop-filter: blur(2px);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.22s ease;
+}
+.q-overlay.open {
+  opacity: 1;
+  pointer-events: auto;
+}
+.queue {
+  position: fixed;
+  left: 50%;
+  bottom: 0;
+  transform: translate(-50%, 100%);
+  width: 100%;
+  max-width: var(--frame-w);
+  max-height: 92dvh;
+  z-index: 43;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  overflow-y: auto;
+  background: var(--ink-1);
+  border-top-left-radius: var(--r-lg);
+  border-top-right-radius: var(--r-lg);
+  border-top: 1px solid var(--line);
+  box-shadow: 0 -20px 60px rgba(0, 0, 0, 0.5);
+  padding: 10px 16px calc(env(safe-area-inset-bottom, 0px) + 28px);
+  transition: transform 0.28s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.queue.open {
+  transform: translate(-50%, 0);
+}
+.q-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  position: sticky;
+  top: 0;
+  background: var(--ink-1);
+  padding: 4px 0 8px;
+  z-index: 1;
+}
+.q-head-label {
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--txt-mid);
+}
+.q-section-label {
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  color: var(--txt-mid);
+  margin: 12px 4px 6px;
+}
+.q-radio-note {
+  color: var(--teal);
+  text-transform: none;
+  letter-spacing: 0;
+  font-weight: 600;
+}
+.q-empty {
+  color: var(--txt-mid);
+  font-size: 0.9rem;
+  padding: 6px 4px 14px;
+}
+.q-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.q-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 8px;
+  border-radius: var(--r-md);
+  background: var(--ink-2);
+  border: 1px solid transparent;
+}
+.q-row[draggable="true"] {
+  cursor: grab;
+}
+.q-row-current {
+  background: var(--ink-3);
+  border-color: var(--line);
+}
+.q-drag {
+  color: var(--txt-lo);
+  display: inline-grid;
+  place-items: center;
+  flex: 0 0 auto;
+}
+.q-row-art {
+  width: 40px;
+  height: 40px;
+  border-radius: var(--r-sm);
+  overflow: hidden;
+  flex: 0 0 auto;
+  background: var(--ink-0);
+  display: grid;
+  place-items: center;
+}
+.q-row-art img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.q-row-art-fallback {
+  color: var(--txt-lo);
+}
+.q-row-meta {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+.q-row-title {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--txt-hi);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.q-row-sub {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.76rem;
+  color: var(--txt-mid);
+  white-space: nowrap;
+  overflow: hidden;
+}
+.q-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: 0 0 auto;
+}
+
+/* ---- Now Playing header actions + radio continuation banner ---- */
+.np-head-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: 0 0 auto;
+}
+.np-radio-banner {
+  margin: 0;
+  padding: 9px 12px;
+  border-radius: var(--r-md);
+  background: var(--teal-soft);
+  border: 1px solid color-mix(in srgb, var(--teal) 40%, transparent);
+  color: var(--txt-hi);
+  font-size: 0.82rem;
+  font-weight: 600;
+  text-align: center;
+}
+
+/* ---- sleep timer control + menu ---- */
+.sleep-control {
+  position: relative;
+  display: inline-flex;
+}
+.sleep-trigger.sleep-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.sleep-chip {
+  font-size: 0.72rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--teal);
+}
+.sleep-trigger.row {
+  padding: 7px 12px;
+  border-radius: var(--r-pill);
+  border: 1px solid var(--line);
+  background: var(--ink-2);
+  color: var(--txt-hi);
+  font: inherit;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+.sleep-trigger.row.on {
+  border-color: color-mix(in srgb, var(--teal) 50%, var(--line));
+}
+.sleep-row-label {
+  font-weight: 600;
+}
+.sleep-menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  z-index: 45;
+  min-width: 180px;
+  background: var(--ink-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  box-shadow: 0 12px 34px rgba(0, 0, 0, 0.45);
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+/* Open the sleep menu ABOVE the trigger inside the bottom sheet (profile row variant). */
+.setting-row .sleep-menu {
+  top: auto;
+  bottom: calc(100% + 6px);
+}
+.sleep-menu-label {
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--txt-mid);
+  padding: 4px 8px 2px;
+}
+.sleep-menu-item {
+  width: 100%;
+  padding: 9px 10px;
+  border: none;
+  background: transparent;
+  color: var(--txt-hi);
+  font: inherit;
+  font-size: 0.86rem;
+  text-align: left;
+  border-radius: var(--r-sm);
+  cursor: pointer;
+}
+.sleep-menu-item:hover,
+.sleep-menu-item:focus-visible {
+  background: var(--ink-3);
+  outline: none;
+}
+.sleep-menu-item.danger {
+  color: var(--ember);
+}
+
+/* ---- top-bar armed sleep chip ---- */
+.topbar-sleep-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: auto;
+  margin-right: 8px;
+  padding: 4px 10px;
+  border-radius: var(--r-pill);
+  border: 1px solid color-mix(in srgb, var(--teal) 45%, var(--line));
+  background: var(--teal-soft);
+  color: var(--txt-hi);
+  font-size: 0.74rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+
+/* ---- recent searches ---- */
+.recent {
+  margin: 14px 0 8px;
+}
+.recent-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+.recent-title {
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  color: var(--txt-mid);
+}
+.recent-clear {
+  border: none;
+  background: transparent;
+  color: var(--txt-mid);
+  font: inherit;
+  font-size: 0.8rem;
+  cursor: pointer;
+  padding: 2px 4px;
+}
+.recent-clear:hover {
+  color: var(--txt-hi);
+}
+.recent-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.recent-chip {
+  padding: 7px 13px;
+  border-radius: var(--r-pill);
+  border: 1px solid var(--line);
+  background: var(--ink-2);
+  color: var(--txt-hi);
+  font: inherit;
+  font-size: 0.84rem;
+  cursor: pointer;
+}
+.recent-chip:hover {
+  background: var(--ink-3);
+}
+
+/* ---- result filters ---- */
+.sfilters {
+  display: flex;
+  gap: 8px;
+  margin: 4px 0 12px;
+}
+.sfilter {
+  padding: 6px 14px;
+  border-radius: var(--r-pill);
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--txt-mid);
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.sfilter.on {
+  color: var(--ink-0);
+  background: var(--fuse);
+  border-color: transparent;
+}
+
+/* ---- tap-to-seek synced lyrics (the <p> lines became <button>s) ---- */
+.lyrics-synced .lyric {
+  display: block;
+  width: 100%;
+  border: none;
+  background: transparent;
+  font: inherit;
+  text-align: inherit;
+  color: inherit;
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: var(--r-sm);
+}
+.lyrics-synced .lyric:hover {
+  background: var(--ink-3);
+}
+.lyrics-synced .lyric:focus-visible {
+  outline: 2px solid var(--teal);
+  outline-offset: 1px;
+}

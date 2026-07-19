@@ -17,6 +17,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { usePlayerState } from "@/lib/player/use-player";
+import { playerStore } from "@/lib/player/store";
 import { activeLineIndex, type LrcLine } from "@/lib/lyrics";
 
 type LyricsData =
@@ -149,24 +150,35 @@ export default function Lyrics({
   if (data.status === "plain") {
     return (
       <div className="lyrics" ref={containerRef}>
-        <p className="lyrics-note">Lyrics (not time-synced for this track)</p>
+        <p className="lyrics-note">Lyrics (not time-synced — tap-to-jump isn’t available)</p>
         <div className="lyrics-plain">{data.text}</div>
       </div>
     );
   }
 
-  // Synced.
+  // Synced: each line carries a real timestamp, so TAP-TO-SEEK is honest — tapping a line
+  // jumps playback there (Wave 1). Rendered as buttons so it is keyboard-operable and
+  // announced as an interactive control, not decorative text.
   return (
-    <div className="lyrics" ref={containerRef} aria-label="Lyrics">
+    <div
+      className="lyrics lyrics-synced"
+      ref={containerRef}
+      aria-label="Lyrics — tap a line to jump there"
+    >
       {data.lines.map((line, i) => (
-        <p
+        <button
+          type="button"
           key={`${line.timeSec}-${i}`}
           data-line={i}
+          data-testid="lyric-line"
           className={i === activeIndex ? "lyric active" : "lyric"}
           aria-current={i === activeIndex ? "true" : undefined}
+          onClick={() => playerStore.seek(line.timeSec)}
+          title="Jump to this line"
+          aria-label={`Jump to lyric: ${line.text || "instrumental"}`}
         >
-          {line.text || " "}
-        </p>
+          {line.text || " "}
+        </button>
       ))}
     </div>
   );
