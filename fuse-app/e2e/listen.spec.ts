@@ -244,7 +244,7 @@ test.describe("listen — the heart moment", () => {
           // so a wall of text never pushes the transport off-screen — the toggle button (or
           // the expanded panel) is the honest signal of the plain state.
           const plain =
-            (await np.getByTestId("lyrics-toggle").count()) +
+            (await np.getByTestId("plain-lyrics-toggle").count()) +
             (await np.locator(".lyrics-plain").count());
           if (empty > 0) return "empty";
           if (lines > 5) return "synced";

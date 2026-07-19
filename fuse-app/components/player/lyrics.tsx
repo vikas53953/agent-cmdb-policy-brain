@@ -165,7 +165,12 @@ export default function Lyrics({
         <button
           type="button"
           className="lyrics-toggle"
-          data-testid="lyrics-toggle"
+          // DISTINCT testid from the "Show lyrics" SETTING switch (profile-sheet). Both used
+          // to be `lyrics-toggle`, so a page-wide `getByTestId("lyrics-toggle")` (or a QA
+          // glance) could read THIS in-panel expander's collapsed state while the setting was
+          // on and lyrics were showing — the "toggle read false while lyrics still showed"
+          // report. Two independent controls now have two independent ids.
+          data-testid="plain-lyrics-toggle"
           aria-expanded={plainOpen}
           onClick={() => setPlainOpen((v) => !v)}
           title={plainOpen ? "Hide lyrics" : "Show lyrics"}

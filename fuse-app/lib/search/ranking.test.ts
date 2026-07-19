@@ -81,3 +81,56 @@ describe("rankResults — the owner's Softly case", () => {
     expect(rankResults("Song X", [video, audio]).map((r) => r.nativeId)).toEqual(["au", "v"]);
   });
 });
+
+// The overnight QA: across four real searches the OFFICIAL artist upload was ranked 2nd–4th
+// under lyrics/aggregator re-uploads. Each case is pinned with the real-world channel + title
+// SHAPES the QA observed — a re-upload that keyword-stuffs the artist into its TITLE, and an
+// official upload whose title is clean/decorated. The official row must be FIRST.
+describe("rankResults — overnight QA: the official artist is ALWAYS the first row", () => {
+  it("Case 1 — 'Karan Aujla Softly': official 'SOFTLY' (channel 'Karan Aujla') beats the re-uploads", () => {
+    const official = yt("official", "SOFTLY (Official Music Video)", "Karan Aujla");
+    const prabxdeep = yt("prabx", "Karan Aujla - Softly (Full Song) | Latest Punjabi Song 2024", "PRABXDEEP");
+    const indie = yt("indie", "Softly - Karan Aujla | New Punjabi Song", "Indie India");
+    const genree = yt("genree", "Karan Aujla Softly Lyrics", "Musicgenree");
+    // Fed in the WRONG order the QA saw (official last). preferAudio ON, as in production.
+    const ranked = rankResults(
+      "Karan Aujla Softly",
+      [prabxdeep, indie, genree, official],
+      { preferAudio: true },
+    );
+    expect(ranked[0].nativeId).toBe("official");
+  });
+
+  it("Case 2 — 'AP Dhillon Excuses': official beats a 'ChillPind (Official Audio)' re-upload", () => {
+    const official = yt("official", "Excuses (Official Video)", "AP Dhillon");
+    // The re-upload writes "Official Audio" into its own TITLE — it must NOT beat the real channel.
+    const chillpind = yt("chill", "AP Dhillon - Excuses (Official Audio)", "ChillPind");
+    const ranked = rankResults("AP Dhillon Excuses", [chillpind, official], { preferAudio: true });
+    expect(ranked[0].nativeId).toBe("official");
+  });
+
+  it("Case 3 — 'Kesariya': official VEVO beats a 7clouds lyrics upload with a tighter title", () => {
+    const official = yt("official", "Kesariya (Full Video) | Brahmastra | Ranbir | Alia", "SonyMusicIndiaVEVO");
+    // 7clouds crafts a minimal, exact-ish title — a higher fine-relevance than the decorated
+    // official — but it is a lyrics re-upload on an unverified channel, so it ranks below.
+    const sevenclouds = yt("7c", "Kesariya (Lyrics) - Arijit Singh", "7clouds");
+    const ranked = rankResults("Kesariya", [sevenclouds, official], { preferAudio: true });
+    expect(ranked[0].nativeId).toBe("official");
+  });
+
+  it("Case 4 — 'Anti-Hero': the official 'Taylor Swift' upload beats a LatinHype lyrics video", () => {
+    const official = yt("official", "Anti-Hero (Official Music Video)", "Taylor Swift");
+    const latinhype = yt("latin", "Anti-Hero (Lyrics)", "LatinHype");
+    const ranked = rankResults("Anti-Hero", [latinhype, official], { preferAudio: true });
+    expect(ranked[0].nativeId).toBe("official");
+  });
+
+  it("still gates on relevance — a wrong-song official upload can never jump a right-song row", () => {
+    // An official upload for a DIFFERENT song must not leapfrog the actual match just because
+    // its channel is verified. `coversQuery` keeps authenticity from overriding relevance.
+    const wrongOfficial = yt("wrong", "Winning Speech (Official Video)", "Karan Aujla");
+    const rightRepost = yt("right", "Karan Aujla - Softly (Full Song)", "PRABXDEEP");
+    const ranked = rankResults("Karan Aujla Softly", [wrongOfficial, rightRepost], { preferAudio: true });
+    expect(ranked[0].nativeId).toBe("right");
+  });
+});

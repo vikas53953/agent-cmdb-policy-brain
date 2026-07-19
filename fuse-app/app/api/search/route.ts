@@ -18,7 +18,7 @@ import { NextResponse } from "next/server";
 import { readSearchCache, writeSearchCache } from "@/lib/repos/search-cache";
 import { searchYouTube, hasYouTubeApiKey, YT_NOT_CONFIGURED } from "@/lib/youtube";
 import { searchSpotify, hasSpotifyAppCredentials, SP_NOT_CONFIGURED } from "@/lib/spotify";
-import { runSearch, type SearchDeps, type CachedSearch, type SourceStatuses } from "@/lib/search/orchestrate";
+import { runSearch, type SearchDeps, type CachedSearch, type SourceStatuses, type SearchResponse } from "@/lib/search/orchestrate";
 import { getUser } from "@/lib/auth-session";
 import { getPreferAudio } from "@/lib/repos/settings";
 import type { TrackRef } from "@/lib/repos/track";
@@ -98,11 +98,12 @@ export async function GET(request: Request) {
     return NextResponse.json({
       query: query.trim(),
       cached: false,
+      preferAudio: false,
       results: [],
       sources: {
         youtube: { available: false, reason: "Search hit a snag — try again" },
         spotify: { available: false, reason: "Search hit a snag — try again" },
       },
-    });
+    } satisfies SearchResponse);
   }
 }

@@ -68,7 +68,7 @@ test.describe("prefer-audio setting — the honest, music-first control (Complai
       page.getByRole("switch", { name: "Prefer audio versions" }),
     ).toBeVisible();
     // The honest description is shown so the owner knows exactly what it does and does not
-    // do (videos still appear; a video stays a visible video).
-    await expect(page.getByText(/official audio first/i)).toBeVisible();
+    // do (P2: it floats official audio "when a search has any"; videos still appear below).
+    await expect(page.getByText(/floats official audio to the top/i)).toBeVisible();
   });
 });
