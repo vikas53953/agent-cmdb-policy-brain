@@ -36,6 +36,8 @@ import QueuePanel from "@/components/player/queue-panel";
 import ProfileSheet from "@/components/settings/profile-sheet";
 import PlayRecorder from "@/components/home/play-recorder";
 import PlayerPersistence from "@/components/player/player-persistence";
+import MediaSessionBridge from "@/components/player/media-session-bridge";
+import KeyboardShortcuts from "@/components/player/keyboard-shortcuts";
 import { ClockIcon } from "@/components/ui/icons";
 import WriteStatus, { useWriteStatus } from "@/components/ui/write-status";
 import { couldNot, runWrite } from "@/lib/ui/write-status";
@@ -250,6 +252,14 @@ export default function AppChrome({
       {/* Headless: restores the mini-player (paused) + persists it across reloads (FIX 2).
           Never auto-plays — the user's tap is the only thing that starts sound. */}
       <PlayerPersistence />
+
+      {/* Headless: publishes the current track to the OS (lock screen, Bluetooth, media
+          keys) and wires the hardware transport buttons back to this same store. */}
+      <MediaSessionBridge />
+
+      {/* Headless: Space / arrows / m as app-wide transport, mounted at the shell so the
+          keys work on every screen — and refusing to fire while the user is typing. */}
+      <KeyboardShortcuts />
 
       <header className="topbar">
         <span className="brand">Fuse</span>
