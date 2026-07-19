@@ -23,6 +23,19 @@ const yt = (id: string): TrackRef => ({
   durationSec: 200,
 });
 
+// A LONG-FORM track (a lofi stream). The adaptive-crossfade layer (F-0 item 4) keeps the
+// FULL configured melt only when BOTH tracks are long-form, so the timing tests below that
+// assert an exact 8s window use these; a pair of ordinary songs would be clamped to a short
+// 2–4s melt (covered by its own test).
+const ytLong = (id: string): TrackRef => ({
+  source: "youtube",
+  nativeId: id,
+  title: `lofi radio mix ${id}`,
+  artist: "Someone",
+  artUrl: null,
+  durationSec: 3600,
+});
+
 // ── Pure math ───────────────────────────────────────────────────────────────
 
 describe("equalPowerGains (constant-power crossfade curve)", () => {
@@ -231,9 +244,10 @@ describe("BlendController — the two-track melt (R3, F2)", () => {
   it("starts the incoming ~crossfade seconds before the end and overlaps the two", async () => {
     const { fakeStore, fakeAdapter, controller } = setupController(8);
     // Playing track one, track two queued, duration 200. Just before the tail: no blend.
+    // Long-form pair so the adaptive layer keeps the full 8s configured melt (F-0 item 4).
     fakeStore.set({
-      current: yt("one"),
-      queue: [yt("two")],
+      current: ytLong("one"),
+      queue: [ytLong("two")],
       isPlaying: true,
       durationSec: 200,
       positionSec: 191,
@@ -254,8 +268,8 @@ describe("BlendController — the two-track melt (R3, F2)", () => {
   it("cross-ramps with the equal-power curve and promotes with no cut to silence", async () => {
     const { fakeStore, fakeAdapter, manual, controller } = setupController(8);
     fakeStore.set({
-      current: yt("one"),
-      queue: [yt("two")],
+      current: ytLong("one"),
+      queue: [ytLong("two")],
       isPlaying: true,
       durationSec: 200,
       positionSec: 192,
@@ -302,6 +316,25 @@ describe("BlendController — the two-track melt (R3, F2)", () => {
     expect(fakeAdapter.calls).toContain("completeBlend");
   });
 
+  it("adapts a punchy song pair to a SHORT melt even when the setting is long (F-0 item 4)", async () => {
+    // Setting is 8s, but two ordinary vocal songs must melt short (<=4s) to avoid vocal
+    // mush — so the blend begins in the LAST 4s (tail 196), not the setting's 192.
+    const { fakeStore, fakeAdapter } = setupController(8);
+    fakeStore.set({
+      current: yt("one"),
+      queue: [yt("two")],
+      isPlaying: true,
+      durationSec: 200,
+      positionSec: 193, // inside the setting's 8s tail but NOT the adapted 4s tail
+    });
+    await flush();
+    expect(fakeAdapter.calls).not.toContain("beginBlend:two");
+
+    fakeStore.set({ positionSec: 196 }); // enter the adapted 4s tail
+    await flush();
+    expect(fakeAdapter.calls).toContain("beginBlend:two");
+  });
+
   it("stays inert during ordinary playback (no next, non-blendable next, or paused)", async () => {
     const { fakeStore, fakeAdapter } = setupController(8);
     // Deep in the tail but nothing queued next.
@@ -328,8 +361,8 @@ describe("BlendController — the two-track melt (R3, F2)", () => {
   it("abandons a blend cleanly if the user jumps to another track mid-melt", async () => {
     const { fakeStore, fakeAdapter, controller } = setupController(8);
     fakeStore.set({
-      current: yt("one"),
-      queue: [yt("two")],
+      current: ytLong("one"),
+      queue: [ytLong("two")],
       isPlaying: true,
       durationSec: 200,
       positionSec: 192,
@@ -350,10 +383,11 @@ describe("BlendController — the two-track melt (R3, F2)", () => {
 describe("BlendController — manual Next crossfade + true overlap (owner fix 8)", () => {
   it("startManualBlend overlaps both players with ramping volumes, then promotes the next", async () => {
     const { fakeStore, fakeAdapter, manual, controller } = setupController(8);
-    // Playing mid-track (NOT in the auto-blend tail) with a blendable next queued.
+    // Playing mid-track (NOT in the auto-blend tail) with a blendable next queued. Long-form
+    // pair so the manual melt keeps the full 8s window the ramp assertions below expect.
     fakeStore.set({
-      current: yt("one"),
-      queue: [yt("two")],
+      current: ytLong("one"),
+      queue: [ytLong("two")],
       isPlaying: true,
       durationSec: 200,
       positionSec: 40,
@@ -398,10 +432,11 @@ describe("BlendController — manual Next crossfade + true overlap (owner fix 8)
 
   it("scales the crossfade ramp by the user's volume (owner fix 3 × 8)", async () => {
     const { fakeStore, fakeAdapter, manual, controller } = setupController(8);
-    // Half volume: the melt must never exceed the level the listener set.
+    // Half volume: the melt must never exceed the level the listener set. Long-form pair so
+    // the 8s ramp window holds while we sample the mid-blend volumes.
     fakeStore.set({
-      current: yt("one"),
-      queue: [yt("two")],
+      current: ytLong("one"),
+      queue: [ytLong("two")],
       isPlaying: true,
       durationSec: 200,
       positionSec: 40,

@@ -11,7 +11,7 @@
 
 import type { TrackRef } from "@/lib/repos/track";
 import type { SourceOutcome } from "@/lib/youtube";
-import { orderByAudioPreference } from "@/lib/search/audio-kind";
+import { rankResults } from "@/lib/search/ranking";
 
 // Why a source contributed nothing, in plain English (null = it worked). Drives
 // the honest per-source messaging in the results UI (R17).
@@ -61,22 +61,27 @@ function toStatus(outcome: SourceOutcome): SourceStatus {
   return outcome.ok ? { available: true, reason: null } : { available: false, reason: outcome.reason };
 }
 
-// Per-request options that shape the RESPONSE without changing what is cached. Audio
-// preference is a presentation/ordering choice (Complaint 1) — it must never be baked
-// into the cached rows (that would serve one user's preference to the next), so the
-// orchestrator caches the raw combined rows and applies the ordering last, on every
-// request, from the CURRENT caller's preference. Omitted = no reordering (the pre-audio
-// behaviour), so existing callers/tests are unaffected.
+// Per-request options that shape the RESPONSE without changing what is cached. Ordering is
+// a presentation choice — it must never be baked into the cached rows (that would serve one
+// request's order to the next), so the orchestrator caches the raw combined rows and ranks
+// them last, on every request, from the CURRENT query + preference.
 export type SearchOptions = {
-  // When true, official audio versions (Topic-channel uploads, "Official Audio" titles)
-  // are floated to the top of the combined list. Default (omitted) leaves order untouched.
+  // Gentle FINAL tiebreak (the user's "prefer audio versions" setting): among results that
+  // tie on relevance AND official tier, float audio above video. The brutal ranking
+  // (relevance beats keyword-stuffing; official/Topic first, junk last) always applies
+  // regardless — it is a correctness fix, not a preference (F-0 item 2).
   preferAudio?: boolean;
 };
 
-// Apply the audio-preference ordering to a result list (a no-op when not preferring
-// audio). Kept in one place so both the cache-hit and cache-miss paths order identically.
-function present(results: readonly TrackRef[], opts: SearchOptions): TrackRef[] {
-  return orderByAudioPreference(results, opts.preferAudio === true);
+// Rank a result list for presentation: query-title relevance beats keyword-stuffing, then
+// official/Topic uploads first and lyrics/covers/fan/Shorts last (F-0 item 2). Kept in one
+// place so the cache-hit and cache-miss paths order identically.
+function present(
+  query: string,
+  results: readonly TrackRef[],
+  opts: SearchOptions,
+): TrackRef[] {
+  return rankResults(query, results, { preferAudio: opts.preferAudio === true });
 }
 
 // Run a search. Empty/whitespace queries short-circuit to an empty payload with
@@ -106,7 +111,7 @@ export async function runSearch(
     // repeated query spends zero search.list quota (KTD-8). Source statuses are computed
     // FRESH from current config (never read from the cache), so the availability notice
     // is always today's wording and a stale "…try again" string can never resurface (P1).
-    return { query, cached: true, results: present(hit.results, opts), sources: deps.freshStatus() };
+    return { query, cached: true, results: present(query, hit.results, opts), sources: deps.freshStatus() };
   }
 
   // MISS: query both sources concurrently. Each independently reports success or
@@ -137,5 +142,5 @@ export async function runSearch(
     await deps.writeCache(query, { results });
   }
 
-  return { query, cached: false, results: present(results, opts), sources };
+  return { query, cached: false, results: present(query, results, opts), sources };
 }

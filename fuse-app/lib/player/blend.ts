@@ -26,6 +26,7 @@ import {
   CROSSFADE_MAX_SEC,
   CROSSFADE_MIN_SEC,
 } from "@/lib/repos/settings";
+import { adaptedCrossfadeSec } from "@/lib/player/adaptive-crossfade";
 
 // ── Pure timing + gain math (unit-tested without a DOM) ─────────────────────────
 
@@ -253,13 +254,46 @@ export class BlendController {
     if (!current || !next) return false;
     const adapter = this.resolveBlendAdapter(current.source);
     if (!adapter || adapter.source !== next.source) return false;
-    const crossfadeSec = clampCrossfadeSec(this.getCrossfadeSec());
+    // The setting is the MAX; the engine adapts the melt to this exact pair (F-0 item 4).
+    const crossfadeSec = adaptedCrossfadeSec({
+      maxSec: clampCrossfadeSec(this.getCrossfadeSec()),
+      current,
+      next,
+    });
     void this.startBlend(current, next, crossfadeSec);
     return true;
   }
 
   getMeltState(): MeltState {
     return this.melt;
+  }
+
+  // The ADAPTED crossfade length for the CURRENT (current → queue[0]) pair, or null when
+  // there is no next track. The user's setting is the ceiling; this clamps per pair exactly
+  // as the auto-blend does — so the Transition Moment countdown reflects the REAL melt
+  // length, not the raw slider value (F-0 items 1 & 4).
+  adaptedCrossfadeForCurrentPair(): number | null {
+    const state = this.store.getState();
+    const current = state.current;
+    const next = state.queue[0] ?? null;
+    if (!current || !next) return null;
+    return adaptedCrossfadeSec({
+      maxSec: clampCrossfadeSec(this.getCrossfadeSec()),
+      current,
+      next,
+    });
+  }
+
+  // Whether the CURRENT pair can run a REAL crossfade — both the current and next track are
+  // on the same overlap-capable adapter. Drives the Transition Moment's honest choice
+  // between "Fusing in Ns" (a true melt) and a plain "Up next" (a hard cut).
+  canFuseCurrentPair(): boolean {
+    const state = this.store.getState();
+    const current = state.current;
+    const next = state.queue[0] ?? null;
+    if (!current || !next) return false;
+    const adapter = this.resolveBlendAdapter(current.source);
+    return !!adapter && adapter.source === next.source;
   }
 
   subscribeMelt(listener: () => void): () => void {
@@ -303,7 +337,17 @@ export class BlendController {
 
     const current = state.current;
     const next = state.queue[0] ?? null;
-    const crossfadeSec = clampCrossfadeSec(this.getCrossfadeSec());
+    // The setting is the MAX; per pair the engine clamps the melt (long for two long-form
+    // uploads, short for punchy vocal songs) so the crossfade suits the two songs (F-0
+    // item 4). With no pair yet, fall back to the configured length.
+    const crossfadeSec =
+      current && next
+        ? adaptedCrossfadeSec({
+            maxSec: clampCrossfadeSec(this.getCrossfadeSec()),
+            current,
+            next,
+          })
+        : clampCrossfadeSec(this.getCrossfadeSec());
     const blendable = this.blendableSources(
       current?.source ?? null,
       next?.source ?? null,

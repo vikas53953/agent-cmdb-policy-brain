@@ -25,13 +25,23 @@ describe("classifyYouTubeKind — Topic channels and audio titles are AUDIO", ()
     expect(classifyYouTubeKind("Paper Cities", "Aurora Skies - topic")).toBe("audio");
   });
 
-  it("treats explicit audio titles as audio", () => {
+  it("treats an explicit 'Official Audio' self-label as audio", () => {
     expect(classifyYouTubeKind("Paper Cities (Official Audio)", "Aurora Skies")).toBe("audio");
-    expect(classifyYouTubeKind("Paper Cities [Audio]", "Aurora Skies")).toBe("audio");
-    expect(classifyYouTubeKind("Paper Cities (Audio)", "Aurora Skies")).toBe("audio");
-    expect(classifyYouTubeKind("Paper Cities - Audio Only", "Aurora Skies")).toBe("audio");
-    expect(classifyYouTubeKind("Paper Cities (Visualizer)", "Aurora Skies")).toBe("audio");
-    expect(classifyYouTubeKind("Paper Cities (Lyric Video)", "Aurora Skies")).toBe("audio");
+    expect(classifyYouTubeKind("Paper Cities [Official Audio]", "Aurora Skies")).toBe("audio");
+    expect(classifyYouTubeKind("Paper Cities | Official Audio", "Aurora Skies")).toBe("audio");
+  });
+
+  it("NEVER labels audio from an incidental title keyword alone (F-0 item 2)", () => {
+    // These were mislabelled Audio before F-0 — a bare "(Audio)", a lyric/visualizer, a
+    // "Full Song" / "Jukebox". Title keywords alone are no longer enough: only "- Topic" or
+    // an explicit "Official Audio" counts. All of these are now honestly Video.
+    expect(classifyYouTubeKind("Paper Cities [Audio]", "Aurora Skies")).toBe("video");
+    expect(classifyYouTubeKind("Paper Cities (Audio)", "Aurora Skies")).toBe("video");
+    expect(classifyYouTubeKind("Paper Cities - Audio Only", "Aurora Skies")).toBe("video");
+    expect(classifyYouTubeKind("Paper Cities (Visualizer)", "Aurora Skies")).toBe("video");
+    expect(classifyYouTubeKind("Paper Cities (Lyric Video)", "Aurora Skies")).toBe("video");
+    expect(classifyYouTubeKind("Paper Cities (Full Song)", "Aurora Skies")).toBe("video");
+    expect(classifyYouTubeKind("Paper Cities (Jukebox)", "Aurora Skies")).toBe("video");
   });
 
   it("treats an ordinary music video as video (never over-labels audio)", () => {
