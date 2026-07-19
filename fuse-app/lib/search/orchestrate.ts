@@ -11,6 +11,7 @@
 
 import type { TrackRef } from "@/lib/repos/track";
 import type { SourceOutcome } from "@/lib/youtube";
+import { orderByAudioPreference } from "@/lib/search/audio-kind";
 
 // Why a source contributed nothing, in plain English (null = it worked). Drives
 // the honest per-source messaging in the results UI (R17).
@@ -60,9 +61,32 @@ function toStatus(outcome: SourceOutcome): SourceStatus {
   return outcome.ok ? { available: true, reason: null } : { available: false, reason: outcome.reason };
 }
 
+// Per-request options that shape the RESPONSE without changing what is cached. Audio
+// preference is a presentation/ordering choice (Complaint 1) — it must never be baked
+// into the cached rows (that would serve one user's preference to the next), so the
+// orchestrator caches the raw combined rows and applies the ordering last, on every
+// request, from the CURRENT caller's preference. Omitted = no reordering (the pre-audio
+// behaviour), so existing callers/tests are unaffected.
+export type SearchOptions = {
+  // When true, official audio versions (Topic-channel uploads, "Official Audio" titles)
+  // are floated to the top of the combined list. Default (omitted) leaves order untouched.
+  preferAudio?: boolean;
+};
+
+// Apply the audio-preference ordering to a result list (a no-op when not preferring
+// audio). Kept in one place so both the cache-hit and cache-miss paths order identically.
+function present(results: readonly TrackRef[], opts: SearchOptions): TrackRef[] {
+  return orderByAudioPreference(results, opts.preferAudio === true);
+}
+
 // Run a search. Empty/whitespace queries short-circuit to an empty payload with
-// no external calls. Otherwise: cache-first, then both sources in parallel.
-export async function runSearch(rawQuery: string, deps: SearchDeps): Promise<SearchResponse> {
+// no external calls. Otherwise: cache-first, then both sources in parallel. `opts`
+// shapes only the returned ORDER (audio preference), never what is cached.
+export async function runSearch(
+  rawQuery: string,
+  deps: SearchDeps,
+  opts: SearchOptions = {},
+): Promise<SearchResponse> {
   const query = rawQuery.trim();
   if (query === "") {
     return {
@@ -82,7 +106,7 @@ export async function runSearch(rawQuery: string, deps: SearchDeps): Promise<Sea
     // repeated query spends zero search.list quota (KTD-8). Source statuses are computed
     // FRESH from current config (never read from the cache), so the availability notice
     // is always today's wording and a stale "…try again" string can never resurface (P1).
-    return { query, cached: true, results: hit.results, sources: deps.freshStatus() };
+    return { query, cached: true, results: present(hit.results, opts), sources: deps.freshStatus() };
   }
 
   // MISS: query both sources concurrently. Each independently reports success or
@@ -107,8 +131,11 @@ export async function runSearch(rawQuery: string, deps: SearchDeps): Promise<Sea
   // statuses above are the live outcome for THIS miss and are returned now, but they are
   // never written to the store (the P1 class fix — no reason string can ever go stale).
   if (yt.ok || sp.ok) {
+    // Cache the RAW combined rows — never the audio-ordered view. Ordering is the
+    // caller's preference and is applied fresh below, so one user's "prefer audio" can
+    // never leak into another's cached results.
     await deps.writeCache(query, { results });
   }
 
-  return { query, cached: false, results, sources };
+  return { query, cached: false, results: present(results, opts), sources };
 }

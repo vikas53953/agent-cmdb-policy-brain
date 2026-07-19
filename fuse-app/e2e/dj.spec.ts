@@ -70,6 +70,11 @@ test.describe("dj — capability honesty and a really-playing deck", () => {
 
     // Speed control is present (it is the one full-engine-adjacent control YouTube keeps).
     await expect(deckA.getByRole("slider", { name: /playback speed/i })).toBeVisible();
+
+    // The greyed powers carry a one-line pointer that reframes them as a capability
+    // difference — "the full engine is a My Files thing" — not breakage (Complaint 3).
+    await expect(deckA.getByTestId("caps-pointer")).toBeVisible();
+    await expect(deckA.getByText(TEXT.fullEnginePointer)).toBeVisible();
   });
 
   test("Deck A on YouTube: a known video loads and the deck really advances", async ({ page }) => {

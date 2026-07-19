@@ -14,11 +14,12 @@
 // live only when a working adapter backs the source, Next only when something is
 // queued, Skip only when there is a track to skip to.
 
-import { useEffect } from "react";
+import { useEffect, useRef, useState } from "react";
 import { usePlayerSelector } from "@/lib/player/use-player-selector";
 import { playerStore } from "@/lib/player/store";
 import { adapterRegistry } from "@/lib/player/adapters";
 import { SOURCE_BADGES } from "@/lib/ui/shell";
+import { isAudioTrack } from "@/lib/search/audio-kind";
 import VideoSurface from "@/components/player/video-surface";
 import Scrub from "@/components/player/scrub";
 import Lyrics from "@/components/player/lyrics";
@@ -67,6 +68,11 @@ export default function NowPlaying({
     }),
   );
 
+  // Theater/maximize toggle for VIDEO tracks (Complaint 2): expands the video to fill the
+  // full width of the Now Playing surface, still inline. Off by default; reset whenever the
+  // track changes so a new song never opens unexpectedly maximised.
+  const [theater, setTheater] = useState(false);
+
   // Close on Escape while open (accessibility parity with the profile sheet).
   useEffect(() => {
     if (!open) return;
@@ -76,6 +82,17 @@ export default function NowPlaying({
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [open, onClose]);
+
+  // A new track resets theater — the maximise state belongs to the video you were
+  // watching, not the next one. This is React's documented "adjust state when a prop
+  // changes" pattern (a guarded setState during render), not an effect, so it applies
+  // in the same render with no cascading re-render.
+  const currentId = current ? `${current.source}:${current.nativeId}` : null;
+  const prevIdRef = useRef(currentId);
+  if (prevIdRef.current !== currentId) {
+    prevIdRef.current = currentId;
+    if (theater) setTheater(false);
+  }
 
   // The recovery ladder is driven app-wide by the single monitor in the shell
   // (use-playback-recovery.ts). This screen only RENDERS its honest phase from the store
@@ -90,6 +107,19 @@ export default function NowPlaying({
   // Show the honest banner whenever the ladder is not "ok": "retrying" while it works,
   // then the terminal "won't play" + Skip once it gives up.
   const stalled = recovery.phase !== "ok";
+
+  // Audio-vs-video presentation (Complaint 1/2). A YouTube track that is an official audio
+  // upload ("- Topic" channel, "Official Audio" title) is shown ART-FORWARD: the (static-
+  // image) video renders as a compact, album-art square rather than a wide black video
+  // surface. An ordinary video keeps the 16:9 surface and gains the theater toggle.
+  const isYouTube = current?.source === "youtube";
+  const isAudio = current ? isAudioTrack(current) : false;
+  const isVideoTrack = isYouTube && !isAudio;
+  const artClass = isAudio
+    ? "np-art np-art-audio"
+    : theater && isVideoTrack
+      ? "np-art np-art-theater"
+      : "np-art";
 
   return (
     <>
@@ -108,7 +138,7 @@ export default function NowPlaying({
         data-np-open={showOpen ? "true" : "false"}
       >
         {current && badge ? (
-          <>
+          <div className="np-inner">
             <header className="np-head">
               <button
                 type="button"
@@ -120,11 +150,27 @@ export default function NowPlaying({
               </button>
               <span className="np-head-label">Now Playing</span>
               <span className={`badge ${badge.className}`}>{badge.label}</span>
+              {/* Honest kind chip: says plainly whether you're hearing an audio version or
+                  watching a video (Complaint 1). */}
+              {isYouTube ? (
+                <span
+                  className={`kind-badge kind-${isAudio ? "audio" : "video"}`}
+                  data-testid="np-kind"
+                  data-kind={isAudio ? "audio" : "video"}
+                >
+                  {isAudio ? "Audio" : "Video"}
+                </span>
+              ) : null}
             </header>
 
-            <div className="np-art">
+            {/* The content stage centres its column so leftover height is split evenly
+                rather than pooling into a dead blank band below the controls (Complaint 2). */}
+            <div className="np-stage" data-theater={theater && isVideoTrack ? "on" : "off"}>
+            <div className={artClass} data-testid="np-art">
               {open && current.source === "youtube" ? (
-                // The visible YouTube video IS the artwork surface (KTD-7).
+                // The visible YouTube video IS the artwork surface (KTD-7). For an audio
+                // upload the surrounding box is square (album-art framed); for a video it
+                // is 16:9 and can be maximised via the theater toggle below.
                 <VideoSurface variant="np" />
               ) : current.artUrl ? (
                 // eslint-disable-next-line @next/next/no-img-element -- external source CDN (i.ytimg.com / i.scdn.co); allowed by CSP img-src
@@ -135,6 +181,24 @@ export default function NowPlaying({
                 </div>
               )}
             </div>
+
+            {/* Maximise / theater toggle — only for a real video track (an audio upload is
+                already presented art-forward, so there is nothing to maximise). */}
+            {isVideoTrack ? (
+              <div className="np-theater-bar">
+                <button
+                  type="button"
+                  className={theater ? "np-theater-btn on" : "np-theater-btn"}
+                  data-testid="np-theater"
+                  aria-pressed={theater}
+                  onClick={() => setTheater((t) => !t)}
+                  title={theater ? "Exit theater view" : "Maximise the video"}
+                  aria-label={theater ? "Exit theater view" : "Maximise the video"}
+                >
+                  {theater ? "Exit theater" : "Theater"}
+                </button>
+              </div>
+            ) : null}
 
             <div className="np-info">
               <h2 className="np-title">{current.title}</h2>
@@ -266,7 +330,8 @@ export default function NowPlaying({
                 {repeat === "one" ? <span className="repeat-one" aria-hidden="true">1</span> : null}
               </button>
             </div>
-          </>
+            </div>
+          </div>
         ) : null}
       </section>
     </>

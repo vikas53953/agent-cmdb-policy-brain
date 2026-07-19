@@ -122,6 +122,9 @@ export const TEXT = {
   ytCapabilityReason: "Not available for YouTube tracks",
   spotifyOneDeck: "Spotify allows one deck at a time",
   onDeviceNotice: "never uploaded",
+  // The one-line capability-difference pointer under a non-local deck's greyed chips
+  // (Complaint 3): the missing powers read as "a My Files thing", not breakage.
+  fullEnginePointer: "Full engine works with My Files",
 } as const;
 
 // A known-stable search query and a known-stable YouTube video id the specs lean on.
