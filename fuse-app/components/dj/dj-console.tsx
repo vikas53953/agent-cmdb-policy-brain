@@ -13,7 +13,7 @@
 import { useEffect, useState } from "react";
 import type { TrackSource } from "@/lib/repos/track";
 import { playerStore } from "@/lib/player/store";
-import { crossfadeGains } from "@/components/dj/deck-model";
+import { crossfadeGains, type CrossfadeCurve } from "@/components/dj/deck-model";
 import Deck from "@/components/dj/deck";
 import Crossfader from "@/components/dj/crossfader";
 
@@ -22,6 +22,8 @@ export default function DjConsole() {
   const [sourceB, setSourceB] = useState<TrackSource | null>(null);
   // 0 = full Deck A, 1 = full Deck B. Start centred so both decks are audible.
   const [position, setPosition] = useState(0.5);
+  // The crossfader curve (DJ-1) — smooth blend by default, sharp cut for scratching.
+  const [curve, setCurve] = useState<CrossfadeCurve>("smooth");
   // Captured ONCE at entry (a pure store read in the initializer): the title of the main
   // track we are about to take over, or null when nothing was playing. Driving the notice
   // from this — not a setState in the effect — keeps the takeover honest without a
@@ -45,7 +47,7 @@ export default function DjConsole() {
     };
   }, [pausedTitle]);
 
-  const gains = crossfadeGains(position);
+  const gains = crossfadeGains(position, curve);
 
   return (
     <div className="dj">
@@ -79,7 +81,7 @@ export default function DjConsole() {
         volume={gains.a}
       />
 
-      <Crossfader position={position} onChange={setPosition} />
+      <Crossfader position={position} onChange={setPosition} curve={curve} onCurveChange={setCurve} />
 
       <Deck
         deckId="B"

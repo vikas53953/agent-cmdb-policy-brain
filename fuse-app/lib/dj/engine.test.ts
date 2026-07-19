@@ -2,11 +2,15 @@ import { beforeEach, describe, expect, it } from "vitest";
 import {
   DEFAULT_LOOP_SECONDS,
   EQ_GAIN_RANGE,
+  EQ_KILL_DB,
+  TRIM_RANGE,
   clampEqGain,
   clampRate,
   createDjDeckEngine,
+  filterSpec,
   loopRegion,
   scratchRate,
+  type AnalyserLike,
   type AudioBufferLike,
   type AudioContextLike,
   type BiquadLike,
@@ -68,6 +72,29 @@ describe("loopRegion", () => {
   });
 });
 
+describe("filterSpec — the bipolar HP/LP knob", () => {
+  it("is a wide-open bypass near the centre", () => {
+    expect(filterSpec(0).type).toBe("allpass");
+    expect(filterSpec(0.01).type).toBe("allpass");
+  });
+  it("sweeps a low-pass down as the knob turns negative", () => {
+    const mild = filterSpec(-0.3);
+    const hard = filterSpec(-1);
+    expect(mild.type).toBe("lowpass");
+    expect(hard.type).toBe("lowpass");
+    // Harder left = lower cutoff (more muffled).
+    expect(hard.frequency).toBeLessThan(mild.frequency);
+  });
+  it("sweeps a high-pass up as the knob turns positive", () => {
+    const mild = filterSpec(0.3);
+    const hard = filterSpec(1);
+    expect(mild.type).toBe("highpass");
+    expect(hard.type).toBe("highpass");
+    // Harder right = higher cutoff (thinner).
+    expect(hard.frequency).toBeGreaterThan(mild.frequency);
+  });
+});
+
 // ── Fake Web Audio graph (records params + connections) ─────────────────────────
 
 class FakeParam {
@@ -95,6 +122,17 @@ class FakeBiquad extends FakeNode implements BiquadLike {
 class FakeDelay extends FakeNode implements DelayLike {
   delayTime = new FakeParam(0);
 }
+class FakeAnalyser extends FakeNode implements AnalyserLike {
+  fftSize = 2048;
+  get frequencyBinCount(): number {
+    return this.fftSize / 2;
+  }
+  // The constant sample value the meter will read; the test sets this to drive getLevel.
+  sample = 0;
+  getFloatTimeDomainData(array: Float32Array): void {
+    for (let i = 0; i < array.length; i++) array[i] = this.sample;
+  }
+}
 class FakeSource extends FakeNode implements BufferSourceLike {
   buffer: AudioBufferLike | null = null;
   loop = false;
@@ -114,6 +152,24 @@ class FakeSource extends FakeNode implements BufferSourceLike {
   }
 }
 
+// A decoded buffer that exposes real samples so the engine's on-load analysis runs. A
+// short 120 BPM click track gives a detectable tempo without any audio hardware.
+function clickBuffer(): AudioBufferLike {
+  const sampleRate = 8000;
+  const seconds = 6;
+  const n = seconds * sampleRate;
+  const data = new Float32Array(n);
+  const period = Math.round((60 / 120) * sampleRate);
+  for (let b = 0; b * period < n; b++) data[b * period] = 1;
+  return {
+    duration: seconds,
+    length: n,
+    sampleRate,
+    numberOfChannels: 1,
+    getChannelData: () => data,
+  };
+}
+
 class FakeContext implements AudioContextLike {
   state = "running";
   currentTime = 0;
@@ -121,7 +177,10 @@ class FakeContext implements AudioContextLike {
   gains: FakeGain[] = [];
   biquads: FakeBiquad[] = [];
   sources: FakeSource[] = [];
+  analysers: FakeAnalyser[] = [];
   closed = false;
+  // When set, decodeAudioData returns this rich buffer (with samples); else a minimal one.
+  nextBuffer: AudioBufferLike | null = null;
   createGain(): GainLike {
     const g = new FakeGain();
     this.gains.push(g);
@@ -135,13 +194,18 @@ class FakeContext implements AudioContextLike {
   createDelay(): DelayLike {
     return new FakeDelay();
   }
+  createAnalyser(): AnalyserLike {
+    const a = new FakeAnalyser();
+    this.analysers.push(a);
+    return a;
+  }
   createBufferSource(): BufferSourceLike {
     const s = new FakeSource();
     this.sources.push(s);
     return s;
   }
   async decodeAudioData(): Promise<AudioBufferLike> {
-    return { duration: 30 };
+    return this.nextBuffer ?? { duration: 30 };
   }
   async resume(): Promise<void> {
     this.state = "running";
@@ -159,8 +223,14 @@ class FakeContext implements AudioContextLike {
     // master, crossGain, deckGain, feedback, wet — in creation order.
     return this.gains[1];
   }
+  deckGain(): FakeGain {
+    return this.gains[2];
+  }
   wetGain(): FakeGain {
     return this.gains[4];
+  }
+  analyser(): FakeAnalyser {
+    return this.analysers[0];
   }
   lastSource(): FakeSource {
     return this.sources[this.sources.length - 1];
@@ -203,6 +273,32 @@ describe("createDjDeckEngine — the audio graph", () => {
     expect(ctx.biquadOfType("lowshelf").gain.value).toBe(EQ_GAIN_RANGE[1]);
   });
 
+  it("killing a band slams it to silence and restores the slider on release", () => {
+    engine.setEq("mid", 6);
+    expect(ctx.biquadOfType("peaking").gain.value).toBe(6);
+    engine.setEqKill("mid", true);
+    expect(engine.isEqKilled("mid")).toBe(true);
+    expect(ctx.biquadOfType("peaking").gain.value).toBe(EQ_KILL_DB);
+    engine.setEqKill("mid", false);
+    expect(ctx.biquadOfType("peaking").gain.value).toBe(6); // slider value returns
+  });
+
+  it("the HP/LP filter knob drives a real biquad at the head of the chain", () => {
+    // The head filter starts wide open (a lowpass at max Hz).
+    const openHz = ctx.biquadOfType("lowpass").frequency.value;
+    engine.setFilter(-1); // full low-pass
+    expect(ctx.biquadOfType("lowpass").frequency.value).toBeLessThan(openHz);
+    engine.setFilter(1); // high-pass
+    expect(ctx.biquadOfType("highpass")).toBeTruthy();
+  });
+
+  it("trim sets the deck gain and clamps to its range", () => {
+    engine.setTrim(1.5);
+    expect(ctx.deckGain().gain.value).toBe(1.5);
+    engine.setTrim(99);
+    expect(ctx.deckGain().gain.value).toBe(TRIM_RANGE[1]);
+  });
+
   it("the crossfader drives the deck's crossfade gain (equal-power blend)", () => {
     engine.setCrossfade(0.4);
     expect(ctx.crossGain().gain.value).toBeCloseTo(0.4, 10);
@@ -210,14 +306,21 @@ describe("createDjDeckEngine — the audio graph", () => {
     expect(ctx.crossGain().gain.value).toBe(1);
   });
 
-  it("play starts a source that feeds the EQ chain at normal rate", () => {
+  it("the level meter reads 0 at rest and the real RMS while playing", () => {
+    expect(engine.getLevel()).toBe(0); // not playing yet
+    engine.play();
+    ctx.analyser().sample = 0.5; // a steady 0.5 signal → RMS 0.5
+    expect(engine.getLevel()).toBeCloseTo(0.5, 6);
+  });
+
+  it("play starts a source that feeds the filter → EQ chain at normal rate", () => {
     engine.play();
     expect(engine.playing).toBe(true);
     const src = ctx.lastSource() as FakeSource;
     expect(src.started).toBe(true);
     expect(src.playbackRate.value).toBe(1);
-    // source → lowshelf is the head of the graph.
-    expect(src.connections).toContain(ctx.biquadOfType("lowshelf"));
+    // source → filter (lowpass) is the head of the graph.
+    expect(src.connections).toContain(ctx.biquadOfType("lowpass"));
   });
 
   it("engaging a loop sets a seamless region on the live source", () => {
@@ -227,6 +330,18 @@ describe("createDjDeckEngine — the audio graph", () => {
     expect(src.loop).toBe(true);
     expect(src.loopEnd).toBeGreaterThan(src.loopStart);
     engine.setLoop(false);
+    expect(src.loop).toBe(false);
+  });
+
+  it("a beat loop arms exact on-grid bounds on the live source", () => {
+    engine.play();
+    engine.setBeatLoop({ start: 2, end: 4 });
+    const src = ctx.lastSource() as FakeSource;
+    expect(src.loop).toBe(true);
+    expect(src.loopStart).toBe(2);
+    expect(src.loopEnd).toBe(4);
+    // Clearing it releases the loop.
+    engine.setBeatLoop(null);
     expect(src.loop).toBe(false);
   });
 
@@ -264,6 +379,29 @@ describe("createDjDeckEngine — the audio graph", () => {
   });
 });
 
+describe("createDjDeckEngine — on-load analysis (waveform + BPM)", () => {
+  it("computes peaks and detects the tempo from a decoded buffer's samples", async () => {
+    const ctx = new FakeContext();
+    ctx.nextBuffer = clickBuffer();
+    const engine = createDjDeckEngine(() => ctx);
+    await engine.loadArrayBuffer(new ArrayBuffer(8));
+    const a = engine.getAnalysis();
+    expect(a.duration).toBe(6);
+    expect(a.sampleRate).toBe(8000);
+    expect(a.peaks.length).toBeGreaterThan(0);
+    expect(a.bpm).toBeGreaterThan(118);
+    expect(a.bpm).toBeLessThan(122);
+  });
+
+  it("degrades to empty analysis (not a throw) when the buffer exposes no samples", async () => {
+    const { engine } = await loadedEngine(); // minimal { duration: 30 } buffer
+    const a = engine.getAnalysis();
+    expect(a.duration).toBe(30);
+    expect(a.peaks).toEqual([]);
+    expect(a.bpm).toBe(0);
+  });
+});
+
 describe("createDjDeckEngine — no Web Audio (SSR / Node / unsupported)", () => {
   it("is an inert, honest no-op engine when no context can be built", async () => {
     const engine = createDjDeckEngine(() => null);
@@ -274,6 +412,12 @@ describe("createDjDeckEngine — no Web Audio (SSR / Node / unsupported)", () =>
     expect(engine.playing).toBe(false);
     expect(engine.hasTrack).toBe(false);
     engine.setEq("mid", 3);
+    engine.setEqKill("mid", true);
+    engine.setFilter(-0.5);
+    engine.setTrim(1.2);
+    engine.setBeatLoop({ start: 0, end: 2 });
+    expect(engine.getLevel()).toBe(0);
+    expect(engine.getAnalysis().bpm).toBe(0);
     engine.dispose();
   });
 });

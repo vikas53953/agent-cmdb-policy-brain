@@ -43,6 +43,7 @@ model User {
   playlists Playlist[]
   plays     Play[]
   settings  Setting[]
+  djCues    DjCue[]
 }
 
 // --- U3: owned data + caches ----------------------------------------------------
@@ -186,6 +187,29 @@ model TrendingSeed {
   artist    String?
   artUrl    String?
   createdAt DateTime @default(now())
+}
+
+// DJ-1: hot cues a DJ marks on a track and jumps back to (the drop, the breakdown).
+// Private per user, keyed by (source, nativeId) so they come back when the same track
+// is loaded again — on any device the user signs into. For a LOCAL file, nativeId is a
+// content fingerprint computed IN THE BROWSER (lib/dj/fingerprint.ts): the file's bytes
+// never leave the device, only the derived id and the cue position (seconds) are stored.
+// `slot` is the pad number (0..3 in DJ-1); one cue per (owner, source, nativeId, slot),
+// so setting a pad is an idempotent upsert and clearing it is a keyed delete.
+model DjCue {
+  id          String   @id @default(cuid())
+  ownerId     String
+  owner       User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  source      String
+  nativeId    String
+  slot        Int
+  positionSec Float
+  label       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([ownerId, source, nativeId, slot])
+  @@index([ownerId, source, nativeId])
 }
 
 model Account {

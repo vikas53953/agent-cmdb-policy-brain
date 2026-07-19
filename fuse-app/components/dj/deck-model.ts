@@ -133,11 +133,39 @@ export const DECK_CAPABILITY_CHIPS: readonly { key: CapabilityKey; label: string
   { key: "scratch", label: "Scratch" },
 ];
 
-// Equal-power crossfade gains for a crossfader position in [0,1] (0 = full Deck A,
-// 1 = full Deck B). This is the `cos((p·π)/2)` curve the old DJEngine used, kept so
-// the two decks sum to roughly constant perceived loudness through the blend (R13).
-export function crossfadeGains(position: number): { a: number; b: number } {
+// The crossfader curve a DJ can choose (DJ-1). "smooth" is the equal-power blend for
+// long mixes; "linear" is a straight fade; "sharp" is a fast cut that brings the other
+// deck fully in from a small movement at the edge — the curve scratch DJs cut on.
+export type CrossfadeCurve = "smooth" | "linear" | "sharp";
+
+export const CROSSFADE_CURVES: readonly { curve: CrossfadeCurve; label: string }[] = [
+  { curve: "smooth", label: "Smooth" },
+  { curve: "linear", label: "Linear" },
+  { curve: "sharp", label: "Sharp cut" },
+];
+
+// How aggressively the "sharp" curve cuts: a channel reaches full within this fraction of
+// the travel from its edge, then plateaus (both decks sit near full through the middle).
+const SHARP_GAIN = 2;
+
+// Crossfade gains for a position in [0,1] (0 = full Deck A, 1 = full Deck B) under the
+// chosen curve. Defaults to the equal-power "smooth" curve the old DJEngine used, so the
+// two decks sum to roughly constant perceived loudness through the blend (R13). Every
+// curve honours the endpoints exactly: p=0 → {1,0}, p=1 → {0,1}.
+export function crossfadeGains(
+  position: number,
+  curve: CrossfadeCurve = "smooth",
+): { a: number; b: number } {
   const p = Math.max(0, Math.min(1, position));
+  if (curve === "linear") {
+    return { a: 1 - p, b: p };
+  }
+  if (curve === "sharp") {
+    return {
+      a: Math.min(1, (1 - p) * SHARP_GAIN),
+      b: Math.min(1, p * SHARP_GAIN),
+    };
+  }
   return {
     a: Math.cos((p * Math.PI) / 2),
     b: Math.cos(((1 - p) * Math.PI) / 2),
