@@ -136,9 +136,11 @@ test.describe("Wave 1 — settings journeys (signed-in robot)", () => {
     const sheet = page.getByTestId("profile-sheet");
     await expect(sheet).toBeVisible();
 
-    // Arm a 15-minute timer from the profile sheet's sleep control.
+    // Arm a 15-minute timer from the profile sheet's sleep control. The trigger lives in the
+    // sheet, but the menu now renders in the top-level overlay portal (so a playing video can
+    // never cover it — owner fix 1), so the menu item is queried at the page level.
     await sheet.getByTestId("sleep-trigger").click();
-    await sheet.getByTestId("sleep-15").click();
+    await page.getByTestId("sleep-15").click();
 
     // Close the settings sheet so its overlay no longer covers the top bar, then confirm the
     // armed chip is visible app-wide.

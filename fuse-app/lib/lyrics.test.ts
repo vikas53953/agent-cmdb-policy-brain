@@ -141,8 +141,8 @@ describe("fetchLyricsFromLrclib (KTD-3, verified params)", () => {
       {
         match: "/api/search",
         body: [
-          { syncedLyrics: null, plainLyrics: "plain only", instrumental: false, duration: 200 },
-          { syncedLyrics: "[00:03.00]synced", plainLyrics: "synced", instrumental: false, duration: 201 },
+          { syncedLyrics: null, plainLyrics: "plain only", instrumental: false, duration: 200, trackName: "Song", artistName: "Artist" },
+          { syncedLyrics: "[00:03.00]synced", plainLyrics: "synced", instrumental: false, duration: 201, trackName: "Song", artistName: "Artist" },
         ],
       },
     ]);

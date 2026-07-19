@@ -240,7 +240,12 @@ test.describe("listen — the heart moment", () => {
         async () => {
           const lines = await np.locator(".lyric").count();
           const empty = await np.getByText(TEXT.noLyrics).count();
-          const plain = await np.locator(".lyrics-plain").count();
+          // Plain (unsynced) lyrics now live behind a compact "Lyrics" toggle (owner fix 5b)
+          // so a wall of text never pushes the transport off-screen — the toggle button (or
+          // the expanded panel) is the honest signal of the plain state.
+          const plain =
+            (await np.getByTestId("lyrics-toggle").count()) +
+            (await np.locator(".lyrics-plain").count());
           if (empty > 0) return "empty";
           if (lines > 5) return "synced";
           if (plain > 0) return "plain";

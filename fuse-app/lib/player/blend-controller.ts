@@ -52,6 +52,15 @@ export const blendController = new BlendController({
   getCrossfadeSec: getLiveCrossfadeSec,
 });
 
+// The Next control's action (owner fix 8): melt into the next track when a real overlap is
+// possible, otherwise hard-advance. This is what makes a manual Next feel blended, not just
+// the automatic end-of-track transition — while staying honest when a blend cannot happen
+// (a non-blendable source, or nothing queued) by falling back to a plain advance.
+export function nextWithBlend(): void {
+  if (blendController.startManualBlend()) return;
+  void playerStore.next();
+}
+
 // Subscribe the melt panel to blend state. useSyncExternalStore keeps the panel in
 // lockstep with the engine; the server snapshot is the idle state (nothing blending),
 // so SSR and first client render agree.

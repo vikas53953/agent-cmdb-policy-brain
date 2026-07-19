@@ -7,7 +7,7 @@
 import { cookies } from "next/headers";
 import { signOut } from "@/lib/auth";
 import { requireUser } from "@/lib/auth-session";
-import { setLyricsEnabled, setCrossfadeSec, getCrossfadeSec, setPreferAudio, setAutoplaySimilar } from "@/lib/repos/settings";
+import { setLyricsEnabled, setCrossfadeSec, getCrossfadeSec, setPreferAudio, setAutoplaySimilar, setVolume, getVolume } from "@/lib/repos/settings";
 
 // Sign the current user out and land them back on the sign-in page. This is a REAL,
 // working control (the one live control in the U4 profile sheet). It calls Auth.js's
@@ -61,6 +61,17 @@ export async function setAutoplaySimilarAction(enabled: boolean): Promise<boolea
   const user = await requireUser();
   await setAutoplaySimilar(user.id, enabled);
   return enabled;
+}
+
+// Persist the output volume (0..1) for the signed-in user (owner fix 3). A REAL control —
+// the mini-player / Now Playing slider drives the store, and the shell calls this to save the
+// level so it survives reload. The repo clamps to 0..1; we return the STORED value so the
+// client can reconcile. requireUser scopes the write to the caller's own row; a keyless build
+// never invokes it.
+export async function setVolumeAction(volume: number): Promise<number> {
+  const user = await requireUser();
+  await setVolume(user.id, volume);
+  return getVolume(user.id);
 }
 
 // Disconnect Spotify (U15, R16). Clears the connection marker and the httpOnly token

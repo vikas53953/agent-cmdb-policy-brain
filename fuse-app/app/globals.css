@@ -341,31 +341,29 @@ body {
 }
 
 /* --- Source badges (YouTube / Spotify / local files) ------------------------- */
+/* Source attribution (owner fix 10): honest but SUBTLE — a small muted chip, never a loud
+ * all-caps "YOUTUBE" shouting on every row. Sentence case, light weight, low-contrast text
+ * and a hairline border; no bright per-source fills. The source is still stated, quietly. */
 .badge {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  padding: 2px 8px;
+  padding: 1px 7px;
   border-radius: var(--r-pill);
-  font-size: 0.66rem;
-  font-weight: 700;
-  letter-spacing: 0.02em;
-  text-transform: uppercase;
+  font-size: 0.62rem;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
   border: 1px solid var(--line);
-  color: var(--txt-mid);
+  color: var(--txt-lo);
+  opacity: 0.85;
 }
-.badge.yt {
-  color: #ff8a7a;
-  border-color: rgba(255, 122, 77, 0.4);
-  background: var(--ember-soft);
-}
-.badge.sp {
-  color: #6ee7c8;
-  border-color: rgba(52, 228, 198, 0.4);
-  background: var(--teal-soft);
-}
+.badge.yt,
+.badge.sp,
 .badge.mp3 {
-  color: var(--txt-mid);
+  color: var(--txt-lo);
+  border-color: var(--line);
+  background: transparent;
 }
 
 /* Honest AUDIO / VIDEO kind chip (Complaint 1). Sits beside the source badge on search
@@ -923,7 +921,8 @@ body {
 
 /* Theater / maximise (Complaint 2). A real video expands to the full width of the Now
  * Playing surface — edge to edge, cancelling the panel's side padding — still inline. */
-.np-art-theater {
+/* "Bigger player" inline layout (owner fix 4, was the confusing "theater"): full-bleed 16:9. */
+.np-art-bigger {
   width: calc(100% + 40px);
   max-width: none;
   margin-inline: -20px;
@@ -935,6 +934,7 @@ body {
   flex: 0 0 auto;
   display: flex;
   justify-content: flex-end;
+  gap: 8px;
   margin-top: -6px;
 }
 .np-theater-btn {
@@ -963,6 +963,62 @@ body {
 .np-theater-btn:focus-visible {
   outline: 2px solid var(--teal);
   outline-offset: 2px;
+}
+
+/* --- Volume slider + mute (owner fix 3) -------------------------------------- */
+.volume {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.volume-range {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 4px;
+  border-radius: var(--r-pill);
+  background: var(--ink-3);
+  cursor: pointer;
+  accent-color: var(--teal);
+}
+.volume-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: var(--txt-hi);
+  border: none;
+}
+.volume-range::-moz-range-thumb {
+  width: 13px;
+  height: 13px;
+  border: none;
+  border-radius: 50%;
+  background: var(--txt-hi);
+}
+/* Mini: the slider stays tucked away and reveals on hover/focus (YT Music's pattern) so the
+ * dock stays compact; the mute button is always tappable. */
+.volume-mini .volume-range {
+  width: 0;
+  opacity: 0;
+  transition: width 0.18s ease, opacity 0.18s ease;
+  pointer-events: none;
+}
+.volume-mini:hover .volume-range,
+.volume-mini:focus-within .volume-range {
+  width: 72px;
+  opacity: 1;
+  pointer-events: auto;
+}
+/* Full (Now Playing): the slider is always visible, centred under the transport. */
+.volume-full {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+  margin-top: 2px;
+}
+.volume-full .volume-range {
+  width: min(60%, 240px);
 }
 
 .np-info {
@@ -1178,15 +1234,54 @@ body {
   font-weight: 800;
 }
 /* Honest empty state (R7/AE2) — never a blank or faked panel. */
+/* Compact lyrics states (owner fix 5b/5c): no-lyrics, loading, and collapsed-plain must NOT
+ * claim the flex-grow space the scrolling karaoke uses — that is what left a huge dead gap
+ * and pushed the transport off-screen. These shrink to content, with no fade mask. */
+.lyrics-compact {
+  flex: 0 0 auto;
+  min-height: 0;
+  overflow: visible;
+  padding: 6px;
+  -webkit-mask-image: none;
+  mask-image: none;
+}
 .lyrics-empty {
-  margin: 24px 0;
+  margin: 8px 0;
   color: var(--txt-mid);
-  font-size: 0.92rem;
+  font-size: 0.9rem;
 }
 .lyrics-status {
-  margin: 24px 0;
+  margin: 8px 0;
   color: var(--txt-lo);
   font-size: 0.88rem;
+}
+/* The compact "Lyrics" toggle for plain (unsynced) lyrics. */
+.lyrics-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border-radius: var(--r-pill);
+  border: 1px solid var(--line);
+  background: var(--ink-2);
+  color: var(--txt-hi);
+  font: inherit;
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+.lyrics-toggle:hover {
+  background: var(--ink-3);
+}
+.lyrics-toggle:focus-visible {
+  outline: 2px solid var(--teal);
+  outline-offset: 2px;
+}
+/* Expanded plain lyrics: bounded + scrollable, never an unbounded inline wall. */
+.lyrics-plain-panel {
+  max-height: 34vh;
+  overflow-y: auto;
+  margin-top: 8px;
+  text-align: left;
 }
 .lyrics-note {
   margin: 0 0 10px;
@@ -1822,6 +1917,17 @@ body {
 .rail-chev:focus-visible {
   outline: 2px solid var(--teal);
   outline-offset: 2px;
+}
+/* Left-edge mirror of the scroll cue (owner fix 7): fade + chevron on the left, shown only
+ * once the rail has been scrolled right. */
+.rail-fade-left {
+  right: auto;
+  left: 0;
+  background: linear-gradient(270deg, transparent, var(--ink-0) 82%);
+}
+.rail-chev-left {
+  right: auto;
+  left: 8px;
 }
 
 /* --- Track card (one item in a rail) ----------------------------------------- */
@@ -3364,6 +3470,17 @@ body {
 .setting-row .sleep-menu {
   top: auto;
   bottom: calc(100% + 6px);
+}
+/* Portaled variant (owner fix 1): the menu is rendered in the top-level overlay layer so
+ * the persistent video host can never cover it. It is positioned by fixed viewport
+ * coordinates (top/right set inline from the trigger's rect), and must re-enable pointer
+ * events because the overlay root is inert (pointer-events:none). */
+.sleep-menu-portal {
+  position: fixed;
+  top: 0;
+  bottom: auto;
+  right: 0;
+  pointer-events: auto;
 }
 .sleep-menu-label {
   font-size: 0.68rem;

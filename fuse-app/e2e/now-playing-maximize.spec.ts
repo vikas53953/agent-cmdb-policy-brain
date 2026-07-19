@@ -36,12 +36,13 @@ test.describe("now playing — video maximize / theater toggle (Complaint 2)", (
   }) => {
     await playFirstYouTubeAndOpenNp(page);
 
-    const toggle = page.getByTestId("np-theater");
+    // The plain-words "Bigger player" toggle (owner fix 4, replaces the old "theater" word).
+    const toggle = page.getByTestId("np-bigger");
     // A video-type track shows the toggle. If the first result classified as an audio
     // upload (rare for this query) it is presented art-forward and there is nothing to
-    // maximise — skip honestly rather than assert a control that correctly isn't there.
+    // enlarge — skip honestly rather than assert a control that correctly isn't there.
     if ((await toggle.count()) === 0) {
-      test.skip(true, "First result is an audio-type upload (art-forward, no theater toggle).");
+      test.skip(true, "First result is an audio-type upload (art-forward, no bigger-player toggle).");
       return;
     }
 
@@ -49,30 +50,32 @@ test.describe("now playing — video maximize / theater toggle (Complaint 2)", (
     const stage = page.locator(".np-stage");
     const widthOf = async () => (await art.boundingBox())?.width ?? 0;
 
-    // Off by default.
-    await expect(toggle).toHaveAttribute("aria-pressed", "false");
+    // Normalize to the padded ("smaller") state first — on a desktop viewport a video now
+    // opens bigger BY DEFAULT (owner fix 4), so measure from a known baseline rather than
+    // assuming off-by-default.
+    if ((await stage.getAttribute("data-theater")) === "on") await toggle.click();
     await expect(stage).toHaveAttribute("data-theater", "off");
-    const normalWidth = await widthOf();
+    await expect(toggle).toHaveAttribute("aria-pressed", "false");
+    const smallerWidth = await widthOf();
 
-    // Maximize → the video expands to the full width of the surface (edge to edge,
-    // wider than the padded default).
+    // Bigger → the video expands to the full width of the surface (edge to edge).
     await toggle.click();
     await expect(toggle).toHaveAttribute("aria-pressed", "true");
     await expect(stage).toHaveAttribute("data-theater", "on");
     await expect
-      .poll(widthOf, { message: "Theater did not widen the video." })
-      .toBeGreaterThan(normalWidth);
+      .poll(widthOf, { message: "Bigger player did not widen the video." })
+      .toBeGreaterThan(smallerWidth);
 
-    // The page must not scroll sideways while maximized (still inline, within the frame).
+    // The page must not scroll sideways while enlarged (still inline, within the frame).
     const overflow = await page.evaluate(
       () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
     );
-    expect(overflow, "Theater view overflowed the frame horizontally.").toBeLessThanOrEqual(1);
+    expect(overflow, "Bigger player overflowed the frame horizontally.").toBeLessThanOrEqual(1);
 
-    // Exit theater → the surface returns to its normal padded width.
+    // Smaller → the surface returns to its normal padded width.
     await toggle.click();
     await expect(toggle).toHaveAttribute("aria-pressed", "false");
     await expect(stage).toHaveAttribute("data-theater", "off");
-    await expect.poll(widthOf).toBeLessThanOrEqual(normalWidth + 1);
+    await expect.poll(widthOf).toBeLessThanOrEqual(smallerWidth + 1);
   });
 });

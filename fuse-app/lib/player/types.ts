@@ -119,6 +119,20 @@ export type PlayerState = {
   // The store consumes it at a genuine end-of-track advance: instead of moving on (or
   // continuing radio) it pauses. A visible countdown/chip renders from the sleep timer.
   sleepStopAfterTrack: boolean;
+  // Output volume in 0..1 and the mute toggle (owner fix 3). The store is the single owner
+  // of playback volume: it applies the EFFECTIVE volume (0 while muted, else `volume`) to
+  // the active adapter, re-applies it across track changes and blend promotions so it
+  // persists, and the shell persists it per user. The mini-player and Now Playing render
+  // the slider + mute from these fields, so every surface shows one truth.
+  volume: number;
+  muted: boolean;
+  // True when the up-next queue was auto-seeded with radio-continuation picks because the
+  // user played a track without building a queue (owner fix 2 — never an empty "Up next").
+  // Drives the honest "Up next — Autoplay" section label in the queue view. Cleared when a
+  // fresh listening context replaces the queue (a new row tap). The picks are ordinary
+  // queue entries — reorderable and removable — and feed playback at track end like any
+  // other queued track; the consented "Autoplay similar" setting governs whether they seed.
+  autoplayQueued: boolean;
 };
 
 // A radio provider seeds "similar" tracks from the last-played track when the queue runs

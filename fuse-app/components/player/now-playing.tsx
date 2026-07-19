@@ -17,10 +17,13 @@
 import { useEffect, useRef, useState } from "react";
 import { usePlayerSelector } from "@/lib/player/use-player-selector";
 import { playerStore } from "@/lib/player/store";
+import { nextWithBlend } from "@/lib/player/blend-controller";
+import { playerHostCoordinator } from "@/lib/player/host-coordinator";
 import { adapterRegistry } from "@/lib/player/adapters";
 import { SOURCE_BADGES } from "@/lib/ui/shell";
 import { isAudioTrack } from "@/lib/search/audio-kind";
 import VideoSurface from "@/components/player/video-surface";
+import VolumeControl from "@/components/player/volume-control";
 import Scrub from "@/components/player/scrub";
 import Lyrics from "@/components/player/lyrics";
 import MeltPanel from "@/components/player/melt-panel";
@@ -36,6 +39,8 @@ import {
   ChevronDownIcon,
   MusicIcon,
   QueueIcon,
+  FullscreenIcon,
+  ExpandIcon,
 } from "@/components/ui/icons";
 
 const STALL_MSG = "Playback stalled — retrying";
@@ -74,10 +79,12 @@ export default function NowPlaying({
       radioActive: s.radioActive,
     }));
 
-  // Theater/maximize toggle for VIDEO tracks (Complaint 2): expands the video to fill the
-  // full width of the Now Playing surface, still inline. Off by default; reset whenever the
-  // track changes so a new song never opens unexpectedly maximised.
-  const [theater, setTheater] = useState(false);
+  // "Bigger player" — the plain-words larger-player LAYOUT toggle for VIDEO tracks (owner
+  // fix 4, replacing the confusing "theater" wording): it expands the video to fill the full
+  // width of the Now Playing surface, still inline. This is the honest in-page layout control;
+  // true full screen is the separate Fullscreen API button below. Reset on track change so a
+  // new song never opens unexpectedly enlarged.
+  const [bigger, setBigger] = useState(false);
 
   // Close on Escape while open (accessibility parity with the profile sheet).
   useEffect(() => {
@@ -97,7 +104,39 @@ export default function NowPlaying({
   const prevIdRef = useRef(currentId);
   if (prevIdRef.current !== currentId) {
     prevIdRef.current = currentId;
-    if (theater) setTheater(false);
+    // A new video opens with the bigger player BY DEFAULT on a desktop-width viewport (owner
+    // fix 4), and the padded default on a phone. The user's Bigger/Smaller control overrides
+    // it. Guarded setState during render (React's "adjust state on prop change" pattern); the
+    // guard only fires on a real track change, never on first render, so SSR stays consistent.
+    const desktopDefault =
+      typeof window !== "undefined" && !!window.matchMedia?.("(min-width: 700px)").matches;
+    if (bigger !== desktopDefault) setBigger(desktopDefault);
+  }
+
+  // Enter REAL full screen (owner fix 4) via the Fullscreen API, on the single persistent
+  // player host (the element that actually holds the YouTube iframe — the art slot is only
+  // an empty geometry box the video is laid over, so fullscreening it would show nothing).
+  // Honest fallback: if the browser has no Fullscreen API or refuses, we do nothing rather
+  // than pretend — the inline "Bigger player" layout is always available as the plain option.
+  function enterFullscreen() {
+    const host = playerHostCoordinator.primaryHost();
+    if (!host) return;
+    const req = host.requestFullscreen?.bind(host);
+    if (!req) return;
+    // The host is pointer-events:none for normal overlay behaviour; allow interaction while
+    // it owns the whole screen so the browser's fullscreen affordances work.
+    const prevPE = host.style.pointerEvents;
+    host.style.pointerEvents = "auto";
+    void Promise.resolve(req()).catch(() => {
+      host.style.pointerEvents = prevPE;
+    });
+    const restore = () => {
+      if (!document.fullscreenElement) {
+        host.style.pointerEvents = prevPE;
+        document.removeEventListener("fullscreenchange", restore);
+      }
+    };
+    document.addEventListener("fullscreenchange", restore);
   }
 
   // The recovery ladder is driven app-wide by the single monitor in the shell
@@ -123,8 +162,8 @@ export default function NowPlaying({
   const isVideoTrack = isYouTube && !isAudio;
   const artClass = isAudio
     ? "np-art np-art-audio"
-    : theater && isVideoTrack
-      ? "np-art np-art-theater"
+    : bigger && isVideoTrack
+      ? "np-art np-art-bigger"
       : "np-art";
 
   return (
@@ -187,7 +226,7 @@ export default function NowPlaying({
 
             {/* The content stage centres its column so leftover height is split evenly
                 rather than pooling into a dead blank band below the controls (Complaint 2). */}
-            <div className="np-stage" data-theater={theater && isVideoTrack ? "on" : "off"}>
+            <div className="np-stage" data-theater={bigger && isVideoTrack ? "on" : "off"}>
             <div className={artClass} data-testid="np-art">
               {open && current.source === "youtube" ? (
                 // The visible YouTube video IS the artwork surface (KTD-7). For an audio
@@ -204,20 +243,34 @@ export default function NowPlaying({
               )}
             </div>
 
-            {/* Maximise / theater toggle — only for a real video track (an audio upload is
-                already presented art-forward, so there is nothing to maximise). */}
+            {/* Video controls (owner fix 4) — only for a real video track (an audio upload is
+                already presented art-forward). Two plain-words controls, no "theater" jargon:
+                a "Bigger/Smaller player" inline LAYOUT toggle, and a standard Full screen
+                button that uses the Fullscreen API. */}
             {isVideoTrack ? (
               <div className="np-theater-bar">
                 <button
                   type="button"
-                  className={theater ? "np-theater-btn on" : "np-theater-btn"}
-                  data-testid="np-theater"
-                  aria-pressed={theater}
-                  onClick={() => setTheater((t) => !t)}
-                  title={theater ? "Exit theater view" : "Maximise the video"}
-                  aria-label={theater ? "Exit theater view" : "Maximise the video"}
+                  className={bigger ? "np-theater-btn on" : "np-theater-btn"}
+                  data-testid="np-bigger"
+                  aria-pressed={bigger}
+                  onClick={() => setBigger((b) => !b)}
+                  title={bigger ? "Use the smaller player" : "Use a bigger player"}
+                  aria-label={bigger ? "Smaller player" : "Bigger player"}
                 >
-                  {theater ? "Exit theater" : "Theater"}
+                  <ExpandIcon size={16} />
+                  <span>{bigger ? "Smaller player" : "Bigger player"}</span>
+                </button>
+                <button
+                  type="button"
+                  className="np-theater-btn"
+                  data-testid="np-fullscreen"
+                  onClick={enterFullscreen}
+                  title="Full screen"
+                  aria-label="Full screen"
+                >
+                  <FullscreenIcon size={16} />
+                  <span>Full screen</span>
                 </button>
               </div>
             ) : null}
@@ -349,7 +402,7 @@ export default function NowPlaying({
                 type="button"
                 className="icon-btn"
                 data-testid="np-next"
-                onClick={canAdvance ? () => void playerStore.next() : undefined}
+                onClick={canAdvance ? () => nextWithBlend() : undefined}
                 disabled={!canAdvance}
                 aria-disabled={!canAdvance}
                 title={canAdvance ? "Next track" : NO_NEXT_REASON}
@@ -375,6 +428,9 @@ export default function NowPlaying({
                 {repeat === "one" ? <span className="repeat-one" aria-hidden="true">1</span> : null}
               </button>
             </div>
+
+            {/* Volume slider + mute (owner fix 3), inline on the full player. */}
+            <VolumeControl variant="full" />
             </div>
           </div>
         ) : null}

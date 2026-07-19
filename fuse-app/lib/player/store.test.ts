@@ -675,3 +675,99 @@ describe("recovery ladder honesty (AE1 — the playback-stall class fix)", () =>
     expect(s.recovery.skipOffered).toBe(false); // nothing queued to skip to
   });
 });
+
+// ── Owner fix 3: volume + mute are real, applied to the adapter, and persist ─────────
+describe("PlayerStore volume + mute (owner fix 3)", () => {
+  it("setVolume records the level, applies a reduced level to the active adapter, and unmutes", async () => {
+    const registry = createAdapterRegistry();
+    const { adapter, calls } = makeFakeAdapter("youtube");
+    registry.register(adapter);
+    const store = new PlayerStore({ registry });
+    await store.play(track("youtube", "abc"));
+
+    store.setVolume(0.5);
+    expect(store.getState().volume).toBe(0.5);
+    expect(store.effectiveVolume()).toBe(0.5);
+    // A reduced level is pushed to the live adapter immediately (real control, not cosmetic).
+    expect(calls).toContain("setVolume");
+
+    // Dragging up off zero is an implicit unmute.
+    store.setMuted(true);
+    expect(store.effectiveVolume()).toBe(0);
+    store.setVolume(0.8);
+    expect(store.getState().muted).toBe(false);
+    expect(store.effectiveVolume()).toBe(0.8);
+  });
+
+  it("toggleMute drives the effective volume to 0 without losing the chosen level", () => {
+    const store = new PlayerStore({ registry: createAdapterRegistry() });
+    store.setVolume(0.6);
+    store.toggleMute();
+    expect(store.getState().muted).toBe(true);
+    expect(store.effectiveVolume()).toBe(0);
+    store.toggleMute();
+    expect(store.getState().muted).toBe(false);
+    expect(store.effectiveVolume()).toBe(0.6); // restored, never lost
+  });
+
+  it("re-applies a reduced volume onto a freshly-loaded track (persists across changes)", async () => {
+    const registry = createAdapterRegistry();
+    const { adapter, calls } = makeFakeAdapter("youtube");
+    registry.register(adapter);
+    const store = new PlayerStore({ registry });
+    store.setVolume(0.3);
+    calls.length = 0;
+    await store.play(track("youtube", "next"));
+    // The new player is brought to the user's level, not left at full.
+    expect(calls).toContain("setVolume");
+  });
+});
+
+// ── Owner fix 2: autoplay up-next seeding — "Up next" is never empty ─────────────────
+describe("PlayerStore autoplay up-next seeding (owner fix 2)", () => {
+  const registryWith = () => {
+    const registry = createAdapterRegistry();
+    registry.register(makeFakeAdapter("youtube").adapter);
+    return registry;
+  };
+
+  it("seeds radio-continuation picks into an EMPTY queue and marks them as autoplay", async () => {
+    const store = new PlayerStore({ registry: registryWith() });
+    store.setRadioProvider(async () => [track("youtube", "b"), track("youtube", "c")]);
+    await store.play(track("youtube", "a"));
+    expect(store.getState().queue).toHaveLength(0);
+
+    await store.seedAutoplayQueue();
+    expect(store.getState().queue.map((t) => t.nativeId)).toEqual(["b", "c"]);
+    expect(store.getState().autoplayQueued).toBe(true);
+  });
+
+  it("does nothing without consent, and never overwrites a queue the user built", async () => {
+    const store = new PlayerStore({ registry: registryWith() });
+    store.setRadioProvider(async () => [track("youtube", "b")]);
+
+    // Consent off → no seeding.
+    store.setAutoplaySimilar(false);
+    await store.play(track("youtube", "a"));
+    await store.seedAutoplayQueue();
+    expect(store.getState().queue).toHaveLength(0);
+    expect(store.getState().autoplayQueued).toBe(false);
+
+    // Consent on but a real queue exists → left untouched.
+    store.setAutoplaySimilar(true);
+    store.setQueue([track("youtube", "manual")]);
+    await store.seedAutoplayQueue();
+    expect(store.getState().queue.map((t) => t.nativeId)).toEqual(["manual"]);
+    expect(store.getState().autoplayQueued).toBe(false);
+  });
+
+  it("a fresh row tap (setQueue) clears the autoplay label", async () => {
+    const store = new PlayerStore({ registry: registryWith() });
+    store.setRadioProvider(async () => [track("youtube", "b")]);
+    await store.play(track("youtube", "a"));
+    await store.seedAutoplayQueue();
+    expect(store.getState().autoplayQueued).toBe(true);
+    store.setQueue([track("youtube", "x")]);
+    expect(store.getState().autoplayQueued).toBe(false);
+  });
+});
