@@ -314,7 +314,7 @@ export function createYouTubeAdapter(deps: YouTubeAdapterDeps = {}): YouTubeAdap
     setEngineState(toEngineState(state));
     // When a track genuinely ends, advance the queue. This is driven by the REAL engine
     // 'ended' event (a legitimate end-of-track advance), never by a position-delta guess.
-    if (state === YT_STATE_ENDED) void store.next();
+    if (state === YT_STATE_ENDED) void store.next("ended");
   }
 
   return {

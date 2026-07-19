@@ -7,7 +7,7 @@
 import { cookies } from "next/headers";
 import { signOut } from "@/lib/auth";
 import { requireUser } from "@/lib/auth-session";
-import { setLyricsEnabled, setCrossfadeSec, getCrossfadeSec, setPreferAudio } from "@/lib/repos/settings";
+import { setLyricsEnabled, setCrossfadeSec, getCrossfadeSec, setPreferAudio, setAutoplaySimilar } from "@/lib/repos/settings";
 
 // Sign the current user out and land them back on the sign-in page. This is a REAL,
 // working control (the one live control in the U4 profile sheet). It calls Auth.js's
@@ -49,6 +49,17 @@ export async function setCrossfadeSecAction(seconds: number): Promise<number> {
 export async function setPreferAudioAction(enabled: boolean): Promise<boolean> {
   const user = await requireUser();
   await setPreferAudio(user.id, enabled);
+  return enabled;
+}
+
+// Persist the "autoplay similar when queue ends" setting for the signed-in user (Wave 1,
+// R16/R17). A REAL control — the profile-sheet toggle calls it and the player reads it to
+// decide whether to continue with similar tracks when the queue runs out. requireUser
+// scopes the write to the caller's own settings row; a keyless build never invokes it.
+// Returns the value written so the client can confirm its optimistic state.
+export async function setAutoplaySimilarAction(enabled: boolean): Promise<boolean> {
+  const user = await requireUser();
+  await setAutoplaySimilar(user.id, enabled);
   return enabled;
 }
 

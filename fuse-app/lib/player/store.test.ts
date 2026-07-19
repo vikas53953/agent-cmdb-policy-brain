@@ -419,6 +419,157 @@ describe("rehydrate — restore paused after a reload, then resume from the save
   });
 });
 
+describe("visible queue actions — play next / add to queue / remove / reorder (Wave 1)", () => {
+  function freshStore() {
+    const registry = createAdapterRegistry();
+    registry.register(makeFakeAdapter("youtube").adapter);
+    return new PlayerStore({ registry });
+  }
+
+  it("addToQueue appends, playNext inserts at the front", () => {
+    const store = freshStore();
+    store.setQueue([track("youtube", "a")]);
+    store.addToQueue(track("youtube", "b"));
+    store.playNext(track("youtube", "z"));
+    expect(store.getState().queue.map((t) => t.nativeId)).toEqual(["z", "a", "b"]);
+  });
+
+  it("removeFromQueue drops a row and moveInQueue reorders", () => {
+    const store = freshStore();
+    store.setQueue([track("youtube", "a"), track("youtube", "b"), track("youtube", "c")]);
+    store.removeFromQueue(1);
+    expect(store.getState().queue.map((t) => t.nativeId)).toEqual(["a", "c"]);
+    store.moveInQueue(0, 1);
+    expect(store.getState().queue.map((t) => t.nativeId)).toEqual(["c", "a"]);
+  });
+});
+
+describe("true previous — history back-stack, restart when >3s in (Wave 1)", () => {
+  function freshStore() {
+    const registry = createAdapterRegistry();
+    registry.register(makeFakeAdapter("youtube").adapter);
+    return new PlayerStore({ registry });
+  }
+
+  it("Next builds history; Previous (near the start) goes back a song", async () => {
+    const store = freshStore();
+    await store.play(track("youtube", "a"));
+    store.setQueue([track("youtube", "b")]);
+    await store.next(); // now on b, a is in history
+    expect(store.getState().current?.nativeId).toBe("b");
+    expect(store.getState().history.map((t) => t.nativeId)).toEqual(["a"]);
+
+    await store.previous(); // position 0 → go back to a
+    expect(store.getState().current?.nativeId).toBe("a");
+    // The track we left (b) is at the front of the queue so Next returns to it.
+    expect(store.getState().queue[0]?.nativeId).toBe("b");
+    expect(store.getState().history).toHaveLength(0);
+  });
+
+  it("Previous RESTARTS the current track when more than 3s in (does not pop history)", async () => {
+    const store = freshStore();
+    await store.play(track("youtube", "a"));
+    store.setQueue([track("youtube", "b")]);
+    await store.next(); // on b, history [a]
+    store.reportPosition(42, 200); // deep into b
+    expect(store.canGoBack()).toBe(false); // deep-in → Previous would restart, not go back
+
+    await store.previous(); // restart b, not go back to a
+    expect(store.getState().current?.nativeId).toBe("b");
+    expect(store.getState().positionSec).toBe(0);
+    expect(store.getState().history.map((t) => t.nativeId)).toEqual(["a"]); // untouched
+  });
+
+  it("Previous restarts honestly when there is nothing to go back to", async () => {
+    const store = freshStore();
+    await store.play(track("youtube", "solo"));
+    const ok = await store.previous();
+    expect(ok).toBe(true);
+    expect(store.getState().current?.nativeId).toBe("solo");
+  });
+});
+
+describe("radio continuation — the one sanctioned, consented auto-play (Wave 1)", () => {
+  function radioStore(provider: (seed: TrackRef) => Promise<TrackRef[]>, autoplay = true) {
+    const registry = createAdapterRegistry();
+    registry.register(makeFakeAdapter("youtube").adapter);
+    const store = new PlayerStore({ registry });
+    store.setAutoplaySimilar(autoplay);
+    store.setRadioProvider(provider);
+    return store;
+  }
+
+  it("continues with similar tracks when the queue ends and the setting is ON", async () => {
+    const store = radioStore(async () => [track("youtube", "sim1"), track("youtube", "sim2")]);
+    await store.play(track("youtube", "seed"));
+    expect(store.getState().queue).toHaveLength(0);
+
+    const advanced = await store.next(); // queue empty → radio
+    expect(advanced).toBe(true);
+    expect(store.getState().current?.nativeId).toBe("sim1");
+    expect(store.getState().queue.map((t) => t.nativeId)).toEqual(["sim2"]);
+    expect(store.getState().radioActive).toBe(true);
+  });
+
+  it("does NOT continue when the setting is OFF — stops honestly", async () => {
+    const store = radioStore(async () => [track("youtube", "sim1")], false);
+    await store.play(track("youtube", "seed"));
+    const advanced = await store.next();
+    expect(advanced).toBe(false);
+    expect(store.getState().radioActive).toBe(false);
+    expect(store.getState().current?.nativeId).toBe("seed");
+  });
+
+  it("stops honestly when the provider finds nothing similar", async () => {
+    const store = radioStore(async () => []);
+    await store.play(track("youtube", "seed"));
+    expect(await store.next()).toBe(false);
+    expect(store.getState().radioActive).toBe(false);
+  });
+
+  it("a fresh row tap (setQueue) ends the radio stream", async () => {
+    const store = radioStore(async () => [track("youtube", "sim1")]);
+    await store.play(track("youtube", "seed"));
+    await store.next();
+    expect(store.getState().radioActive).toBe(true);
+    store.setQueue([track("youtube", "picked")]); // user chose a new context
+    expect(store.getState().radioActive).toBe(false);
+  });
+});
+
+describe("sleep timer — stop at end of track (Wave 1)", () => {
+  function freshStore() {
+    const registry = createAdapterRegistry();
+    registry.register(makeFakeAdapter("youtube").adapter);
+    return new PlayerStore({ registry });
+  }
+
+  it("a genuine end-of-track advance pauses instead of advancing when armed", async () => {
+    const store = freshStore();
+    await store.play(track("youtube", "a"));
+    store.setQueue([track("youtube", "b")]);
+    store.setStopAfterTrack(true);
+
+    const advanced = await store.next("ended"); // engine ended
+    expect(advanced).toBe(false);
+    expect(store.getState().current?.nativeId).toBe("a"); // did NOT advance to b
+    expect(store.getState().isPlaying).toBe(false); // paused honestly
+    expect(store.getState().sleepStopAfterTrack).toBe(false); // consumed once
+  });
+
+  it("a MANUAL next ignores the end-of-track flag (the user wants the next track)", async () => {
+    const store = freshStore();
+    await store.play(track("youtube", "a"));
+    store.setQueue([track("youtube", "b")]);
+    store.setStopAfterTrack(true);
+
+    const advanced = await store.next("user");
+    expect(advanced).toBe(true);
+    expect(store.getState().current?.nativeId).toBe("b");
+    expect(store.getState().sleepStopAfterTrack).toBe(true); // still armed for b's end
+  });
+});
+
 describe("switching source stops the previous adapter", () => {
   it("pauses and unloads the old adapter before starting the new one", async () => {
     const registry = createAdapterRegistry();

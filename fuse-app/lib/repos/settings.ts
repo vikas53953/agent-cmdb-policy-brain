@@ -16,6 +16,7 @@ export const SETTING_KEYS = {
   crossfadeSec: "crossfadeSec",
   lyricsEnabled: "lyricsEnabled",
   preferAudio: "preferAudio",
+  autoplaySimilar: "autoplaySimilar",
 } as const;
 
 // Crossfade length is user-chosen within 3..15s (R3/R11). Clamp on write so a bad
@@ -93,4 +94,20 @@ export async function getPreferAudio(userId: string, db: PrismaClient = prisma):
 
 export function setPreferAudio(userId: string, enabled: boolean, db: PrismaClient = prisma) {
   return setSetting(userId, SETTING_KEYS.preferAudio, enabled ? "true" : "false", db);
+}
+
+// Typed "autoplay similar when the queue ends" accessors (Wave 1 — radio continuation).
+// When on, the player keeps listening going with similar tracks once the queue runs out
+// (seeded from the last track), instead of stopping dead. This is the ONE sanctioned
+// auto-play — user-consented via this visible setting and announced on screen by the
+// Now Playing banner. Defaults ON: a queue that stops dead reads as broken to a switcher;
+// the user turns it off to make the music stop at the end of the queue.
+export async function getAutoplaySimilar(userId: string, db: PrismaClient = prisma): Promise<boolean> {
+  const raw = await getSetting(userId, SETTING_KEYS.autoplaySimilar, db);
+  if (raw == null) return true;
+  return raw === "true";
+}
+
+export function setAutoplaySimilar(userId: string, enabled: boolean, db: PrismaClient = prisma) {
+  return setSetting(userId, SETTING_KEYS.autoplaySimilar, enabled ? "true" : "false", db);
 }

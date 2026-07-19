@@ -104,7 +104,29 @@ export type PlayerState = {
   // The engine's own reported lifecycle for the current track (see EngineState), mirrored
   // from the active adapter. Read by the recovery monitor together with `intent`.
   engineState: EngineState;
+  // The back-stack of tracks the listener has navigated AWAY from, oldest first (Wave 1 —
+  // true Previous). `previous()` pops this to go back a song, mirroring every rival's
+  // back button. Capped so it never grows without bound. Not the queue (that is forward);
+  // this is history (backward).
+  history: readonly TrackRef[];
+  // True while RADIO CONTINUATION is carrying listening past the end of the queue with
+  // similar tracks (Wave 1). It is the ONE sanctioned auto-play — user-consented via the
+  // visible "Autoplay similar when queue ends" setting — and drives the honest on-screen
+  // banner in Now Playing. Set only when the radio branch fires; cleared the moment the
+  // user starts a fresh listening context (a new row tap replaces the queue).
+  radioActive: boolean;
+  // True when the sleep timer is armed to "stop at the end of the current track" (Wave 1).
+  // The store consumes it at a genuine end-of-track advance: instead of moving on (or
+  // continuing radio) it pauses. A visible countdown/chip renders from the sleep timer.
+  sleepStopAfterTrack: boolean;
 };
+
+// A radio provider seeds "similar" tracks from the last-played track when the queue runs
+// out (Wave 1). Kept as an injected function so the framework-free store never imports the
+// search/network machinery: the app wires a provider that reuses the real search engine
+// (seed from the track's artist/title); tests pass a deterministic fake. Returning [] means
+// "nothing similar found" — the store then honestly stops rather than faking continuation.
+export type RadioProvider = (seed: TrackRef) => Promise<readonly TrackRef[]>;
 
 // The DJ/player powers whose availability differs by source and context. These are
 // exactly the rows of the DJ capability matrix in the plan.
