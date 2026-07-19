@@ -17,7 +17,7 @@ import {
   LYRICS_CACHE_TTL_MS,
   type CachedLyrics,
 } from "@/lib/repos/lyrics-cache";
-import { fetchLyricsFromLrclib, toLyricsPayload, type LyricsPayload } from "@/lib/lyrics";
+import { fetchLyricsFromLrclib, parseLyricsQuery, toLyricsPayload, type LyricsPayload } from "@/lib/lyrics";
 
 // LRCLIB fetch runs server-side (Node runtime), and the cache uses Prisma/Neon.
 export const runtime = "nodejs";
@@ -35,12 +35,17 @@ const HONEST_EMPTY: LyricsResponse = { found: false, synced: null, plain: null, 
 
 export async function GET(request: Request) {
   const url = new URL(request.url);
-  const title = (url.searchParams.get("title") ?? "").trim();
-  const artist = (url.searchParams.get("artist") ?? "").trim() || null;
+  const rawTitle = (url.searchParams.get("title") ?? "").trim();
+  const rawArtist = (url.searchParams.get("artist") ?? "").trim() || null;
   const durationRaw = url.searchParams.get("duration");
   const durationSec = durationRaw != null && durationRaw !== "" && Number.isFinite(Number(durationRaw))
     ? Number(durationRaw)
     : null;
+
+  // Parse a clean artist/title out of the noisy YouTube video title before looking up LRCLIB
+  // (owner fix 5a) — "Karan Aujla - Boyfriend (Official Video)" becomes artist "Karan Aujla",
+  // title "Boyfriend", so the lookup (and the cache key) target the real song.
+  const { title, artist } = parseLyricsQuery(rawTitle, rawArtist);
 
   // Nothing to look up → honest empty state, no external call.
   if (title === "") return NextResponse.json(HONEST_EMPTY);

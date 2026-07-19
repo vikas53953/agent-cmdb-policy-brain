@@ -64,11 +64,15 @@ async function loadHome(): Promise<HomeData> {
 
     const [likeRows, recentRows, countTracks] = await Promise.all([
       listLikes(user.id),
-      listRecentPlays(user.id, 12),
+      // Fetch a deeper slice than we show so de-duplication still leaves a full row: the
+      // same track played several times must appear ONCE, at its most-recent position
+      // (owner fix 6), like every big player. Rows come back newest-first, so keeping the
+      // FIRST occurrence of each track keeps the most recent play and its order.
+      listRecentPlays(user.id, 60),
       trendingTracks(20),
     ]);
     const likes = likeRows.map(toHomeTrack);
-    const recent = recentRows.map(toHomeTrack);
+    const recent = dedupeTracks([recentRows.map(toHomeTrack)]).slice(0, 12);
 
     // KTD-4: real aggregate trending once it has grown enough, else the curated seed.
     const trending = chooseTrending(seedTracks, countTracks);

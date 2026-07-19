@@ -61,6 +61,9 @@ const INITIAL_STATE: PlayerState = {
   history: [],
   radioActive: false,
   sleepStopAfterTrack: false,
+  volume: 1,
+  muted: false,
+  autoplayQueued: false,
 };
 
 export type PlayerStoreOptions = {
@@ -126,7 +129,9 @@ export class PlayerStore {
   // clears the back-stack does NOT happen here (history is about tracks you played, not the
   // queue you lined up).
   setQueue(tracks: readonly TrackRef[]): void {
-    this.set({ queue: [...tracks], radioActive: false });
+    // A fresh listening context supersedes any auto-seeded autoplay picks (owner fix 2), so
+    // the "Up next — Autoplay" label drops until the queue next runs dry and re-seeds.
+    this.set({ queue: [...tracks], radioActive: false, autoplayQueued: false });
   }
 
   // "Add to queue" (Wave 1) — append to the end. A real, honest action available on every
@@ -346,6 +351,9 @@ export class PlayerStore {
       this.set({ isPlaying: false, status: "error" });
       return false;
     }
+    // Re-assert the user's chosen volume on the freshly-built player (owner fix 3) so a new
+    // track never resets to full when the engine rebuilds.
+    this.applyVolume();
     // Only claim "playing" if an error did not arrive during load/play (onError can fire
     // between here and the awaits). Never overwrite a known-bad engine back to "playing".
     if (this.errorKind === "none") {
@@ -383,6 +391,7 @@ export class PlayerStore {
         this.set({ isPlaying: false, status: "error" });
         return false;
       }
+      this.applyVolume();
       this.set(
         this.errorKind === "none"
           ? { isPlaying: true, status: "playing" }
@@ -425,6 +434,7 @@ export class PlayerStore {
       this.errorKind = "soft";
       return false;
     }
+    this.applyVolume();
     if (this.errorKind === "none") this.set({ isPlaying: true, status: "playing" });
     return this.errorKind === "none";
   }
@@ -601,10 +611,71 @@ export class PlayerStore {
     this.set({ positionSec: clamped });
   }
 
-  // Set output volume (0..1) on the active adapter. Used by the blend engine (U11).
+  // The volume actually sent to the engine: 0 while muted, otherwise the chosen level.
+  // The single place mute + level combine, so every apply-point stays consistent.
+  effectiveVolume(): number {
+    return this.state.muted ? 0 : this.state.volume;
+  }
+
+  // Re-assert the effective volume on the active adapter. Called after every (re)load,
+  // resume, and blend promotion so a user's chosen level survives track changes rather
+  // than resetting to full each time a new player is built (owner fix 3). A freshly-built
+  // player already starts at full, so a redundant setVolume(1) is skipped — only a genuinely
+  // reduced (or muted) level is pushed down onto the new player.
+  private applyVolume(): void {
+    const effective = this.effectiveVolume();
+    if (effective >= 1) return;
+    this.activeAdapter?.setVolume(effective);
+  }
+
+  // Set output volume (0..1). The store owns volume truth: it records the level, unmutes
+  // when the user drags above zero (a real move off mute), and pushes the effective value
+  // to the active adapter immediately (owner fix 3). The shell persists it per user.
   setVolume(volume: number): void {
     const clamped = Math.max(0, Math.min(1, volume));
-    this.activeAdapter?.setVolume(clamped);
+    // Dragging the slider up is an implicit unmute — the control never lies about silence.
+    const muted = clamped === 0 ? this.state.muted : false;
+    this.set({ volume: clamped, muted });
+    this.applyVolume();
+  }
+
+  // Mute / unmute without losing the chosen level (unmute restores the prior volume).
+  setMuted(muted: boolean): void {
+    if (this.state.muted === muted) return;
+    this.set({ muted });
+    this.applyVolume();
+  }
+
+  toggleMute(): void {
+    this.setMuted(!this.state.muted);
+  }
+
+  // AUTOPLAY UP-NEXT (owner fix 2). When the user plays a track without lining up a queue,
+  // the "Up next" view must never read empty: seed it with radio-continuation picks (like
+  // YouTube Music's auto-queue) so there is always something up next — visible, reorderable,
+  // and removable — that also feeds playback at track end and gives the crossfade engine a
+  // next track to melt into. Honesty (R17): it fires ONLY with the user's "Autoplay similar"
+  // consent and a wired provider; it never overwrites a queue the user built (runs only when
+  // the queue is empty), and it marks the seeded picks so the view can label them truthfully.
+  async seedAutoplayQueue(): Promise<void> {
+    const seed = this.state.current;
+    if (!seed || this.state.queue.length > 0) return;
+    if (!this.autoplaySimilar || !this.radioProvider) return;
+    let similar: readonly TrackRef[] = [];
+    try {
+      similar = await this.radioProvider(seed);
+    } catch {
+      return; // a failed lookup leaves the queue honestly empty, never a faked list
+    }
+    // Drop the seed and anything already heard so the autoplay list is genuinely "next".
+    const fresh = similar.filter(
+      (t) => !sameTrack(t, seed) && !this.state.history.some((h) => sameTrack(h, t)),
+    );
+    // Guard against a race: only apply if the queue is still empty and the seed is unchanged.
+    if (fresh.length === 0) return;
+    if (this.state.queue.length > 0) return;
+    if (!this.state.current || !sameTrack(this.state.current, seed)) return;
+    this.set({ queue: fresh, autoplayQueued: true });
   }
 
   // Set playback rate; the adapter clamps to its own supported range.
@@ -654,6 +725,9 @@ export class PlayerStore {
       intent: "play",
       engineState: "playing",
     });
+    // The promoted player is a freshly-built engine; re-assert the user's volume on it so a
+    // crossfade never leaves playback stuck at full after the equal-power ramp (owner fix 3).
+    this.applyVolume();
   }
 
   toggleShuffle(): void {

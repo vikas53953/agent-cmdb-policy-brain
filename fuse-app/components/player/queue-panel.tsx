@@ -50,10 +50,11 @@ export default function QueuePanel({
   open: boolean;
   onClose: () => void;
 }) {
-  const { current, queue, radioActive } = usePlayerSelector((s) => ({
+  const { current, queue, radioActive, autoplayQueued } = usePlayerSelector((s) => ({
     current: s.current,
     queue: s.queue,
     radioActive: s.radioActive,
+    autoplayQueued: s.autoplayQueued,
   }));
 
   // The index currently being dragged, so onDrop knows the source position. A ref (not
@@ -115,10 +116,14 @@ export default function QueuePanel({
 
         <div className="q-up">
           <div className="q-section-label">
-            Up next
+            {autoplayQueued && !radioActive ? "Up next — Autoplay" : "Up next"}
             {radioActive ? (
               <span className="q-radio-note" data-testid="queue-radio-note">
                 {" "}· radio is adding similar tracks
+              </span>
+            ) : autoplayQueued ? (
+              <span className="q-radio-note" data-testid="queue-autoplay-note">
+                {" "}· similar songs, from your Autoplay setting
               </span>
             ) : null}
           </div>

@@ -54,6 +54,10 @@ export default function Lyrics({
   // not match the current track, the panel derives a "loading" state — so we never
   // call setState synchronously inside the effect (only in its async callbacks).
   const [loaded, setLoaded] = useState<{ key: string; data: LyricsData } | null>(null);
+  // Plain (unsynced) lyrics live behind a compact toggle (owner fix 5b), like Apple Music —
+  // collapsed by default so a wall of text never pushes the transport off-screen. Reset when
+  // the track changes so a new song opens collapsed.
+  const [plainOpen, setPlainOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const lastScrolledIndex = useRef<number>(-1);
 
@@ -72,6 +76,7 @@ export default function Lyrics({
     const settle = (data: LyricsData) => {
       if (cancelled) return;
       lastScrolledIndex.current = -1;
+      setPlainOpen(false); // a freshly-loaded track opens with plain lyrics collapsed
       setLoaded({ key: trackKey, data });
     };
 
@@ -132,26 +137,47 @@ export default function Lyrics({
   if (!enabled || !current) return null;
 
   if (data.status === "loading") {
+    // Compact (owner fix 5c): a one-line status, not a tall block, so the transport stays
+    // visible without scrolling while lyrics load.
     return (
-      <div className="lyrics" aria-live="polite">
+      <div className="lyrics lyrics-compact" aria-live="polite">
         <p className="lyrics-status">Loading lyrics…</p>
       </div>
     );
   }
 
   if (data.status === "none") {
+    // Compact honest empty state (owner fix 5c) — a small line, never a huge dead gap that
+    // shoves the controls off-screen.
     return (
-      <div className="lyrics" aria-live="polite">
-        <p className="lyrics-empty">{EMPTY_MSG}</p>
+      <div className="lyrics lyrics-compact" aria-live="polite">
+        <p className="lyrics-empty" data-testid="lyrics-empty">{EMPTY_MSG}</p>
       </div>
     );
   }
 
   if (data.status === "plain") {
+    // Plain lyrics behind a compact toggle (owner fix 5b), Apple-Music style: a small
+    // "Lyrics" button by default (transport stays visible); expanding shows the text in a
+    // bounded, scrollable panel rather than an inline wall.
     return (
-      <div className="lyrics" ref={containerRef}>
-        <p className="lyrics-note">Lyrics (not time-synced — tap-to-jump isn’t available)</p>
-        <div className="lyrics-plain">{data.text}</div>
+      <div className="lyrics lyrics-compact" ref={containerRef}>
+        <button
+          type="button"
+          className="lyrics-toggle"
+          data-testid="lyrics-toggle"
+          aria-expanded={plainOpen}
+          onClick={() => setPlainOpen((v) => !v)}
+          title={plainOpen ? "Hide lyrics" : "Show lyrics"}
+        >
+          {plainOpen ? "Hide lyrics" : "Lyrics"}
+        </button>
+        {plainOpen ? (
+          <div className="lyrics-plain-panel" data-testid="lyrics-plain-panel">
+            <p className="lyrics-note">Lyrics (not time-synced — tap-to-jump isn’t available)</p>
+            <div className="lyrics-plain">{data.text}</div>
+          </div>
+        ) : null}
       </div>
     );
   }

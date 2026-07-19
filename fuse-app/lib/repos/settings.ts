@@ -17,7 +17,12 @@ export const SETTING_KEYS = {
   lyricsEnabled: "lyricsEnabled",
   preferAudio: "preferAudio",
   autoplaySimilar: "autoplaySimilar",
+  volume: "volume",
 } as const;
+
+// Output volume is a 0..1 level (owner fix 3). Default full so a first-time listener hears
+// sound at the level the video itself carries; the store applies it to the YouTube adapter.
+export const VOLUME_DEFAULT = 1;
 
 // Crossfade length is user-chosen within 3..15s (R3/R11). Clamp on write so a bad
 // value can never persist, and default to 6s when unset.
@@ -110,4 +115,18 @@ export async function getAutoplaySimilar(userId: string, db: PrismaClient = pris
 
 export function setAutoplaySimilar(userId: string, enabled: boolean, db: PrismaClient = prisma) {
   return setSetting(userId, SETTING_KEYS.autoplaySimilar, enabled ? "true" : "false", db);
+}
+
+// Typed output-volume accessors (owner fix 3). Read clamps to 0..1 and falls back to full
+// so a corrupt/unset value degrades honestly rather than muting or over-driving the engine.
+export async function getVolume(userId: string, db: PrismaClient = prisma): Promise<number> {
+  const raw = await getSetting(userId, SETTING_KEYS.volume, db);
+  const parsed = raw == null ? NaN : Number(raw);
+  if (!Number.isFinite(parsed)) return VOLUME_DEFAULT;
+  return Math.min(1, Math.max(0, parsed));
+}
+
+export function setVolume(userId: string, volume: number, db: PrismaClient = prisma) {
+  const clamped = Math.min(1, Math.max(0, Number.isFinite(volume) ? volume : VOLUME_DEFAULT));
+  return setSetting(userId, SETTING_KEYS.volume, String(clamped), db);
 }

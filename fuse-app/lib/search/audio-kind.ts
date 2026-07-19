@@ -33,12 +33,14 @@ function isTopicChannel(artist: string | null): boolean {
   return /\s-\s*topic$/i.test(artist.trim());
 }
 
-// A title that plainly advertises itself as an audio (not video) upload: "Official
-// Audio", "(Audio)", "[Audio]", "Audio Only", "Full Audio", "Lyric video" (a static
-// audio-first upload). Deliberately narrow so an ordinary music video is never
-// mislabelled audio.
+// A title that plainly advertises itself as an audio (not video) upload. Covers the common
+// audio-first patterns across catalogues — "Official Audio", "(Audio)", "Audio Only", "Full
+// Audio", a visualizer, a lyric/lyrical video, plus the audio-first forms that dominate many
+// music markets: "Full Song", "Audio Song", and "Jukebox" (owner fix 9 — a broader, still
+// honest hit-rate so the Songs filter is populated). Deliberately still excludes bare
+// "video"/"official video", so an ordinary music video is never mislabelled audio.
 const AUDIO_TITLE_RE =
-  /\b(official\s+audio|audio\s+only|full\s+audio|visuali[sz]er)\b|[([]\s*audio\s*[)\]]|\blyric\s+video\b/i;
+  /\b(official\s+audio|audio\s+only|full\s+audio|full\s+song|audio\s+song|visuali[sz]er|jukebox)\b|[([]\s*audio\s*[)\]]|\blyric(al)?\s+video\b/i;
 
 function isAudioTitle(title: string): boolean {
   return AUDIO_TITLE_RE.test(title);

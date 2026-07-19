@@ -267,6 +267,67 @@ export function ClockIcon({ size = 20, className }: IconProps) {
   );
 }
 
+// Chevron-left — the "scroll back left" cue on Home carousels (owner fix 7), mirroring
+// ChevronRightIcon. The button it sits in actually scrolls the rail, so it is a real
+// control, not decoration (R17).
+export function ChevronLeftIcon({ size = 22, className }: IconProps) {
+  return svg(<path d="m15 6-6 6 6 6" />, size, className);
+}
+
+// Volume — the mini-player + Now Playing volume control (owner fix 3). `level` (0..1) drives
+// how many sound waves show; a muted control renders VolumeMuteIcon instead.
+export function VolumeIcon({ size = 20, className, level = 1 }: IconProps & { level?: number }) {
+  return svg(
+    <>
+      <path d="M4 9v6h4l5 4V5L8 9H4Z" fill="currentColor" stroke="none" />
+      {level > 0.05 ? <path d="M16 9a3.5 3.5 0 0 1 0 6" /> : null}
+      {level > 0.55 ? <path d="M18.5 6.5a7 7 0 0 1 0 11" /> : null}
+    </>,
+    size,
+    className,
+  );
+}
+
+export function VolumeMuteIcon({ size = 20, className }: IconProps) {
+  return svg(
+    <>
+      <path d="M4 9v6h4l5 4V5L8 9H4Z" fill="currentColor" stroke="none" />
+      <path d="m16 9 5 6M21 9l-5 6" />
+    </>,
+    size,
+    className,
+  );
+}
+
+// Full screen — the standard "enter full screen" control for a video track (owner fix 4).
+export function FullscreenIcon({ size = 20, className }: IconProps) {
+  return svg(
+    <>
+      <path d="M4 9V4h5" />
+      <path d="M20 9V4h-5" />
+      <path d="M4 15v5h5" />
+      <path d="M20 15v5h-5" />
+    </>,
+    size,
+    className,
+  );
+}
+
+// Bigger / smaller player — the plain "larger player" inline layout toggle (owner fix 4),
+// replacing the confusing "theater" wording. Two arrows pushing apart = enlarge.
+export function ExpandIcon({ size = 20, className }: IconProps) {
+  return svg(
+    <>
+      <path d="M9 4H4v5" />
+      <path d="M15 20h5v-5" />
+      <path d="M4 4l6 6" />
+      <path d="M20 20l-6-6" />
+    </>,
+    size,
+    className,
+  );
+}
+
 const ICONS = {
   home: HomeIcon,
   search: SearchIcon,

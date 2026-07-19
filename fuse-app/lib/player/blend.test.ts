@@ -129,6 +129,9 @@ function makeFakeStore(initial: Partial<PlayerState> = {}) {
     history: [],
     radioActive: false,
     sleepStopAfterTrack: false,
+    volume: 1,
+    muted: false,
+    autoplayQueued: false,
     ...initial,
   };
   const listeners = new Set<() => void>();
@@ -340,5 +343,77 @@ describe("BlendController — the two-track melt (R3, F2)", () => {
     // Primary restored to full volume, melt cleared — never left quiet.
     expect(fakeAdapter.calls).toContain("setVolume:1");
     expect(controller.getMeltState().active).toBe(false);
+  });
+});
+
+// ── Owner fix 8: the blend must be FELT — manual Next overlaps + volume ramps ──────
+describe("BlendController — manual Next crossfade + true overlap (owner fix 8)", () => {
+  it("startManualBlend overlaps both players with ramping volumes, then promotes the next", async () => {
+    const { fakeStore, fakeAdapter, manual, controller } = setupController(8);
+    // Playing mid-track (NOT in the auto-blend tail) with a blendable next queued.
+    fakeStore.set({
+      current: yt("one"),
+      queue: [yt("two")],
+      isPlaying: true,
+      durationSec: 200,
+      positionSec: 40,
+    });
+
+    // A manual Next starts a real blend (returns true → the caller must NOT also hard-advance).
+    const started = controller.startManualBlend();
+    expect(started).toBe(true);
+    await flush();
+
+    // The incoming player is warmed and starts playing WHILE the outgoing still plays — the
+    // genuine two-player overlap (the second player exists and is driven, not a one-sided fade).
+    expect(fakeAdapter.calls).toContain("beginBlend:two");
+
+    // Drive the ramp partway: the outgoing volume falls and the incoming rises — proof both
+    // players are live and cross-ramping simultaneously (the "melting" feeling).
+    manual.advance(4000);
+    const mid = fakeAdapter.volumes.at(-1)!;
+    expect(mid[0]).toBeGreaterThan(0); // outgoing still audible
+    expect(mid[0]).toBeLessThan(1); // …but fading down
+    expect(mid[1]).toBeGreaterThan(0); // incoming has risen from silence
+    expect(mid[1]).toBeLessThan(1);
+    expect(mid[1]).toBeGreaterThan(fakeAdapter.volumes[0][1]); // incoming genuinely ramping UP
+    expect(controller.getMeltState().active).toBe(true);
+
+    // Finish the crossfade: the incoming is promoted to primary with no reload.
+    manual.advance(5000);
+    expect(fakeAdapter.calls).toContain("completeBlend");
+    expect(fakeStore.promoted.map((t) => t.nativeId)).toContain("two");
+    expect(controller.getMeltState().active).toBe(false);
+  });
+
+  it("startManualBlend refuses (returns false) when there is nothing real to overlap", () => {
+    const { fakeStore, controller } = setupController(8);
+    // Nothing queued → no overlap possible → honest false so the caller hard-advances.
+    fakeStore.set({ current: yt("one"), queue: [], isPlaying: true, durationSec: 200, positionSec: 40 });
+    expect(controller.startManualBlend()).toBe(false);
+    // Paused → no overlap.
+    fakeStore.set({ current: yt("one"), queue: [yt("two")], isPlaying: false });
+    expect(controller.startManualBlend()).toBe(false);
+  });
+
+  it("scales the crossfade ramp by the user's volume (owner fix 3 × 8)", async () => {
+    const { fakeStore, fakeAdapter, manual, controller } = setupController(8);
+    // Half volume: the melt must never exceed the level the listener set.
+    fakeStore.set({
+      current: yt("one"),
+      queue: [yt("two")],
+      isPlaying: true,
+      durationSec: 200,
+      positionSec: 40,
+      volume: 0.5,
+      muted: false,
+    });
+    controller.startManualBlend();
+    await flush();
+    manual.advance(4000);
+    const mid = fakeAdapter.volumes.at(-1)!;
+    // Neither leg may exceed the 0.5 ceiling (equal-power legs are ≤1 each, scaled by 0.5).
+    expect(mid[0]).toBeLessThanOrEqual(0.5 + 1e-9);
+    expect(mid[1]).toBeLessThanOrEqual(0.5 + 1e-9);
   });
 });

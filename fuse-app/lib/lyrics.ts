@@ -50,13 +50,99 @@ export type LyricsFetchOutcome =
   | { ok: true; data: CachedLyrics }
   | { ok: false; reason: string };
 
-// The shape of a single LRCLIB record (only the fields we read).
+// The shape of a single LRCLIB record (only the fields we read). trackName/artistName are
+// read so a search-fallback candidate can be VERIFIED to actually be the requested song
+// before its lyrics are trusted (owner fix 5a — never show confident-looking wrong lyrics).
 type LrclibRecord = {
   syncedLyrics?: string | null;
   plainLyrics?: string | null;
   instrumental?: boolean | null;
   duration?: number | null;
+  trackName?: string | null;
+  artistName?: string | null;
 };
+
+// How close a candidate's duration must be to the track's for the match to be trusted, when
+// a duration is known. LRCLIB's own /api/get uses a small server-side tolerance; we apply the
+// same spirit to the broader /api/search fallback so a same-title different-song record with
+// a very different length is rejected rather than shown (owner fix 5a).
+const DURATION_TOLERANCE_SEC = 8;
+
+// Normalize a string for fuzzy identity matching: lower-case, strip accents and punctuation,
+// collapse whitespace. Used to compare a candidate record's title/artist to the query.
+export function normalizeForMatch(value: string): string {
+  // NFKD splits accented letters into base + combining mark; the [^a-z0-9] strip below then
+  // drops the marks, so accents are normalized away without a dedicated (lint-flagged)
+  // combining-mark character class.
+  return value
+    .normalize("NFKD")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+function tokenSet(value: string): Set<string> {
+  return new Set(normalizeForMatch(value).split(" ").filter(Boolean));
+}
+
+// Share of the query's tokens that appear in the candidate — a cheap, dependency-free
+// confidence score in [0, 1]. 1 means every query word is present in the candidate.
+function tokenOverlap(query: string, candidate: string): number {
+  const q = tokenSet(query);
+  if (q.size === 0) return 0;
+  const c = tokenSet(candidate);
+  let hit = 0;
+  for (const t of q) if (c.has(t)) hit++;
+  return hit / q.size;
+}
+
+// Parse a clean {artist, title} from a YouTube video title + channel name (owner fix 5a).
+// YouTube titles carry a lot of noise ("Karan Aujla - Boyfriend (Official Video) | ...") that
+// wrecks a lyrics lookup; a "<Artist> - Topic" channel is YouTube's own clean artist name.
+// This trims the marketing junk and splits "Artist - Title" so the LRCLIB query is precise.
+export function parseLyricsQuery(
+  rawTitle: string,
+  rawArtist: string | null,
+): { title: string; artist: string | null } {
+  // A "<Artist> - Topic" channel is YouTube's own clean artist name and the most reliable
+  // signal, so it is trusted outright. An ordinary channel is often a LABEL / Vevo, not the
+  // artist, so it is only a last resort — the artist named in the title wins over it.
+  const trimmedChannel = (rawArtist ?? "").trim();
+  const isTopic = /\s-\s*topic$/i.test(trimmedChannel);
+  const channelArtist = trimmedChannel.replace(/\s-\s*topic$/i, "").trim() || null;
+  let artist: string | null = isTopic ? channelArtist : null;
+
+  let title = rawTitle
+    // Drop anything after a pipe (feature lists, label tags) and bracketed junk.
+    .replace(/\|.*$/g, " ")
+    .replace(/[([][^)\]]*[)\]]/g, " ")
+    // Common video-title noise words.
+    .replace(
+      /\b(official\s+(music\s+)?video|official\s+audio|lyric(al)?\s+video|full\s+(video|song|audio)|audio|video|visuali[sz]er|hd|4k|mv)\b/gi,
+      " ",
+    )
+    .replace(/\s+/g, " ")
+    .trim();
+
+  // "Artist - Title": split the artist named in the title from the song name.
+  let titleArtist: string | null = null;
+  const dash = title.split(/\s[-–—]\s/);
+  if (dash.length >= 2) {
+    const left = dash[0].trim();
+    const right = dash.slice(1).join(" - ").trim();
+    if (left) titleArtist = left;
+    if (right) title = right;
+  }
+
+  // Precedence: a Topic-channel artist (already set), else the artist from the title, else
+  // the raw channel name (a label as a last resort).
+  if (!artist) artist = titleArtist ?? channelArtist;
+
+  // Drop a trailing "feat./ft. ..." clause from the title — it is not part of the song name.
+  title = title.replace(/\b(feat|ft)\.?\s+.*$/i, "").replace(/\s+/g, " ").trim();
+
+  return { title: title || rawTitle.trim(), artist };
+}
 
 // Parse LRC synced lyrics into sorted, timed lines. Handles multiple timestamp tags
 // on one line (`[00:12.00][01:30.00] text` → two lines) and both centisecond and
@@ -174,9 +260,11 @@ export async function fetchLyricsFromLrclib(
       return { ok: false, reason: NETWORK_REASON };
     }
     const records = (await res.json()) as LrclibRecord[];
-    const best = pickBestMatch(records, params.durationSec);
+    const best = pickBestMatch(records, { title, artist, durationSec: params.durationSec });
     if (!best) {
-      // Search returned, nothing usable → a CONFIRMED miss (honest "no lyrics").
+      // Search returned nothing we are CONFIDENT is the same song → a confirmed miss. Showing
+      // an unverified near-match here is exactly the "wrong lyrics" bug (owner fix 5a): better
+      // an honest "No lyrics" than someone else's words.
       return { ok: true, data: { found: false, syncedLyrics: null, plainLyrics: null } };
     }
     return { ok: true, data: recordToCached(best) };
@@ -185,25 +273,53 @@ export async function fetchLyricsFromLrclib(
   }
 }
 
-// Choose the best candidate from a search: prefer one with synced lyrics, then one
-// with plain lyrics, and among those the closest duration to the target (when known).
-function pickBestMatch(records: LrclibRecord[], durationSec: number | null): LrclibRecord | null {
-  const withLyrics = records.filter(
+// Whether a candidate record is CONFIDENTLY the requested song (owner fix 5a). The record's
+// title must strongly overlap the query title, its artist must match when we know one, and
+// its duration must be within tolerance when we know it. This is the gate that turns a
+// same-length, same-vibe-but-wrong record into an honest "No lyrics" instead of wrong words.
+function isConfidentMatch(
+  r: LrclibRecord,
+  query: { title: string; artist: string | null; durationSec: number | null },
+): boolean {
+  const recTitle = typeof r.trackName === "string" ? r.trackName : "";
+  // Require most of the query's title words to appear in the candidate's title.
+  if (tokenOverlap(query.title, recTitle) < 0.6) return false;
+  // When we know the artist, require a real overlap so a cover / different act is rejected.
+  if (query.artist && query.artist.trim() !== "") {
+    const recArtist = typeof r.artistName === "string" ? r.artistName : "";
+    if (tokenOverlap(query.artist, recArtist) < 0.5) return false;
+  }
+  // When we know the duration, reject a candidate that is a very different length.
+  if (query.durationSec != null && typeof r.duration === "number") {
+    if (Math.abs(r.duration - query.durationSec) > DURATION_TOLERANCE_SEC) return false;
+  }
+  return true;
+}
+
+// Choose the best candidate from a search: only CONFIDENT matches are eligible (owner fix
+// 5a), then prefer synced lyrics and the closest duration. Returns null when nothing is a
+// confident match — the honest "No lyrics" outcome rather than an unverified near-miss.
+function pickBestMatch(
+  records: LrclibRecord[],
+  query: { title: string; artist: string | null; durationSec: number | null },
+): LrclibRecord | null {
+  const eligible = records.filter(
     (r) =>
-      (typeof r.syncedLyrics === "string" && r.syncedLyrics.trim() !== "") ||
-      (typeof r.plainLyrics === "string" && r.plainLyrics.trim() !== ""),
+      ((typeof r.syncedLyrics === "string" && r.syncedLyrics.trim() !== "") ||
+        (typeof r.plainLyrics === "string" && r.plainLyrics.trim() !== "")) &&
+      isConfidentMatch(r, query),
   );
-  if (withLyrics.length === 0) return null;
+  if (eligible.length === 0) return null;
 
   const score = (r: LrclibRecord) => {
     const hasSynced = typeof r.syncedLyrics === "string" && r.syncedLyrics.trim() !== "";
     const durPenalty =
-      durationSec != null && typeof r.duration === "number"
-        ? Math.abs(r.duration - durationSec)
+      query.durationSec != null && typeof r.duration === "number"
+        ? Math.abs(r.duration - query.durationSec)
         : 0;
     // Synced beats plain decisively; duration closeness breaks ties.
     return (hasSynced ? 0 : 10_000) + durPenalty;
   };
 
-  return withLyrics.reduce((best, r) => (score(r) < score(best) ? r : best), withLyrics[0]);
+  return eligible.reduce((best, r) => (score(r) < score(best) ? r : best), eligible[0]);
 }

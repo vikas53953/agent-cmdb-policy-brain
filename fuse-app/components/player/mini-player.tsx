@@ -19,8 +19,10 @@ import type { TrackRef } from "@/lib/repos/track";
 import { usePlayerSelector } from "@/lib/player/use-player-selector";
 import { usePlayerPhase } from "@/lib/player/use-player-phase";
 import { playerStore } from "@/lib/player/store";
+import { nextWithBlend } from "@/lib/player/blend-controller";
 import { adapterRegistry } from "@/lib/player/adapters";
 import VideoSurface from "@/components/player/video-surface";
+import VolumeControl from "@/components/player/volume-control";
 import { MusicIcon, PlayIcon, PauseIcon, NextIcon, QueueIcon } from "@/components/ui/icons";
 
 const NOT_WIRED_REASON = "Playback starts once the player engine is connected";
@@ -158,6 +160,8 @@ export default function MiniPlayer({
       </button>
 
       <div className="mini-controls">
+        {/* Volume slider + mute (owner fix 3) — revealed on hover/focus like YT Music. */}
+        <VolumeControl variant="mini" />
         <button
           type="button"
           className="icon-btn"
@@ -192,7 +196,7 @@ export default function MiniPlayer({
           type="button"
           className="icon-btn"
           data-testid="mini-next"
-          onClick={canAdvance ? () => void playerStore.next() : undefined}
+          onClick={canAdvance ? () => nextWithBlend() : undefined}
           disabled={!canAdvance}
           aria-disabled={!canAdvance}
           title={canAdvance ? "Next track" : NO_NEXT_REASON}

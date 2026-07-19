@@ -10,7 +10,7 @@
 // slotted into the scrolling area, so this client boundary does not pull page data
 // into the client bundle.
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
 // Side-effect import: registering the Spotify adapter at app load is what flips
 // Spotify search results from disabled to a real, enabled play button (its honest
@@ -23,6 +23,7 @@ import { playerHostCoordinator } from "@/lib/player/host-coordinator";
 import { usePlaybackRecovery } from "@/lib/player/use-playback-recovery";
 import { playerStore } from "@/lib/player/store";
 import { createRadioProvider } from "@/lib/player/radio";
+import { setVolumeAction } from "@/lib/actions";
 import {
   useSleepTimer,
   formatSleepRemaining,
@@ -79,6 +80,7 @@ export default function AppChrome({
   crossfadeSec: initialCrossfadeSec,
   preferAudio: initialPreferAudio,
   autoplaySimilar: initialAutoplaySimilar,
+  volume: initialVolume,
   children,
 }: {
   user: ShellUser | null;
@@ -95,6 +97,9 @@ export default function AppChrome({
   // The persisted "autoplay similar when queue ends" setting (Wave 1, R16). Owned here so
   // the profile-sheet toggle reflects/persists it AND the player's radio provider honours it.
   autoplaySimilar: boolean;
+  // The persisted output volume 0..1 (owner fix 3). Seeds the player store on mount; the
+  // shell persists later changes the slider makes so the level survives reload.
+  volume: number;
   children: React.ReactNode;
 }) {
   const [sheetOpen, setSheetOpen] = useState(false);
@@ -144,6 +149,67 @@ export default function AppChrome({
   useEffect(() => {
     playerStore.setAutoplaySimilar(autoplaySimilar);
   }, [autoplaySimilar]);
+
+  // Seed the store's volume from the persisted value (owner fix 3) so playback starts at the
+  // level the user last chose. Applying it to the (possibly not-yet-built) adapter is a safe
+  // no-op until a track loads, at which point the store re-asserts it.
+  useEffect(() => {
+    playerStore.setVolume(initialVolume);
+  }, [initialVolume]);
+
+  // The latest consent value, read inside the store subscription below without re-subscribing.
+  const autoplayRef = useRef(autoplaySimilar);
+  useEffect(() => {
+    autoplayRef.current = autoplaySimilar;
+  }, [autoplaySimilar]);
+
+  // One store subscription drives two shell responsibilities:
+  //   • AUTOPLAY UP-NEXT (owner fix 2): when a track is playing with an EMPTY queue and the
+  //     user has consented, seed radio-continuation picks so "Up next" is never empty and the
+  //     crossfade engine has a next track to melt into. Attempted at most once per current
+  //     track while the queue is empty, so a 500ms position tick can never spam the network.
+  //   • VOLUME PERSISTENCE (owner fix 3): debounce-save the level the slider set so it
+  //     survives reload, without a write per slider step.
+  useEffect(() => {
+    let seeding = false;
+    let seededFor: string | null = null;
+    let lastPersisted = playerStore.getState().volume;
+    let persistTimer: number | undefined;
+
+    const maybeSeedAutoplay = () => {
+      const s = playerStore.getState();
+      if (!s.current || s.queue.length > 0 || !autoplayRef.current) return;
+      const key = `${s.current.source}:${s.current.nativeId}`;
+      if (seeding || seededFor === key) return;
+      seededFor = key;
+      seeding = true;
+      void playerStore.seedAutoplayQueue().finally(() => {
+        seeding = false;
+      });
+    };
+
+    const persistVolume = () => {
+      const v = playerStore.getState().volume;
+      if (v === lastPersisted) return;
+      if (persistTimer) window.clearTimeout(persistTimer);
+      persistTimer = window.setTimeout(() => {
+        lastPersisted = v;
+        void setVolumeAction(v).catch(() => {
+          /* keep the live value; the next reload reconciles from the stored setting */
+        });
+      }, 500);
+    };
+
+    const unsub = playerStore.subscribe(() => {
+      maybeSeedAutoplay();
+      persistVolume();
+    });
+    maybeSeedAutoplay();
+    return () => {
+      unsub();
+      if (persistTimer) window.clearTimeout(persistTimer);
+    };
+  }, []);
 
   // Keep the live blend length in step with the slider between renders.
   function changeCrossfade(seconds: number) {

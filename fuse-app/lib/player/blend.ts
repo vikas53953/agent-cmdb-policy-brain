@@ -236,6 +236,28 @@ export class BlendController {
     this.unsubscribe = null;
   }
 
+  // Start a crossfade NOW for a manual Next (owner fix 8), when a genuine overlap is
+  // possible: something is playing, no blend is already running, and the current + next
+  // tracks share an adapter that can truly overlap two players. Returns true when a blend
+  // was started — the caller must NOT also advance, because the blend promotes the next
+  // track itself on completion. Returns false when no real overlap is possible, so the
+  // caller hard-advances instead (honesty R17 — we never claim a blend that can't happen).
+  // Unlike the automatic tail-blend this ignores the track-length/position guards: a manual
+  // skip should melt from wherever the listener is, not only in the final crossfade seconds.
+  startManualBlend(): boolean {
+    if (this.blend) return false;
+    const state = this.store.getState();
+    if (!state.isPlaying) return false;
+    const current = state.current;
+    const next = state.queue[0] ?? null;
+    if (!current || !next) return false;
+    const adapter = this.resolveBlendAdapter(current.source);
+    if (!adapter || adapter.source !== next.source) return false;
+    const crossfadeSec = clampCrossfadeSec(this.getCrossfadeSec());
+    void this.startBlend(current, next, crossfadeSec);
+    return true;
+  }
+
   getMeltState(): MeltState {
     return this.melt;
   }
@@ -345,12 +367,22 @@ export class BlendController {
     this.blend.rampId = this.timers.setInterval(() => this.ramp(), this.rampMs);
   }
 
+  // The user's effective output volume (0 while muted), so the crossfade ramp and the
+  // post-blend restore honour the volume control (owner fix 3) instead of forcing full.
+  private effectiveVolume(): number {
+    const s = this.store.getState();
+    const v = s.muted ? 0 : s.volume;
+    return Number.isFinite(v) ? Math.max(0, Math.min(1, v)) : 1;
+  }
+
   private ramp(): void {
     if (!this.blend) return;
     const elapsed = this.timers.now() - this.blend.startMs;
     const progress = blendProgressFromElapsed(elapsed, this.blend.crossfadeSec);
     const { outgoing, incoming } = equalPowerGains(progress);
-    this.blend.adapter.setBlendVolumes(outgoing, incoming);
+    // Scale both legs by the user's volume so a blend never plays louder than the level set.
+    const vol = this.effectiveVolume();
+    this.blend.adapter.setBlendVolumes(outgoing * vol, incoming * vol);
     this.setMelt({ active: true, incoming: this.blend.incoming, progress });
 
     if (progress >= 1) this.completeBlend();
@@ -364,7 +396,7 @@ export class BlendController {
     // restart, no cut to silence), restore it to full volume, and make it the single
     // source of truth. The outgoing player is retired inside completeBlend().
     blend.adapter.completeBlend();
-    blend.adapter.setVolume(1);
+    blend.adapter.setVolume(this.effectiveVolume());
     this.blend = null;
     this.store.promoteBlended(blend.incoming);
     this.setMelt(IDLE_MELT);
@@ -375,8 +407,9 @@ export class BlendController {
     if (!blend) return;
     if (blend.rampId !== -1) this.timers.clearInterval(blend.rampId);
     blend.adapter.cancelBlend();
-    // Return the primary to full volume — a mid-ramp cancel must not leave it quiet.
-    blend.adapter.setVolume(1);
+    // Return the primary to the user's level — a mid-ramp cancel must not leave it quiet
+    // (nor override the volume control by forcing full).
+    blend.adapter.setVolume(this.effectiveVolume());
     this.blend = null;
     this.setMelt(IDLE_MELT);
   }
