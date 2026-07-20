@@ -76,6 +76,24 @@ export function listRecentPlayEvents(
   });
 }
 
+// The one source whose rows must NEVER feed a global surface.
+//
+// THE LEAK THIS CLOSES: a "local" play is a file off the user's own machine, so its
+// `title` IS their filename — "tax-return-voice-note.mp3", a leaked demo, anything.
+// Trending is global and un-owned by design, so a single local play by one person would
+// have put that person's private filename on EVERY user's Home. It was latent only
+// because the local adapter is not auto-registered yet; that is one line away.
+//
+// The fix is a QUERY-LEVEL exclusion in the trending aggregate itself, not a filter
+// applied by the caller. That is what makes it class-level: every present and future
+// reader of trending inherits the exclusion, and no new Home rail can reintroduce the
+// leak by forgetting to filter. Local plays still count fully in the OWNER's own
+// history (`listRecentPlays`) — that read is ownerId-scoped, so it is theirs to see.
+const LOCAL_SOURCE = "local";
+
+// The where-clause every global (cross-user) play read must carry.
+const GLOBAL_PLAY_SCOPE = { source: { not: LOCAL_SOURCE } } as const;
+
 // A trending entry: a track plus how many times it has been played across everyone.
 export type TrendingEntry = {
   source: string;
@@ -90,6 +108,7 @@ export type TrendingEntry = {
 export async function trendingByPlayCount(limit = 20, db: PrismaClient = prisma): Promise<TrendingEntry[]> {
   const groups = await db.play.groupBy({
     by: ["source", "nativeId"],
+    where: GLOBAL_PLAY_SCOPE,
     _count: { _all: true },
     orderBy: { _count: { nativeId: "desc" } },
     take: limit,
@@ -111,18 +130,41 @@ export function trendingSeed(limit = 20, db: PrismaClient = prisma) {
 // the most recent Play for that (source, nativeId). Global/anonymous: no ownerId
 // filter, and a representative row exposes only public display fields, not whose play
 // it was. Returns fewer than `limit` if a group has no readable row (never fabricates).
+//
+// THE BUG THIS KILLS: enrichment used to run one `findFirst` PER trending group inside
+// a Promise.all — ~20 serverless-Postgres round-trips on every Home render, and
+// unbounded in the sense that it scaled with `limit`, so raising the rail size silently
+// multiplied the database cost of the app's most-visited page. Now the whole enrichment
+// is ONE `findMany` over the identities we already know, picked apart in memory. The
+// query count is constant (2 total: the groupBy plus this) no matter how big the rail
+// grows — that is the class-level property, not a smaller N.
 export async function trendingTracks(limit = 20, db: PrismaClient = prisma): Promise<TrackRef[]> {
   const groups = await trendingByPlayCount(limit, db);
-  const rows = await Promise.all(
-    groups.map((g) =>
-      db.play.findFirst({
-        where: { source: g.source, nativeId: g.nativeId },
-        orderBy: { playedAt: "desc" },
-      }),
-    ),
-  );
-  const out: TrackRef[] = [];
+  if (groups.length === 0) return [];
+
+  // One batched read for every trending identity at once. Same LOCAL_SOURCE exclusion
+  // as the aggregate — the display fields are the private part, so the guard has to be
+  // on the read that actually returns titles, not only on the counting query.
+  const rows = await db.play.findMany({
+    where: {
+      ...GLOBAL_PLAY_SCOPE,
+      OR: groups.map((g) => ({ source: g.source, nativeId: g.nativeId })),
+    },
+    orderBy: { playedAt: "desc" },
+  });
+
+  // Newest-first, so the FIRST row seen for an identity is its most recent play — the
+  // same representative row the per-group findFirst used to return.
+  const newestByKey = new Map<string, (typeof rows)[number]>();
   for (const row of rows) {
+    const key = `${row.source} ${row.nativeId}`;
+    if (!newestByKey.has(key)) newestByKey.set(key, row);
+  }
+
+  // Emit in trending order (the groups' order), not the rows' order.
+  const out: TrackRef[] = [];
+  for (const g of groups) {
+    const row = newestByKey.get(`${g.source} ${g.nativeId}`);
     if (!row) continue;
     out.push({
       source: isTrackSource(row.source) ? row.source : "youtube",

@@ -13,6 +13,9 @@ import {
   CROSSFADE_DEFAULT_SEC,
   CROSSFADE_MIN_SEC,
   CROSSFADE_MAX_SEC,
+  VOLUME_DEFAULT,
+  decodeSettings,
+  getResolvedSettings,
 } from "./settings";
 
 function db() {
@@ -84,5 +87,38 @@ describe("prefer-audio setting (Complaint 1)", () => {
     await setPreferAudio("A", false, prisma);
     expect(await getPreferAudio("A", prisma)).toBe(false);
     expect(await getPreferAudio("B", prisma)).toBe(true); // B keeps the default
+  });
+});
+
+describe("settings repo — the shell reads every setting in ONE query (B)", () => {
+  it("getResolvedSettings issues a single findMany, not one findUnique per setting", async () => {
+    const setting = makeModel([
+      { ownerId: "A", key: "crossfadeSec", value: "9" },
+      { ownerId: "A", key: "lyricsEnabled", value: "false" },
+      { ownerId: "A", key: "volume", value: "0.5" },
+    ]);
+    const prisma = makePrisma({ setting: setting.model });
+
+    const resolved = await getResolvedSettings("A", prisma);
+
+    // The bug: five serial findUnique round-trips gated every page render.
+    expect(setting.calls.findUnique.length).toBe(0);
+    expect(setting.calls.findMany.length).toBe(1);
+    expect(resolved.crossfadeSec).toBe(9);
+    expect(resolved.lyricsEnabled).toBe(false);
+    expect(resolved.volume).toBe(0.5);
+    // Unset keys still fall back to the same honest defaults as the single accessors.
+    expect(resolved.preferAudio).toBe(true);
+    expect(resolved.autoplaySimilar).toBe(true);
+  });
+
+  it("decodeSettings clamps and defaults identically to the per-setting accessors", () => {
+    expect(decodeSettings({}).crossfadeSec).toBe(CROSSFADE_DEFAULT_SEC);
+    expect(decodeSettings({ crossfadeSec: "99" }).crossfadeSec).toBe(CROSSFADE_MAX_SEC);
+    expect(decodeSettings({ crossfadeSec: "1" }).crossfadeSec).toBe(CROSSFADE_MIN_SEC);
+    expect(decodeSettings({ crossfadeSec: "junk" }).crossfadeSec).toBe(CROSSFADE_DEFAULT_SEC);
+    expect(decodeSettings({ volume: "5" }).volume).toBe(1);
+    expect(decodeSettings({ volume: "-2" }).volume).toBe(0);
+    expect(decodeSettings({}).volume).toBe(VOLUME_DEFAULT);
   });
 });

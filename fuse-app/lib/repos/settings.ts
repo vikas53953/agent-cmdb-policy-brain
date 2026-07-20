@@ -61,6 +61,65 @@ export async function getAllSettings(userId: string, db: PrismaClient = prisma):
   return Object.fromEntries(rows.map((r) => [r.key, r.value]));
 }
 
+// Every typed setting, decoded from an already-fetched key→value map.
+//
+// THE BUG THIS KILLS: the app shell used to await five separate typed accessors in a
+// row, each doing its own findUnique — five serial serverless-Postgres round-trips
+// gating EVERY page render, for five rows of the same table belonging to the same user.
+// The fix is class-level rather than "batch these five": decoding is now split from
+// fetching, so the shell fetches once with `getAllSettings` and decodes in memory, and
+// any setting added later joins that single read for free instead of adding a sixth
+// trip. The per-setting accessors below stay for callers that genuinely want one value.
+//
+// Defaults and clamping are IDENTICAL to the individual accessors — this is the one
+// place the rules live, so the two paths can never drift apart.
+export type ResolvedSettings = {
+  crossfadeSec: number;
+  lyricsEnabled: boolean;
+  preferAudio: boolean;
+  autoplaySimilar: boolean;
+  volume: number;
+};
+
+// The values a signed-out / keyless / failed read must degrade to. Honest defaults,
+// never a crash and never a silently muted or over-driven player.
+export const DEFAULT_SETTINGS: ResolvedSettings = {
+  crossfadeSec: CROSSFADE_DEFAULT_SEC,
+  lyricsEnabled: true,
+  preferAudio: true,
+  autoplaySimilar: true,
+  volume: VOLUME_DEFAULT,
+};
+
+function decodeBool(raw: string | undefined, fallback: boolean): boolean {
+  if (raw == null) return fallback;
+  return raw === "true";
+}
+
+export function decodeSettings(map: Record<string, string>): ResolvedSettings {
+  const rawCrossfade = map[SETTING_KEYS.crossfadeSec];
+  const crossfade = rawCrossfade == null ? NaN : Number(rawCrossfade);
+  const rawVolume = map[SETTING_KEYS.volume];
+  const volume = rawVolume == null ? NaN : Number(rawVolume);
+  return {
+    crossfadeSec: Number.isFinite(crossfade)
+      ? Math.min(CROSSFADE_MAX_SEC, Math.max(CROSSFADE_MIN_SEC, Math.round(crossfade)))
+      : CROSSFADE_DEFAULT_SEC,
+    lyricsEnabled: decodeBool(map[SETTING_KEYS.lyricsEnabled], true),
+    preferAudio: decodeBool(map[SETTING_KEYS.preferAudio], true),
+    autoplaySimilar: decodeBool(map[SETTING_KEYS.autoplaySimilar], true),
+    volume: Number.isFinite(volume) ? Math.min(1, Math.max(0, volume)) : VOLUME_DEFAULT,
+  };
+}
+
+// All of the caller's typed settings in ONE query. This is what the app shell uses.
+export async function getResolvedSettings(
+  userId: string,
+  db: PrismaClient = prisma,
+): Promise<ResolvedSettings> {
+  return decodeSettings(await getAllSettings(userId, db));
+}
+
 // Typed crossfade-length accessors (used by U11). Read clamps + falls back to the
 // default so a corrupt/unset value degrades honestly rather than breaking the engine.
 export async function getCrossfadeSec(userId: string, db: PrismaClient = prisma): Promise<number> {

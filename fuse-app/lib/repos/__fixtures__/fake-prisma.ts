@@ -13,10 +13,32 @@ type Row = Record<string, unknown> & { id?: string };
 // unique arrives nested, e.g. { ownerId_source_nativeId: { ownerId, source, nativeId } }
 // or { ownerId_key: { ownerId, key } }; we treat any plain-object (non-Date) value as a
 // group of nested field constraints.
+// A filter operator object like `{ not: "local" }` — Prisma's way of expressing a
+// scalar constraint. Distinguished from a composite-key group by its operator keys.
+const FILTER_OPS = new Set(["not", "in", "notIn"]);
+
+function isFilterOp(v: Record<string, unknown>): boolean {
+  return Object.keys(v).some((k) => FILTER_OPS.has(k));
+}
+
+function matchesOp(op: Record<string, unknown>, value: unknown): boolean {
+  if ("not" in op && value === op.not) return false;
+  if ("in" in op && !(op.in as unknown[]).includes(value)) return false;
+  if ("notIn" in op && (op.notIn as unknown[]).includes(value)) return false;
+  return true;
+}
+
 function flatten(where: Record<string, unknown>): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(where)) {
-    if (v !== null && typeof v === "object" && !(v instanceof Date)) {
+    if (k === "OR" || k === "AND" || k === "NOT") {
+      out[k] = v;
+    } else if (
+      v !== null &&
+      typeof v === "object" &&
+      !(v instanceof Date) &&
+      !isFilterOp(v as Record<string, unknown>)
+    ) {
       for (const [nk, nv] of Object.entries(v as Record<string, unknown>)) out[nk] = nv;
     } else {
       out[k] = v;
@@ -30,6 +52,21 @@ function matches(where: Record<string, unknown> | undefined, row: Row): boolean 
   const flat = flatten(where);
   for (const [k, v] of Object.entries(flat)) {
     if (v === undefined) continue;
+    // `OR` is satisfied when ANY branch matches — the batched-enrichment query shape.
+    if (k === "OR") {
+      const branches = v as Record<string, unknown>[];
+      if (!branches.some((b) => matches(b, row))) return false;
+      continue;
+    }
+    if (k === "AND") {
+      const branches = v as Record<string, unknown>[];
+      if (!branches.every((b) => matches(b, row))) return false;
+      continue;
+    }
+    if (v !== null && typeof v === "object" && isFilterOp(v as Record<string, unknown>)) {
+      if (!matchesOp(v as Record<string, unknown>, row[k])) return false;
+      continue;
+    }
     if (row[k] !== v) return false;
   }
   return true;
@@ -136,14 +173,17 @@ export function makeModel(seed: Row[] = []) {
     },
     // Minimal groupBy for the trending aggregate: group by the given scalar fields and
     // return a _count._all per group, ordered/taken as requested.
+    // `where` is honored here too, so a repo that scopes its aggregate (e.g. trending
+    // excluding local-file plays) is proven by the QUERY it builds, not by the test.
     groupBy: async (a: {
       by: string[];
+      where?: Record<string, unknown>;
       orderBy?: { _count?: Record<string, "asc" | "desc"> };
       take?: number;
     }) => {
       calls.groupBy.push(a);
       const buckets = new Map<string, { key: Record<string, unknown>; count: number }>();
-      for (const r of rows) {
+      for (const r of rows.filter((r) => matches(a.where, r))) {
         const keyObj: Record<string, unknown> = {};
         for (const f of a.by) keyObj[f] = r[f];
         const k = JSON.stringify(keyObj);
