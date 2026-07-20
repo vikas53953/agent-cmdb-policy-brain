@@ -7,3 +7,6 @@ demo/brain/
 .codex-tmp/
 .env
 *.log
+
+# Agent worktrees and local session scratch
+.claude/

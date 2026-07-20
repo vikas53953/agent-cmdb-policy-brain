@@ -57,8 +57,24 @@ test.describe("library — playlists CRUD", () => {
     );
     await expect(renamedCard, "Rename did not persist.").toBeVisible({ timeout: 15_000 });
 
-    // 5) Delete it.
+    // 5) Delete it. Deleting now ASKS first — a playlist can't vanish on one tap.
     await renamedCard.getByRole("button", { name: `Delete ${renamed}` }).click();
+
+    // The question must name the playlist, so the user knows what they're losing.
+    const confirm = page.getByTestId("confirm-dialog");
+    await expect(confirm, "Delete did not ask before destroying.").toBeVisible({
+      timeout: 15_000,
+    });
+    await expect(confirm).toContainText(renamed);
+
+    // Backing out must genuinely keep it — otherwise the question is theatre.
+    await page.getByTestId("confirm-cancel").click();
+    await expect(confirm).toHaveCount(0);
+    await expect(renamedCard, '"Keep it" deleted the playlist anyway.').toBeVisible();
+
+    // Now go through with it.
+    await renamedCard.getByRole("button", { name: `Delete ${renamed}` }).click();
+    await page.getByTestId("confirm-accept").click();
     await expect(renamedCard, "Delete did not persist.").toHaveCount(0, { timeout: 15_000 });
   });
 });

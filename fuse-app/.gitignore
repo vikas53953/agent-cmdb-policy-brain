@@ -27,3 +27,6 @@ coverage
 
 .vercel
 .env*
+
+# Agent worktrees and local session scratch
+.claude/
