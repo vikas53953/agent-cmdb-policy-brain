@@ -17,6 +17,7 @@
 import type { TrackRef } from "@/lib/repos/track";
 import { trackKey, trendingRowLabel } from "@/lib/home/recommend";
 import Rail from "@/components/home/rail";
+import { occurrenceKeys } from "@/components/ui/list-keys";
 import TrackCard from "@/components/home/track-card";
 
 export type HomeData = {
@@ -43,6 +44,9 @@ function HomeRow({
 }) {
   // An empty row is omitted rather than shown as a contentless carousel (R17).
   if (tracks.length === 0) return null;
+  // Identity-based card keys — a rail can repeat a track (recently played especially), so
+  // occurrenceKeys keeps them unique without baking the array position into the key.
+  const cardKeys = occurrenceKeys(tracks.map(trackKey));
   return (
     <section className="home-row" aria-label={title}>
       <div className="home-row-head">
@@ -51,7 +55,7 @@ function HomeRow({
       </div>
       <Rail>
         {tracks.map((track, i) => (
-          <TrackCard key={`${trackKey(track)}-${i}`} track={track} queue={tracks.slice(i + 1)} />
+          <TrackCard key={cardKeys[i]} track={track} queue={tracks.slice(i + 1)} />
         ))}
       </Rail>
     </section>

@@ -14,7 +14,8 @@
 // live only when a working adapter backs the source, Next only when something is
 // queued, Skip only when there is a track to skip to.
 
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
+import Sheet from "@/components/ui/sheet";
 import { usePlayerSelector } from "@/lib/player/use-player-selector";
 import { usePlaybackTruth } from "@/lib/player/use-playback-truth";
 import { playerStore } from "@/lib/player/store";
@@ -92,15 +93,9 @@ export default function NowPlaying({
   // new song never opens unexpectedly enlarged.
   const [bigger, setBigger] = useState(false);
 
-  // Close on Escape while open (accessibility parity with the profile sheet).
-  useEffect(() => {
-    if (!open) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [open, onClose]);
+  // Escape-to-close, focus-in, Tab trapping and focus restore now all live in <Sheet>
+  // (components/ui/sheet.tsx) — this screen's own Escape handler was one of three
+  // identical copies, and none of the three did the other half of the contract.
 
   // A new track resets theater — the maximise state belongs to the video you were
   // watching, not the next one. This is React's documented "adjust state when a prop
@@ -174,22 +169,17 @@ export default function NowPlaying({
       : "np-art";
 
   return (
-    <>
-      <div
-        className={showOpen ? "np-overlay open" : "np-overlay"}
-        onClick={onClose}
-        aria-hidden="true"
-      />
-      <section
-        className={showOpen ? "np open" : "np"}
-        role="dialog"
-        aria-modal="true"
-        aria-label="Now playing"
-        aria-hidden={!showOpen}
-        data-testid="now-playing"
-        data-np-open={showOpen ? "true" : "false"}
-      >
-        {current && badge ? (
+    <Sheet
+      open={showOpen}
+      onClose={onClose}
+      label="Now playing"
+      className="np"
+      overlayClassName="np-overlay"
+      as="section"
+      data-testid="now-playing"
+      data-np-open={showOpen ? "true" : "false"}
+    >
+      {current && badge ? (
           <div className="np-inner">
             <header className="np-head">
               <button
@@ -447,8 +437,7 @@ export default function NowPlaying({
             <VolumeControl variant="full" />
             </div>
           </div>
-        ) : null}
-      </section>
-    </>
+      ) : null}
+    </Sheet>
   );
 }

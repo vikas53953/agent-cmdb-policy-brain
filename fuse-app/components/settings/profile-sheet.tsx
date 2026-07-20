@@ -12,6 +12,7 @@
 // source of truth; when its owning unit wires a control it drops out of that list.
 
 import { useEffect, useRef, useState } from "react";
+import Sheet from "@/components/ui/sheet";
 import { PENDING_CONTROLS } from "@/lib/ui/shell";
 import {
   signOutAction,
@@ -192,7 +193,6 @@ export default function ProfileSheet({
   autoplaySimilar,
   onAutoplaySimilarChange,
 }: Props) {
-  const closeRef = useRef<HTMLButtonElement>(null);
   // The crossfade length last sent to the server, so a commit event with no change is a
   // no-op rather than a repeated save + repeated status line.
   const lastCommitted = useRef(crossfadeSec);
@@ -293,32 +293,21 @@ export default function ProfileSheet({
     });
   }
 
-  // Close on Escape; move focus into the sheet when it opens (accessibility).
-  useEffect(() => {
-    if (!open) return;
-    closeRef.current?.focus();
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [open, onClose]);
+  // Escape-to-close and focus-in used to live here; both now come from <Sheet>, which
+  // also adds the two halves this copy never had — Tab trapping and focus restore. The
+  // close button is still the first focusable control in the panel, so Sheet lands focus
+  // in exactly the same place the old closeRef did.
 
   return (
-    <>
-      <div
-        className={open ? "sheet-overlay open" : "sheet-overlay"}
-        onClick={onClose}
-        aria-hidden="true"
-      />
-      <aside
-        className={open ? "sheet open" : "sheet"}
-        role="dialog"
-        aria-modal="true"
-        aria-label="Settings"
-        aria-hidden={!open}
-        data-testid="profile-sheet"
-      >
+    <Sheet
+      open={open}
+      onClose={onClose}
+      label="Settings"
+      className="sheet"
+      overlayClassName="sheet-overlay"
+      as="aside"
+      data-testid="profile-sheet"
+    >
         <div className="sheet-handle" aria-hidden="true" />
 
         <div className="sheet-head">
@@ -335,7 +324,6 @@ export default function ProfileSheet({
             {user?.email ? <div className="sheet-email">{user.email}</div> : null}
           </div>
           <button
-            ref={closeRef}
             type="button"
             className="icon-btn"
             onClick={onClose}
@@ -519,7 +507,6 @@ export default function ProfileSheet({
               never shows any secret, only what happened. */}
           <DiagnosticsPanel />
         </section>
-      </aside>
-    </>
+    </Sheet>
   );
 }

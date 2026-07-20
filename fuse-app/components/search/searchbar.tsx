@@ -102,7 +102,13 @@ export default function SearchBar({ userKey = "anon" }: { userKey?: string }) {
       }
     }, trimmed === "" ? 0 : DEBOUNCE_MS);
 
-    return () => clearTimeout(handle);
+    // Clearing the timer alone was not enough: a request already in flight would still
+    // resolve and call setOutcome on an unmounted component. Aborting it too makes the
+    // fetch reject with AbortError, which the catch above already treats as "superseded".
+    return () => {
+      clearTimeout(handle);
+      abortRef.current?.abort();
+    };
   }, [query]);
 
   // Record a query into recent searches — on the user's intent signals (Enter, or the box

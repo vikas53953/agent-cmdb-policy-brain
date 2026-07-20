@@ -3760,3 +3760,80 @@ body {
   outline: 2px solid var(--teal);
   outline-offset: 1px;
 }
+
+/* ============================================================================
+ * CONTAINER-LEVEL ACCESSIBILITY
+ * Two rules that each close a whole class of bug, deliberately kept in one place
+ * at the end of the sheet so nothing above can silently cancel them.
+ * ========================================================================== */
+
+/* ---- The closed-sheet contract (paired with components/ui/sheet.tsx) --------
+ * Every sheet used to be "hidden" only by sliding off the bottom of the screen.
+ * Off-screen is not hidden: its buttons stayed tabbable, so a keyboard user
+ * tabbing past the mini player fell into ~30 invisible controls. `inert` on the
+ * panel is the real fix (it removes them from the tab order and the
+ * accessibility tree); this rule takes the panel off the screen for browsers
+ * that ignore inert, and belongs to the SAME single attribute the primitive
+ * sets, so a new sheet cannot get one half without the other.
+ *
+ * The visibility flip waits out the slide-down (--sheet-anim) so closing still
+ * animates instead of the panel blinking out of existence. Selector weight is
+ * one attribute (0,1,0), the same as `.np` / `.queue` / `.sheet`, and it sits
+ * last in the file — so it wins the tie without needing !important, and it never
+ * outranks the `.np.open` (0,2,0) open-state rules, which it must not. */
+[data-sheet-closed="true"] {
+  visibility: hidden;
+  transition-property: transform, opacity, visibility;
+  transition-duration: var(--sheet-anim, 0.28s), var(--sheet-anim, 0.28s), 0s;
+  transition-delay: 0s, 0s, var(--sheet-anim, 0.28s);
+  transition-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+}
+/* The profile sheet fades rather than slides, over a shorter beat. */
+.sheet {
+  --sheet-anim: 0.22s;
+}
+@media (prefers-reduced-motion: reduce) {
+  /* The global reduce block zeroes transition-duration but not delay; without
+     this a closed sheet would linger visible for a beat with no animation. */
+  [data-sheet-closed="true"] {
+    transition-delay: 0s !important;
+  }
+}
+
+/* ---- 44px touch targets on touch devices -----------------------------------
+ * Every icon button in the app is 38x38, under the 44px minimum a finger needs,
+ * and the queue row's three buttons sit at gap:2px — about 40px centre to
+ * centre, with the destructive Remove among them. Rather than making the icons
+ * themselves ugly-big on a desktop mouse, this grows the HIT AREA only where the
+ * pointer is actually a finger. One rule on `.icon-btn` covers every icon button
+ * in the app, present and future, instead of a per-screen patch. */
+@media (pointer: coarse) {
+  .icon-btn {
+    /* An invisible ::before is what the finger hits, so the drawn button, its
+       background, and its focus ring all keep their current 38px look. */
+    position: relative;
+    min-width: 38px;
+    min-height: 38px;
+  }
+  .icon-btn::before {
+    content: "";
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 44px;
+    height: 44px;
+    transform: translate(-50%, -50%);
+    /* No paint, no layout effect — purely a bigger target. */
+  }
+  /* The one place hit areas would otherwise overlap: three buttons 2px apart
+     would give each other's 44px boxes a shared strip, and the button that would
+     steal taps is the destructive Remove. Widen the gap so each target is whole
+     and separate. */
+  .q-row-actions {
+    gap: 8px;
+  }
+  /* Same treatment for the other tight control clusters. */
+  .mini-controls {
+    gap: 10px;
+  }
+}

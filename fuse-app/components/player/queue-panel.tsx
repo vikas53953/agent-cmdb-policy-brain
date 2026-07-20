@@ -13,6 +13,8 @@
 // continuation is streaming, a plain line says the queue is being extended with similar
 // tracks (the same consented behaviour the Now Playing banner announces).
 
+import Sheet from "@/components/ui/sheet";
+import { occurrenceKeys } from "@/components/ui/list-keys";
 import { usePlayerSelector } from "@/lib/player/use-player-selector";
 import { playerStore } from "@/lib/player/store";
 import { SOURCE_BADGES } from "@/lib/ui/shell";
@@ -68,22 +70,24 @@ export default function QueuePanel({
     playerStore.moveInQueue(from, to);
   }
 
+  // Identity-based row keys. The index used to be baked into the key, so ONE Move-up
+  // changed the key of every row from the move onward and React remounted them all —
+  // dropped artwork and lost focus on the very button being pressed, which is why
+  // repeated up-taps did not work. The same song can legitimately sit in the queue
+  // twice, so the key is identity + WHICH occurrence, never identity alone.
+  const rowKeys = occurrenceKeys(queue.map((t) => `${t.source}:${t.nativeId}`));
+
   return (
-    <>
-      <div
-        className={open ? "q-overlay open" : "q-overlay"}
-        onClick={onClose}
-        aria-hidden="true"
-      />
-      <section
-        className={open ? "queue open" : "queue"}
-        role="dialog"
-        aria-modal="true"
-        aria-label="Play queue"
-        aria-hidden={!open}
-        data-testid="queue-panel"
-        data-queue-open={open ? "true" : "false"}
-      >
+    <Sheet
+      open={open}
+      onClose={onClose}
+      label="Play queue"
+      className="queue"
+      overlayClassName="q-overlay"
+      as="section"
+      data-testid="queue-panel"
+      data-queue-open={open ? "true" : "false"}
+    >
         <header className="q-head">
           <button
             type="button"
@@ -140,7 +144,7 @@ export default function QueuePanel({
             <ul className="q-list" aria-label="Up next" data-testid="queue-list">
               {queue.map((t, i) => (
                 <li
-                  key={`${t.source}:${t.nativeId}:${i}`}
+                  key={rowKeys[i]}
                   className="q-row"
                   data-testid="queue-row"
                   data-index={i}
@@ -203,7 +207,6 @@ export default function QueuePanel({
             </ul>
           )}
         </div>
-      </section>
-    </>
+    </Sheet>
   );
 }
