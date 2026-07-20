@@ -1,27 +1,34 @@
 "use client";
 
-// DJ capability badges (U13, R13/R17, AE3). The honest on/off readout of a deck's
-// "full engine" powers — EQ, Loops, FX, Scratch. These are NOT interactive knobs in
-// U13 (no source that can be loaded today can actually do them), so rendering them as
-// live controls would be exactly the decorative-button dishonesty the rebuild exists
-// to kill. Instead each power is a plain indicator: lit when the loaded source truly
-// supports it, greyed with a plain-English reason when it does not. When the local
-// engine lands (U14) these light up for a My Files deck with no change here — the
-// state comes entirely from resolveDeckControls.
+// DJ capability badges (U13, R13/R17, AE3, F-7). The honest on/off readout of a deck's
+// "full engine" powers — EQ, Loops, FX, Scratch. These are NOT interactive knobs (the
+// live controls live on the deck itself), so rendering them as controls would be exactly
+// the decorative-button dishonesty the rebuild exists to kill. Instead each power is a
+// plain indicator: lit when it is genuinely usable right now, greyed with a plain-English
+// reason when it is not.
+//
+// The state comes entirely from a resolved capability matrix — this component decides
+// nothing. F-7 widened what that matrix accounts for: as well as "this source can't do
+// it" and "its engine isn't wired yet", it now also carries "there's nothing loaded to do
+// it to". That is why these chips render on EVERY deck now, My Files included: an empty
+// deck says "Load a file first" here as VISIBLE text, instead of leaving four dead-looking
+// pads explained only by a hover tooltip nobody on a phone can see.
 
 import type { CapabilityMatrix } from "@/lib/player/types";
 import { DECK_CAPABILITY_CHIPS } from "@/components/dj/deck-model";
 
-// One-line pointer shown under the chips when a deck's full-engine powers are off. It
-// reframes the greyed controls as a CAPABILITY DIFFERENCE — this source simply doesn't
-// have these powers — rather than something broken (Complaint 3). Stated once, not per
-// chip. My Files decks (all powers on) never show it.
-export const FULL_ENGINE_POINTER = "Full engine works with My Files";
+// Re-exported so existing importers keep one name for this string. The decision about
+// WHEN it is the honest thing to say now lives in deck-model's `capabilityPointer`.
+export { FULL_ENGINE_POINTER } from "@/components/dj/deck-model";
 
-export default function CapabilityBadges({ controls }: { controls: CapabilityMatrix }) {
-  // Any full-engine power greyed out → show the pointer once beneath the chips.
-  const anyOff = DECK_CAPABILITY_CHIPS.some(({ key }) => !controls[key].available);
-
+export default function CapabilityBadges({
+  controls,
+  pointer,
+}: {
+  controls: CapabilityMatrix;
+  // The one-line capability-difference note, or null/undefined when none applies.
+  pointer?: string | null;
+}) {
   return (
     <div className="caps-block">
       <ul className="caps" aria-label="Deck effects">
@@ -45,9 +52,9 @@ export default function CapabilityBadges({ controls }: { controls: CapabilityMat
           );
         })}
       </ul>
-      {anyOff ? (
+      {pointer ? (
         <p className="caps-pointer" data-testid="caps-pointer">
-          {FULL_ENGINE_POINTER}
+          {pointer}
         </p>
       ) : null}
     </div>

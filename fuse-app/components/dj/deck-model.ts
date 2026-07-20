@@ -139,6 +139,91 @@ export const DECK_CAPABILITY_CHIPS: readonly { key: CapabilityKey; label: string
   { key: "scratch", label: "Scratch" },
 ];
 
+// ── The THIRD honesty axis: nothing is loaded yet (F-7) ────────────────────────────
+//
+// THE BUG: a My Files deck with no file picked showed four CUE pads, four loop buttons,
+// three EQ kills and a TAP button that all LOOKED live. They were correctly `disabled`
+// and each carried a `title` explaining why — but a `title` is a hover tooltip, and on
+// the phone this app is mostly used on there IS no hover. So the honest reason was, in
+// practice, invisible: the pads just sat there looking broken.
+//
+// The app already had the right machinery for exactly this — the capability matrix, which
+// greys a control and states the reason as VISIBLE text ("Not available for YouTube
+// tracks"). It simply was not being applied to the not-loaded case, and a My Files deck
+// rendered no capability chips at all. This axis closes that gap: "can this source do it"
+// (the matrix) and "is its engine wired" (readiness) are now joined by "is there anything
+// loaded to do it TO".
+//
+// Doing it here rather than in the component is what makes it a class fix: every control
+// group reads its live/disabled state and its reason from one resolved matrix, so a
+// control added later cannot forget to explain itself.
+
+// Which capabilities are meaningless with an empty deck. `load` is deliberately absent —
+// loading is the one thing you must still be able to do. `volume`/`secondDeck` are deck
+// properties, not track controls, so they stay unaffected.
+export const LOADED_GATED_KEYS: readonly CapabilityKey[] = [
+  "rate",
+  "eq",
+  "loops",
+  "fx",
+  "scratch",
+];
+
+// The plain-words reason an empty deck gives, in the vocabulary of the thing the DJ
+// actually has to go and do. Same register as the matrix reasons — what is off, and what
+// to do about it.
+export const NOTHING_LOADED_REASONS: Record<TrackSource, string> = {
+  local: "Load a file first",
+  youtube: "Load a track first",
+  spotify: "Load a track first",
+};
+
+export function nothingLoadedReason(source: TrackSource): string {
+  return NOTHING_LOADED_REASONS[source];
+}
+
+// The controls for a source on a deck, gated by whether anything is actually loaded.
+// Layered ON TOP of resolveDeckControls so the capability and readiness reasons always
+// win: a YouTube deck's EQ says "Not available for YouTube tracks" whether or not a video
+// is loaded, because loading one would not change the answer. Only controls that WOULD be
+// live are turned off for the empty deck.
+export function resolveDeckControlsFor(
+  source: TrackSource,
+  ctx: DeckContext,
+  loaded: boolean,
+): CapabilityMatrix {
+  const base = resolveDeckControls(source, ctx);
+  if (loaded) return base;
+
+  const reason = nothingLoadedReason(source);
+  const out = { ...base } as CapabilityMatrix;
+  for (const key of LOADED_GATED_KEYS) {
+    const state: CapabilityState = base[key];
+    if (state.available) out[key] = { available: false, reason };
+  }
+  return out;
+}
+
+// The one-line pointer under a deck's greyed chips. It exists to reframe missing powers
+// as a CAPABILITY DIFFERENCE ("the full engine is a My Files thing") rather than
+// breakage. That framing is only true when the powers are off because of the SOURCE — on
+// a My Files deck that simply has no file yet, the chips already say "Load a file first"
+// and telling the DJ the full engine works with My Files would be nonsense, since they
+// are already on My Files. Returns null when no pointer should be shown.
+export const FULL_ENGINE_POINTER = "Full engine works with My Files";
+
+export function capabilityPointer(source: TrackSource, ctx: DeckContext): string | null {
+  // Ask the UNGATED matrix: is a power off for a reason that loading something would not
+  // fix? Only then is the "this is a My Files power" pointer the honest thing to say.
+  const base = resolveDeckControls(source, ctx);
+  const offBySource = DECK_CAPABILITY_CHIPS.some(({ key }) => !base[key].available);
+  if (!offBySource) return null;
+  // Suppress it on a My Files deck — it would be telling the DJ to use what they are
+  // already using. (Only reachable if a future readiness flag turns local off.)
+  if (source === "local") return null;
+  return FULL_ENGINE_POINTER;
+}
+
 // The crossfader curve a DJ can choose (DJ-1). "smooth" is the equal-power blend for
 // long mixes; "linear" is a straight fade; "sharp" is a fast cut that brings the other
 // deck fully in from a small movement at the edge — the curve scratch DJs cut on.

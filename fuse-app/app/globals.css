@@ -162,6 +162,47 @@ body {
   padding: 18px 18px calc(var(--dock-h) + 20px);
 }
 
+/* F-5 — the outgoing screen while a route change is in flight.
+ *
+ * Every tab route is server-rendered on demand, so the previous screen stays on display
+ * until the new one arrives. Left alone it reads as the CURRENT screen, which is why a
+ * tap felt like it did nothing. This steps it back so it plainly reads as on its way out.
+ *
+ * The 140ms transition DELAY is the point: a fast navigation finishes before the dim ever
+ * starts, so quick taps show no effect at all and only a genuinely slow load (a phone on
+ * mobile data — the case that produced this complaint) gets the treatment. No spinner, no
+ * blanking: the content stays readable and scrolled where it was, it just stops
+ * pretending to be current.
+ *
+ * Pointer events go off so a tap can't land on a control that is about to be replaced. */
+.screen[data-nav-pending="true"] {
+  opacity: 0.55;
+  pointer-events: none;
+  transition: opacity 0.18s ease 0.14s;
+}
+.screen {
+  transition: opacity 0.12s ease;
+}
+@media (prefers-reduced-motion: reduce) {
+  .screen,
+  .screen[data-nav-pending="true"] {
+    transition: none;
+  }
+}
+
+/* Visually hidden, still read aloud. Used for spoken parity with visual-only states. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
 /* --- Dock: persistent mini-player + bottom tab bar ---------------------------- */
 .dock {
   position: fixed;
@@ -338,6 +379,31 @@ body {
 }
 .tab.active .tab-icon {
   color: var(--ember);
+}
+/* F-5 — the tapped tab acknowledges the tap on the first frame, before the new route has
+ * come back from the server. This is the feedback that was missing: previously a tap
+ * produced no visible change anywhere until the whole route arrived. */
+.tab[data-pending="true"] {
+  color: var(--txt-hi);
+}
+.tab[data-pending="true"] .tab-icon {
+  color: var(--ember);
+  animation: tab-pending-pulse 0.9s ease-in-out infinite;
+}
+@keyframes tab-pending-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.4;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .tab[data-pending="true"] .tab-icon {
+    animation: none;
+    opacity: 0.7;
+  }
 }
 
 /* --- Source badges (YouTube / Spotify / local files) ------------------------- */
@@ -2461,6 +2527,18 @@ body {
   background: var(--ink-0);
   border: 1px solid var(--line-soft);
 }
+/* F-6 — "your settings came back, your file needs picking again". Warm rather than red:
+ * nothing has gone wrong, there is just one thing left to do. */
+.deck-restore-note {
+  margin: 0 0 8px;
+  font-size: 0.74rem;
+  line-height: 1.4;
+  color: #ffd98f;
+  padding: 8px 10px;
+  border-radius: var(--r-sm);
+  background: rgba(231, 179, 74, 0.1);
+  border: 1px solid rgba(231, 179, 74, 0.35);
+}
 .deck-filebtn {
   flex: 0 0 auto;
   display: inline-flex;
@@ -3091,6 +3169,37 @@ body {
 }
 
 /* Hot cues. */
+/* F-7 — ONE disabled affordance for every deck control that can be switched off.
+ *
+ * The pads, loop buttons, EQ kills and TAP were each already `disabled`, but at
+ * `opacity: 0.5` on a near-black panel that is barely a change: they still read as live
+ * buttons, which is why clicking one felt broken rather than blocked. This is deliberately
+ * a SHARED rule over the whole family rather than four copies — a control added to a deck
+ * later inherits the off-state look instead of having to remember it.
+ *
+ * The reason for the off state is never left to this styling alone: it is stated in words
+ * by the capability chips above the controls. This just makes "not right now" legible at a
+ * glance. */
+.deck-cue-btn:disabled,
+.deck-loop-btn:disabled,
+.deck-eq-kill:disabled,
+.deck-tap:disabled,
+.deck-fx-btn:disabled {
+  opacity: 1; /* replaced by explicit, legible off-state colours below */
+  background: var(--ink-2);
+  border-color: color-mix(in srgb, var(--line) 55%, transparent);
+  color: color-mix(in srgb, var(--txt-lo) 55%, transparent);
+  cursor: not-allowed;
+  box-shadow: none;
+}
+/* A disabled control never keeps a "set"/"on" highlight — nothing is armed on an empty
+ * deck, so nothing may look armed. */
+.deck-cue.set .deck-cue-btn:disabled {
+  border-color: color-mix(in srgb, var(--line) 55%, transparent);
+  background: var(--ink-2);
+  color: color-mix(in srgb, var(--txt-lo) 55%, transparent);
+}
+
 .deck-cues {
   display: grid;
   grid-template-columns: repeat(4, 1fr);

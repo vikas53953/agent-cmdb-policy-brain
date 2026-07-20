@@ -4,9 +4,12 @@ import {
   DECK_SOURCE_ORDER,
   DJ_ENGINE_READY,
   DJ_SPOTIFY_NOTICE,
+  FULL_ENGINE_POINTER,
+  capabilityPointer,
   crossfadeGains,
   parseYouTubeId,
   resolveDeckControls,
+  resolveDeckControlsFor,
   resolveDeckSourceOption,
   resolveDeckSourceOptions,
   type DeckEngineReadiness,
@@ -194,5 +197,81 @@ describe("parseYouTubeId accepts real ids and URLs, rejects junk", () => {
     expect(parseYouTubeId("")).toBeNull();
     expect(parseYouTubeId("   ")).toBeNull();
     expect(parseYouTubeId("not a link")).toBeNull();
+  });
+});
+
+// ── F-7: the "nothing is loaded" honesty axis ──────────────────────────────────────
+//
+// The CUE pads (and the loop buttons, EQ kills and TAP) on an empty My Files deck looked
+// like live controls that did nothing. They were correctly disabled, but the reason lived
+// only in a `title` tooltip — invisible on a touch screen. These assert that the reason is
+// now resolved as DATA, in the same matrix the visible capability chips render from, so
+// the deck cannot show a dead-looking control without also showing why.
+
+describe("F-7 — an empty deck says so, in the capability matrix", () => {
+  it("greys the full-engine powers on a My Files deck with no file, with a plain reason", () => {
+    const controls = resolveDeckControlsFor("local", { deck: "A" }, false);
+    for (const key of ["eq", "loops", "fx", "scratch", "rate"] as CapabilityKey[]) {
+      expect(controls[key].available, `${key} should be off on an empty deck`).toBe(false);
+      expect(controls[key].reason).toBe("Load a file first");
+    }
+  });
+
+  it("lights them all up once a file IS loaded", () => {
+    const controls = resolveDeckControlsFor("local", { deck: "A" }, true);
+    for (const key of ["eq", "loops", "fx", "scratch", "rate"] as CapabilityKey[]) {
+      expect(controls[key].available, `${key} should be live with a file loaded`).toBe(true);
+      expect(controls[key].reason).toBeNull();
+    }
+  });
+
+  it("never blocks LOADING on an empty deck — that is the one thing you must still do", () => {
+    expect(resolveDeckControlsFor("local", { deck: "A" }, false).load.available).toBe(true);
+    expect(resolveDeckControlsFor("youtube", { deck: "A" }, false).load.available).toBe(true);
+  });
+
+  it("leaves volume alone — the crossfader is a deck property, not a track control", () => {
+    expect(resolveDeckControlsFor("local", { deck: "A" }, false).volume.available).toBe(true);
+  });
+
+  it("uses the source's own words: a YouTube deck asks for a track, not a file", () => {
+    expect(resolveDeckControlsFor("youtube", { deck: "A" }, false).rate.reason).toBe(
+      "Load a track first",
+    );
+  });
+
+  it("the CAPABILITY reason always wins over the empty-deck reason", () => {
+    // Loading a video would not give YouTube an EQ, so saying "Load a track first" there
+    // would be a lie about what loading one would get you.
+    const empty = resolveDeckControlsFor("youtube", { deck: "A" }, false);
+    expect(empty.eq.available).toBe(false);
+    expect(empty.eq.reason).toBe(REASONS.ytNotAvailable);
+    const loaded = resolveDeckControlsFor("youtube", { deck: "A" }, true);
+    expect(loaded.eq.reason).toBe(REASONS.ytNotAvailable);
+  });
+
+  it("every gated state stays honest: off ⇒ a real reason, on ⇒ none", () => {
+    for (const source of DECK_SOURCE_ORDER) {
+      for (const loaded of [true, false]) {
+        const controls = resolveDeckControlsFor(source, { deck: "A" }, loaded);
+        for (const key of Object.keys(controls) as CapabilityKey[]) {
+          assertHonest(controls[key]);
+        }
+      }
+    }
+  });
+});
+
+describe("F-7 — the full-engine pointer only appears where it is true", () => {
+  it("still points a YouTube deck at My Files (Complaint 3 must not regress)", () => {
+    expect(capabilityPointer("youtube", { deck: "A" })).toBe(FULL_ENGINE_POINTER);
+  });
+
+  it("still points a Spotify deck at My Files", () => {
+    expect(capabilityPointer("spotify", { deck: "A" })).toBe(FULL_ENGINE_POINTER);
+  });
+
+  it("says nothing on a My Files deck — it would be telling the DJ to use what they are on", () => {
+    expect(capabilityPointer("local", { deck: "A" })).toBeNull();
   });
 });

@@ -39,11 +39,18 @@ import { localTrackKey } from "@/lib/dj/fingerprint";
 import { listCuesAction, setCueAction, deleteCueAction } from "@/lib/dj-actions";
 import {
   DJ_SPOTIFY_NOTICE,
+  capabilityPointer,
   parseYouTubeId,
-  resolveDeckControls,
+  resolveDeckControlsFor,
   resolveDeckSourceOptions,
   type DeckId,
 } from "@/components/dj/deck-model";
+import {
+  EMPTY_DECK_SESSION,
+  fileAgainNotice,
+  needsFileAgain,
+  type DjDeckSession,
+} from "@/lib/dj/session-state";
 import CapabilityBadges from "@/components/dj/capability-badges";
 import DeckWaveform, { type CueMarker } from "@/components/dj/deck-waveform";
 import { PlayIcon, PauseIcon } from "@/components/ui/icons";
@@ -83,6 +90,8 @@ export default function Deck({
   otherSource,
   onSelectSource,
   volume,
+  restore = EMPTY_DECK_SESSION,
+  onStateChange,
 }: {
   deckId: DeckId;
   accent: "a" | "b";
@@ -90,6 +99,11 @@ export default function Deck({
   otherSource: TrackSource | null;
   onSelectSource: (source: TrackSource | null) => void;
   volume: number;
+  // F-6: the snapshot this deck was left in, restored on mount. Defaults to a fresh deck
+  // so the component still stands alone (and so a first-ever visit is unaffected).
+  restore?: DjDeckSession;
+  // Called whenever a persisted setting changes, so the console can snapshot the console.
+  onStateChange?: (deck: DjDeckSession) => void;
 }) {
   const adapterRef = useRef<YouTubeAdapter | null>(null);
   const engineRef = useRef<DjDeckEngine | null>(null);
@@ -128,7 +142,10 @@ export default function Deck({
   const [isPlaying, setIsPlaying] = useState(false);
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [rate, setRate] = useState(1);
+  // F-6: every persisted knob seeds from the restored snapshot, so the deck's FIRST render
+  // is already the deck the DJ left. A fresh visit gets EMPTY_DECK_SESSION's defaults,
+  // which are the same values these used to be hard-coded to.
+  const [rate, setRate] = useState(restore.rate);
 
   // Local-files (Web Audio) deck state (U14 + DJ-1).
   const [localName, setLocalName] = useState<string | null>(null);
@@ -136,13 +153,13 @@ export default function Deck({
   const [trackKey, setTrackKey] = useState<string | null>(null);
   const [analysis, setAnalysis] = useState<Analysis>(NO_ANALYSIS);
   const [bpm, setBpm] = useState(0); // detected, or overridden by TAP
-  const [eq, setEqState] = useState<EqState>(FLAT_EQ);
-  const [kills, setKills] = useState<KillState>(NO_KILL);
-  const [filterAmt, setFilterAmt] = useState(0);
-  const [trim, setTrimState] = useState(1);
+  const [eq, setEqState] = useState<EqState>(restore.eq);
+  const [kills, setKills] = useState<KillState>(restore.kills);
+  const [filterAmt, setFilterAmt] = useState(restore.filterAmt);
+  const [trim, setTrimState] = useState(restore.trim);
   const [meter, setMeter] = useState(0);
   const [beatLoopBars, setBeatLoopBars] = useState<number | null>(null);
-  const [echoOn, setEchoOn] = useState(false);
+  const [echoOn, setEchoOn] = useState(restore.echo);
   const [scratchVal, setScratchVal] = useState(0);
   const [cues, setCues] = useState<CueMarker[]>([]);
   // Whether the BPM on screen came from the DJ's own taps rather than auto-detection.
@@ -157,9 +174,33 @@ export default function Deck({
   const firstBeatSec = 0;
 
   const options = resolveDeckSourceOptions({ deck: deckId, otherDeckSource: otherSource });
+
+  // Is there actually something on this deck to act on? The third honesty axis (F-7):
+  // a YouTube deck needs a video, a My Files deck needs decoded audio. Spotify can never
+  // load anything yet, so it is never "loaded".
+  const hasTrack =
+    (source === "youtube" && loadedId !== null) || (source === "local" && localLoaded);
+
+  // Every control's live/disabled state and its plain-English reason, from ONE resolved
+  // matrix: what the source can do, whether its engine is wired, and whether anything is
+  // loaded. Nothing in the render below re-decides any of that locally.
   const controls = source
-    ? resolveDeckControls(source, { deck: deckId, otherDeckSource: otherSource })
+    ? resolveDeckControlsFor(source, { deck: deckId, otherDeckSource: otherSource }, hasTrack)
     : null;
+  const capsPointer = source
+    ? capabilityPointer(source, { deck: deckId, otherDeckSource: otherSource })
+    : null;
+
+  // F-6: the video this deck held when the DJ last left, waiting to be put back. Consumed
+  // once — a later source change must not resurrect it.
+  const pendingRestoreIdRef = useRef<string | null>(
+    restore.source === "youtube" ? restore.youtubeId : null,
+  );
+  // F-6: the file whose settings survived but whose audio could not. Cleared as soon as
+  // the DJ picks a file (any file) — the notice must not outlive its usefulness.
+  const [fileToPickAgain, setFileToPickAgain] = useState<string | null>(
+    needsFileAgain(restore) ? restore.localFileName : null,
+  );
 
   // Spin up (and tear down) a private YouTube player when this deck is on YouTube.
   useEffect(() => {
@@ -168,11 +209,45 @@ export default function Deck({
     adapterRef.current = adapter;
     const host = hostRef.current;
     if (host) adapter.mount(host);
+
+    // F-6: put back the video this deck was left holding. Loaded and CUED, never played —
+    // coming back to a tab must not start sound on its own, exactly as the mini-player's
+    // rehydration restores its track paused.
+    const restoreId = pendingRestoreIdRef.current;
+    pendingRestoreIdRef.current = null;
+    if (restoreId) {
+      const track: TrackRef = {
+        source: "youtube",
+        nativeId: restoreId,
+        title: `YouTube · ${restoreId}`,
+        artist: null,
+        artUrl: null,
+        durationSec: null,
+      };
+      void adapter
+        .load(track)
+        .then(() => {
+          adapter.setVolume(volume);
+          adapter.setRate(rate);
+          setLoadedId(restoreId);
+          setIsPlaying(false);
+        })
+        .catch(() => {
+          // The video is gone or refuses to embed now. Say so rather than showing a
+          // transport over nothing.
+          setLoadedId(null);
+          setLoadError("That video won't load any more. Paste another link to keep going.");
+        });
+    }
+
     return () => {
       if (host) adapter.unmount(host);
       adapter.unload();
       adapterRef.current = null;
     };
+    // `volume`/`rate` are read for the restore only; re-running this effect on a volume
+    // change would tear down and rebuild the player mid-track.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [source]);
 
   // Spin up (and dispose) a private Web Audio engine when this deck is on My Files.
@@ -191,6 +266,38 @@ export default function Deck({
     adapterRef.current?.setVolume(volume);
     engineRef.current?.setCrossfade(volume);
   }, [volume]);
+
+  // F-6: report every persisted setting up to the console, which owns the one snapshot.
+  // One effect over all of them rather than a call inside each handler — a handler that
+  // forgot to report would be a silent hole, and this way a knob added later is persisted
+  // the moment it is added to this dependency list.
+  useEffect(() => {
+    onStateChange?.({
+      source,
+      youtubeId: source === "youtube" ? loadedId : null,
+      // Whichever name is current: the freshly picked file, or the one still waiting to
+      // be picked again.
+      localFileName: source === "local" ? (localName ?? fileToPickAgain) : null,
+      rate,
+      eq,
+      kills,
+      filterAmt,
+      trim,
+      echo: echoOn,
+    });
+  }, [
+    onStateChange,
+    source,
+    loadedId,
+    localName,
+    fileToPickAgain,
+    rate,
+    eq,
+    kills,
+    filterAmt,
+    trim,
+    echoOn,
+  ]);
 
   // While a local file is loaded, run an animation loop that reads the engine's REAL
   // position and level so the waveform playhead moves and the meter breathes with the
@@ -235,6 +342,10 @@ export default function Deck({
     setCues([]);
     setBpmTapped(false);
     setCueNotice(null);
+    // A deliberate source change is a deliberate fresh start: the "pick your file again"
+    // note is about the deck you came back to, not the one you just chose.
+    setFileToPickAgain(null);
+    pendingRestoreIdRef.current = null;
     tapTimesRef.current = [];
     onSelectSource(source === next ? null : next);
   }
@@ -331,6 +442,8 @@ export default function Deck({
       engine.play();
       setLocalName(file.name);
       setLocalLoaded(true);
+      // Audio is back — the "pick it again" note has done its job.
+      setFileToPickAgain(null);
       setTrackKey(key);
       setIsPlaying(true);
       // Load this track's saved hot cues (empty on a keyless / signed-out run).
@@ -492,17 +605,12 @@ export default function Deck({
   }
 
   const badge = source ? SOURCE_BADGES[source] : null;
-  const speedLive =
-    (source === "youtube" && controls?.rate.available === true && loadedId !== null) ||
-    (source === "local" && localLoaded);
-  const speedReason =
-    controls && !controls.rate.available
-      ? controls.rate.reason
-      : source === "youtube" && !loadedId
-        ? "Load a track to change speed"
-        : source === "local" && !localLoaded
-          ? "Load a file to change speed"
-          : null;
+  // Speed now reads straight off the resolved matrix. The old three-branch ternary that
+  // re-derived "…but nothing is loaded" here was the bug F-7 is about: the same question
+  // answered in one more place, in different words, and only in a hover tooltip. One
+  // answer, one wording, one place.
+  const speedLive = controls?.rate.available === true;
+  const speedReason = controls && !controls.rate.available ? controls.rate.reason : null;
 
   const deckState = loadError
     ? "error"
@@ -626,7 +734,7 @@ export default function Deck({
             </div>
           </div>
 
-          {controls ? <CapabilityBadges controls={controls} /> : null}
+          {controls ? <CapabilityBadges controls={controls} pointer={capsPointer} /> : null}
         </>
       ) : null}
 
@@ -636,6 +744,20 @@ export default function Deck({
             Files stay on your device — decoded here in your browser, never uploaded. The
             waveform, BPM and cues are all computed on your machine.
           </p>
+
+          {/* F-6: the one thing a returning deck honestly cannot bring back is the audio
+              itself — the same promise that keeps it off our servers keeps it out of the
+              snapshot. Say so, and name the file, rather than leaving the DJ to wonder
+              why an empty deck has all their knobs set. */}
+          {fileToPickAgain && !localLoaded ? (
+            <p
+              className="deck-restore-note"
+              data-testid={`deck-${deckId}-restore-note`}
+              role="status"
+            >
+              {fileAgainNotice(fileToPickAgain)}
+            </p>
+          ) : null}
 
           <div className="deck-load">
             <label className="deck-filebtn">
@@ -921,13 +1043,19 @@ export default function Deck({
               />
             </div>
           </div>
+
+          {/* F-7: the same honesty chips every other deck shows. On a My Files deck with
+              no file picked they read "Load a file first" as VISIBLE text — which is what
+              the greyed pads above were previously saying only in a hover tooltip nobody
+              on a phone could see. Once a file is loaded they all light up. */}
+          {controls ? <CapabilityBadges controls={controls} pointer={capsPointer} /> : null}
         </>
       ) : null}
 
       {source === "spotify" ? (
         <>
           <p className="deck-notice">{DJ_SPOTIFY_NOTICE}</p>
-          {controls ? <CapabilityBadges controls={controls} /> : null}
+          {controls ? <CapabilityBadges controls={controls} pointer={capsPointer} /> : null}
         </>
       ) : null}
     </section>

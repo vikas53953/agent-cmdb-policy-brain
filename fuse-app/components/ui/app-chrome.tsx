@@ -10,7 +10,7 @@
 // slotted into the scrolling area, so this client boundary does not pull page data
 // into the client bundle.
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { usePathname } from "next/navigation";
 // Side-effect import: registering the Spotify adapter at app load is what flips
 // Spotify search results from disabled to a real, enabled play button (its honest
@@ -18,6 +18,7 @@ import { usePathname } from "next/navigation";
 // the mini-player mounts. No secret is read; the module load is pure.
 import "@/lib/player/adapters/spotify";
 import { showsMiniPlayer } from "@/lib/ui/shell";
+import { isNavPending, subscribeNavPending } from "@/lib/ui/nav-pending";
 import { blendController, setLiveCrossfadeSec } from "@/lib/player/blend-controller";
 import { playerHostCoordinator } from "@/lib/player/host-coordinator";
 import { usePlaybackRecovery } from "@/lib/player/use-playback-recovery";
@@ -63,6 +64,12 @@ function SleepChip() {
       <span>{label}</span>
     </button>
   );
+}
+
+// Is a route change in flight? Subscribes to the shared nav-pending store the tab bar
+// reports into (F-5). Server snapshot is always false — nothing is navigating during SSR.
+function useNavPending(): boolean {
+  return useSyncExternalStore(subscribeNavPending, isNavPending, () => false);
 }
 
 // The subset of the signed-in user the shell needs. Serializable so it can cross
@@ -120,6 +127,9 @@ export default function AppChrome({
   const [autoplaySimilar, setAutoplaySimilar] = useState(initialAutoplaySimilar);
   const pathname = usePathname() ?? "/";
   const withMiniPlayer = showsMiniPlayer(pathname);
+  // F-5: true from the instant a tab is tapped until the new route commits. Drives the
+  // outgoing screen's stepped-back look so the old content can never read as the new one.
+  const navPending = useNavPending();
   // AUDIT 24: the volume persist ended in an empty `.catch(() => {})`, so a level that
   // failed to save looked saved until the next reload quietly undid it. The shell now
   // owns one status pill for that write. `say` is read through a ref because the
@@ -283,7 +293,12 @@ export default function AppChrome({
         </button>
       </header>
 
-      <main id="main-content" className="screen" tabIndex={-1}>
+      <main
+        id="main-content"
+        className="screen"
+        tabIndex={-1}
+        data-nav-pending={navPending ? "true" : undefined}
+      >
         {children}
       </main>
 
