@@ -2013,6 +2013,11 @@ body {
   overflow-x: auto;
   scroll-snap-type: x proximity;
   padding: 2px 16px 6px;
+  /* The snapport defaults to the PADDING BOX, so a `scroll-snap-align: start` card snapped
+   * to scrollLeft 0 lands under the rail's own 16px leading padding — the first card was
+   * visibly cut off on its left edge at rest. scroll-padding pulls the snapport in to match
+   * the padding, so the first (and last) card always comes to rest fully visible. */
+  scroll-padding-inline: 16px;
   /* Hide the scrollbar chrome — the fade/chevron cue carries the affordance. */
   scrollbar-width: none;
 }

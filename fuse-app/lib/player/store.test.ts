@@ -771,3 +771,110 @@ describe("PlayerStore autoplay up-next seeding (owner fix 2)", () => {
     expect(store.getState().autoplayQueued).toBe(false);
   });
 });
+
+// ── Notice lifetime is tied to the track it is ABOUT (the leaking-banner class fix) ──
+//
+// THE BUG THIS PINS: after skipping away from a track that would not play, the old
+// "This track won't play right now" warning was still on screen over a track that WAS
+// playing. A message about track A must never survive onto track B — and the fix is
+// structural (the store stamps every notice with its track and drops it the moment that
+// track is no longer current), not a special case for this one message.
+describe("PlayerStore notice lifetime (a message belongs to what it describes)", () => {
+  it("drops the 'won't play' warning as soon as a different track becomes current", async () => {
+    const registry = createAdapterRegistry();
+    const { adapter } = makeFakeAdapter("youtube");
+    registry.register(adapter);
+    const store = new PlayerStore({ registry });
+
+    store.setQueue([track("youtube", "b")]);
+    await store.play(track("youtube", "a"));
+    store.failStalled();
+    expect(store.getState().notice).toMatch(/won't play/i);
+
+    await store.next(); // the user takes the offered Skip
+    expect(store.getState().current?.nativeId).toBe("b");
+    expect(store.getState().notice).toBeNull(); // the warning stayed with track a
+  });
+
+  it("drops a notice across a blend promotion too (no route leaks it)", async () => {
+    const registry = createAdapterRegistry();
+    const { adapter } = makeFakeAdapter("youtube");
+    registry.register(adapter);
+    const store = new PlayerStore({ registry });
+
+    const b = track("youtube", "b");
+    store.setQueue([b]);
+    await store.play(track("youtube", "a"));
+    store.failStalled();
+    expect(store.getState().notice).not.toBeNull();
+
+    store.promoteBlended(b);
+    expect(store.getState().notice).toBeNull();
+  });
+
+  it("keeps a notice while its own track is still current", async () => {
+    const registry = createAdapterRegistry();
+    const { adapter } = makeFakeAdapter("youtube");
+    registry.register(adapter);
+    const store = new PlayerStore({ registry });
+
+    await store.play(track("youtube", "a"));
+    store.failStalled();
+    store.reportPosition(0); // ordinary ticks must not wipe an honest warning
+    store.seek(0);
+    expect(store.getState().notice).toMatch(/won't play/i);
+  });
+
+  it("ignores a health verdict that was reached for a track that is no longer playing", async () => {
+    const registry = createAdapterRegistry();
+    const { adapter } = makeFakeAdapter("youtube");
+    registry.register(adapter);
+    const store = new PlayerStore({ registry });
+
+    store.setQueue([track("youtube", "b")]);
+    await store.play(track("youtube", "a"));
+    await store.next();
+    expect(store.getState().current?.nativeId).toBe("b");
+
+    // A late tick from the monitor, computed while track a was current, lands now.
+    store.setRecovery("error", true, "youtube:a");
+    store.failStalled("youtube:a");
+
+    const s = store.getState();
+    expect(s.recovery.phase).toBe("ok"); // track b is judged on its own playback
+    expect(s.notice).toBeNull();
+    expect(s.isPlaying).toBe(true); // and it was not paused by a stale verdict
+  });
+});
+
+// ── The transport can never claim to pause silence (one reading drives icon + action) ──
+describe("PlayerStore toggle honours the one playback reading", () => {
+  it("a stuck track's toggle tries to PLAY rather than 'pause' sound that is not there", async () => {
+    const registry = createAdapterRegistry();
+    const { adapter, calls } = makeFakeAdapter("youtube");
+    registry.register(adapter);
+    const store = new PlayerStore({ registry });
+
+    await store.play(track("youtube", "a"));
+    store.setRecovery("error", false);
+    calls.length = 0;
+
+    await store.toggle();
+    expect(calls).toContain("play");
+    expect(calls).not.toContain("pause");
+  });
+
+  it("a genuinely playing track still pauses on toggle", async () => {
+    const registry = createAdapterRegistry();
+    const { adapter, calls } = makeFakeAdapter("youtube");
+    registry.register(adapter);
+    const store = new PlayerStore({ registry });
+
+    await store.play(track("youtube", "a"));
+    calls.length = 0;
+    await store.toggle();
+    expect(calls).toContain("pause");
+    expect(store.getState().isPlaying).toBe(false);
+    expect(store.getState().intent).toBe("pause");
+  });
+});

@@ -29,6 +29,7 @@ import {
   trackKey,
 } from "@/lib/home/recommend";
 import { coPlayAffinity } from "@/lib/home/coplay";
+import { withResolvedArt, withResolvedArtAll } from "@/lib/home/art";
 import { diversifyHomeRows } from "@/lib/home/diversify";
 import HomeScreen, { type HomeData } from "@/components/home/home-screen";
 import SpotifyConnectStatus from "@/components/ui/spotify-connect-status";
@@ -36,6 +37,14 @@ import SpotifyConnectStatus from "@/components/ui/spotify-connect-status";
 // Coerce any stored track-bearing row (seed / play / like) into the source-agnostic
 // TrackRef the UI renders. A corrupt/unknown source defaults to "youtube" so a bad row
 // still renders a sensible badge rather than crashing.
+//
+// COVER ART (R5): Home renders PERSISTED rows, whose `artUrl` column is nullable — a row
+// written before art was captured comes back with no art and used to render a plain grey
+// box, even though the very same video shows artwork on Search (which renders live
+// provider results that always carry a thumbnail). So this single boundary resolves art
+// for every Home row via withResolvedArt(): a YouTube track's thumbnail is DERIVED from
+// its video id (keyless, CSP-allowed) rather than left blank. Nothing is invented — a
+// source whose art can't be derived from an id keeps a null artUrl.
 function toHomeTrack(row: {
   source: string;
   nativeId: string;
@@ -44,14 +53,14 @@ function toHomeTrack(row: {
   artUrl?: string | null;
   durationSec?: number | null;
 }): TrackRef {
-  return {
+  return withResolvedArt({
     source: isTrackSource(row.source) ? row.source : "youtube",
     nativeId: row.nativeId,
     title: row.title,
     artist: row.artist ?? null,
     artUrl: row.artUrl ?? null,
     durationSec: row.durationSec ?? null,
-  };
+  });
 }
 
 const EMPTY_HOME: HomeData = {
@@ -94,14 +103,18 @@ async function loadHome(): Promise<HomeData> {
       listRecentPlays(user.id, 60),
       trendingTracks(20),
     ]);
+    // `trendingTracks` already returns TrackRefs (it does its own row → TrackRef mapping),
+    // so it never passes through toHomeTrack — resolve its art here so the aggregate
+    // trending row is covered by the same rule as every other row.
+    const trendingCounts = withResolvedArtAll(countTracks);
     const likes = likeRows.map(toHomeTrack);
     const recent = dedupeTracks([recentRows.map(toHomeTrack)]).slice(0, 12);
 
     // KTD-4: real aggregate trending once it has grown enough, else the curated seed.
     // The SAME predicate decides the contents and the row's name, so the two can never
     // disagree — the row only calls itself "Trending" when real play data backs it.
-    const trendingIsReal = isRealTrending(countTracks);
-    const trendingPool = chooseTrending(seedTracks, countTracks);
+    const trendingIsReal = isRealTrending(trendingCounts);
+    const trendingPool = chooseTrending(seedTracks, trendingCounts);
 
     // Co-play signal (AUDIT 36): what people actually play in the same sitting as the
     // tracks this user loves. Fetched separately and allowed to fail — a recommendation

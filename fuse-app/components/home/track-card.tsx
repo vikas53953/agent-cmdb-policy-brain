@@ -18,6 +18,7 @@ import { adapterRegistry } from "@/lib/player/adapters";
 import { playerStore } from "@/lib/player/store";
 import QueueActions from "@/components/player/queue-actions";
 import { PlayIcon, MusicIcon } from "@/components/ui/icons";
+import { artCandidates } from "@/lib/home/art";
 
 export default function TrackCard({
   track,
@@ -27,11 +28,15 @@ export default function TrackCard({
   // The tracks to line up after this one when it is played (the rest of the row).
   queue?: readonly TrackRef[];
 }) {
-  const [artFailed, setArtFailed] = useState(false);
+  // Every art URL worth trying, best first (stored, then the URL derived from the track's
+  // own id). A dead stored URL steps to the next candidate instead of dropping straight to
+  // the grey icon box (R5); the icon is reached only when nothing real is left.
+  const candidates = artCandidates(track);
+  const [artIndex, setArtIndex] = useState(0);
   const badge = SOURCE_BADGES[track.source] ?? { className: "mp3", label: track.source };
   const hasAdapter = adapterRegistry.get(track.source) !== undefined;
   const { playable, reason } = resultPlayability(track.source, hasAdapter);
-  const showArt = track.artUrl && !artFailed;
+  const artUrl = candidates[artIndex];
 
   function handlePlay() {
     playerStore.setQueue(queue ?? []);
@@ -41,14 +46,15 @@ export default function TrackCard({
   return (
     <div className="tcard">
       <div className="tcard-art">
-        {showArt ? (
+        {artUrl ? (
           // eslint-disable-next-line @next/next/no-img-element -- external source CDN (i.ytimg.com / i.scdn.co); allowed by CSP img-src
           <img
-            src={track.artUrl ?? undefined}
+            key={artUrl}
+            src={artUrl}
             alt=""
             loading="lazy"
             referrerPolicy="no-referrer"
-            onError={() => setArtFailed(true)}
+            onError={() => setArtIndex((i) => i + 1)}
           />
         ) : (
           <span className="tcard-art-fallback" aria-hidden="true">

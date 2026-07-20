@@ -27,6 +27,7 @@ import {
   CROSSFADE_MIN_SEC,
 } from "@/lib/repos/settings";
 import { adaptedCrossfadeSec } from "@/lib/player/adaptive-crossfade";
+import { describePlayback } from "@/lib/player/playback-truth";
 
 // ── Pure timing + gain math (unit-tested without a DOM) ─────────────────────────
 
@@ -248,7 +249,9 @@ export class BlendController {
   startManualBlend(): boolean {
     if (this.blend) return false;
     const state = this.store.getState();
-    if (!state.isPlaying) return false;
+    // Gated on the ONE playback reading, not raw isPlaying: a wedged track leaves
+    // isPlaying true while no sound comes out, and melting from silence is a lie.
+    if (!describePlayback(state).soundIsMoving) return false;
     const current = state.current;
     const next = state.queue[0] ?? null;
     if (!current || !next) return false;
@@ -354,7 +357,8 @@ export class BlendController {
     );
 
     const go = shouldStartBlend({
-      isPlaying: state.isPlaying,
+      // Same one reading: an auto-crossfade may only start out of real, moving sound.
+      isPlaying: describePlayback(state).soundIsMoving,
       alreadyBlending: false,
       positionSec: state.positionSec,
       durationSec: state.durationSec,

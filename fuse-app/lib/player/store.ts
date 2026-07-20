@@ -27,6 +27,7 @@ import type { EngineErrorKind } from "@/lib/player/playback-health";
 import { adapterRegistry, type AdapterRegistry } from "@/lib/player/adapters";
 import { playNext, addToQueue, removeAt, moveTrack } from "@/lib/player/queue-ops";
 import { logActivity } from "@/lib/activity-log";
+import { describePlayback } from "@/lib/player/playback-truth";
 
 // How many tracks the Previous back-stack keeps. Bounded so a long session cannot grow
 // history without limit; well beyond any realistic "go back" reach.
@@ -38,6 +39,12 @@ export const PREVIOUS_RESTART_THRESHOLD_SEC = 3;
 
 function sameTrack(a: TrackRef, b: TrackRef): boolean {
   return a.source === b.source && a.nativeId === b.nativeId;
+}
+
+// The stable identity of a track, used to tie a message's lifetime to the thing it is
+// about and to drop health writes computed for a track that is no longer current.
+export function trackKey(track: TrackRef | null | undefined): string | null {
+  return track ? `${track.source}:${track.nativeId}` : null;
 }
 
 export type PlayerListener = (state: PlayerState) => void;
@@ -118,8 +125,24 @@ export class PlayerStore {
     };
   }
 
+  // The track a live `notice` is ABOUT. A notice is a statement about one specific track
+  // ("this track won't play", "playing the YouTube version"), so its lifetime belongs to
+  // that track — not to the clock, and not to whoever remembers to clear it.
+  private noticeFor: string | null = null;
+
   private set(patch: Partial<PlayerState>): void {
-    this.state = { ...this.state, ...patch };
+    const next = { ...this.state, ...patch };
+    // NOTICE LIFETIME, ENFORCED IN ONE PLACE (the class fix for the leaking banner). Any
+    // write that sets a notice stamps it with the track it describes; any state in which
+    // the current track is no longer that track drops it automatically. A warning about
+    // track A therefore cannot survive onto track B, whatever route the change took —
+    // a skip, an auto-advance, a blend promotion, or a late write from a stale timer.
+    if ("notice" in patch) this.noticeFor = patch.notice == null ? null : trackKey(next.current);
+    if (next.notice != null && this.noticeFor !== trackKey(next.current)) {
+      next.notice = null;
+      this.noticeFor = null;
+    }
+    this.state = next;
     for (const listener of this.listeners) listener(this.state);
   }
 
@@ -402,9 +425,12 @@ export class PlayerStore {
     return this.play();
   }
 
-  // Toggle between playing and paused for the current track.
+  // Toggle between playing and paused for the current track. It asks the SAME reading the
+  // buttons render from (describePlayback), so the icon and what the tap does can never
+  // disagree: a stuck track shows Play and a tap tries to play it, rather than showing
+  // Pause and "pausing" silence.
   async toggle(): Promise<void> {
-    if (this.state.isPlaying) {
+    if (describePlayback(this.state).transportAction === "pause") {
       this.pause();
     } else {
       await this.resume();
@@ -476,7 +502,12 @@ export class PlayerStore {
 
   // Publish the recovery-ladder phase into the single truth so every surface (mini
   // data-player-state, Now Playing banner, robot tester) renders the same honest health.
-  setRecovery(phase: RecoveryPhase, skipOffered: boolean): void {
+  // `forTrackKey` is the track the monitor SAMPLED when it reached this verdict. A tick
+  // that lands after the listener has already moved on is about a track that is no longer
+  // playing, so it is dropped rather than stamped onto the new one (the same class fix as
+  // notice lifetime: a judgement belongs to what it judged).
+  setRecovery(phase: RecoveryPhase, skipOffered: boolean, forTrackKey?: string | null): void {
+    if (forTrackKey !== undefined && forTrackKey !== trackKey(this.state.current)) return;
     const prev = this.state.recovery;
     if (prev.phase === phase && prev.skipOffered === skipOffered) return;
     this.set({ recovery: { phase, skipOffered } });
@@ -485,8 +516,10 @@ export class PlayerStore {
   // The honest terminal: the ladder is exhausted and there is nothing to advance to.
   // Stop pretending to play — surface a plain error + a working Skip, never a silent
   // freeze or an endless "retrying" (AE1). Pauses the wedged engine so no ghost audio.
-  failStalled(): void {
+  failStalled(forTrackKey?: string | null): void {
     if (!this.state.current) return;
+    // Same rule as setRecovery: only fail the track this verdict was actually reached for.
+    if (forTrackKey !== undefined && forTrackKey !== trackKey(this.state.current)) return;
     this.activeAdapter?.pause();
     // Intent stays "play" — the user still wants this track; the app simply cannot play it
     // and says so honestly (recovery.phase "error" + Skip). Keeping intent stable lets the

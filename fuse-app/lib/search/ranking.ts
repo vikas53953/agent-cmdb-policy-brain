@@ -86,6 +86,61 @@ export function coversQuery(query: string, track: TrackRef): boolean {
   return q.every((w) => haystack.has(w));
 }
 
+// ---------------------------------------------------------------------------------------
+// KEYWORD-STUFFING DEFENCE: "this title CONTAINS my words" vs "this title IS my song".
+//
+// The live bug: searching "Softly Karan Aujla" put an UNRELATED track at #2 —
+//   "Chunni Meri Rang De Lalariya (Official Video) Softly Karan Aujla Song | Chuni Meri
+//    Rangde Full Song"  (channel "Vital Music")
+// It covers every query word and self-labels "(Official Video)", so it scored like a real
+// match. But its title's HEAD names a completely different work; the query words only turn
+// up in a trailing keyword clause. That is the general shape of stuffing, and it is what we
+// detect here — no song, artist or channel is named anywhere in this file.
+//
+// The head of a title is everything before the first structural break: a segment delimiter
+// (| • · » « / ~) or an opening bracket. Uploaders put the work's real name there and push
+// decoration ("(Official Video)", "| Latest Punjabi Song 2024") after it. Deliberately NOT
+// split on "-", ":" or "," — those are normal INSIDE a song's own name/credit
+// ("SOFTLY - Karan Aujla", "Full Video: Kesariya").
+const TITLE_HEAD_BREAK_RE = /[|•·»«/~\n]|[([{]/;
+
+function titleHead(title: string): string {
+  const idx = title.search(TITLE_HEAD_BREAK_RE);
+  return (idx === -1 ? title : title.slice(0, idx)).trim();
+}
+
+// Is the query the title's PRIMARY subject, rather than a keyword bolted onto a different
+// work? True (no penalty) unless we can positively show otherwise.
+//
+// We only judge the query words the TITLE has to carry: words already supplied by the
+// channel/artist are dropped first ("residual"). That is what keeps honest uploads safe —
+// on a query of just an artist name, an official upload titled "Winning Speech (Official
+// Video) | Karan Aujla" has an empty residual, so it is never judged. It is also why a
+// clean official row like "SOFTLY (Official Music Video)" on channel "Karan Aujla" passes:
+// its residual is just "softly", and the head says exactly that.
+//
+// The verdict is negative ONLY when all three hold:
+//   • there are residual query words the title itself must account for, and
+//   • the title does mention them (so this is a stuffing case, not a channel-only match), and
+//   • NOT ONE of them appears in the head — the head is about some other work entirely.
+// Requiring zero head overlap (not partial) keeps this precise: any title whose leading
+// segment genuinely names the thing asked for is untouched.
+export function queryIsPrimarySubject(query: string, track: TrackRef): boolean {
+  const title = track.title ?? "";
+  const channel = new Set(tokens(track.artist));
+  const residual = tokens(query).filter((w) => !channel.has(w));
+  if (residual.length === 0) return true; // the channel already accounts for the query
+
+  const titleSet = new Set(tokens(title));
+  const mentioned = residual.filter((w) => titleSet.has(w));
+  if (mentioned.length === 0) return true; // title never claims these words — nothing to stuff
+
+  const head = titleHead(title);
+  if (head === "") return true; // no usable head (title opens with a bracket) — don't guess
+  const headSet = new Set(tokens(head));
+  return mentioned.some((w) => headSet.has(w));
+}
+
 // Titles that mark a NON-official upload — pushed below ordinary results. Word-boundary
 // matched so "cover" in a song title is unlikely to false-trip on these specific phrases.
 const NON_OFFICIAL_TITLE_RE =
@@ -163,6 +218,10 @@ function isAudioKind(track: TrackRef): boolean {
 //
 // Sort keys, most significant first:
 //   1. coversQuery — real matches (query words covered by title+artist) above coincidences.
+//   1b. primary — a title that IS the song asked for above one that merely CONTAINS the
+//                 words in a trailing keyword clause (the stuffing defence). Sits directly
+//                 under `covers` because it answers the same question — "is this even the
+//                 right work?" — which must be settled before any officialness signal.
 //   2. authenticity — the artist's own / Topic / VEVO / official channel above re-uploads,
 //                     EVEN when the re-upload has a keyword-perfect title (the QA fix).
 //   3. officialTier — official audio > official video > ordinary > lyrics/cover/fan/junk.
@@ -180,6 +239,7 @@ export function rankResults(
       track,
       index,
       covers: coversQuery(query, track) ? 1 : 0,
+      primary: queryIsPrimarySubject(query, track) ? 1 : 0,
       authenticity: channelAuthenticity(query, track),
       tier: officialTier(track),
       relevance: relevanceLevel(query, track.title ?? ""),
@@ -188,6 +248,7 @@ export function rankResults(
     .sort(
       (a, b) =>
         b.covers - a.covers || //         1. real match beats a keyword coincidence
+        b.primary - a.primary || //       1b. the song asked for beats a stuffed title
         b.authenticity - a.authenticity || // 2. the verified channel beats re-uploads
         b.tier - a.tier || //              3. official / Topic first, junk last
         b.relevance - a.relevance || //    4. finer title relevance

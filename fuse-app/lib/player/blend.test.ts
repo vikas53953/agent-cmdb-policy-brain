@@ -145,8 +145,21 @@ function makeFakeStore(initial: Partial<PlayerState> = {}) {
     volume: 1,
     muted: false,
     autoplayQueued: false,
-    ...initial,
+    ...coherent(initial),
   };
+  // The blend engine now asks the ONE playback reading (playback-truth.ts) whether sound
+  // is genuinely moving, rather than trusting `isPlaying` alone. A fake that says
+  // "isPlaying: true" means "this track is really playing", so fill in the matching
+  // intent/status the real store would always have set alongside it.
+  function coherent(patch: Partial<PlayerState>): Partial<PlayerState> {
+    if (patch.isPlaying !== true) return patch;
+    return {
+      status: "playing",
+      intent: "play",
+      engineState: "playing",
+      ...patch,
+    };
+  }
   const listeners = new Set<() => void>();
   const promoted: TrackRef[] = [];
   const store: BlendStorePorts = {
@@ -161,7 +174,16 @@ function makeFakeStore(initial: Partial<PlayerState> = {}) {
         (t) => t.source === track.source && t.nativeId === track.nativeId,
       );
       const queue = idx >= 0 ? state.queue.filter((_, i) => i !== idx) : state.queue;
-      state = { ...state, current: track, queue, isPlaying: true, positionSec: 0 };
+      state = {
+        ...state,
+        current: track,
+        queue,
+        isPlaying: true,
+        status: "playing",
+        intent: "play",
+        engineState: "playing",
+        positionSec: 0,
+      };
       for (const l of listeners) l();
     },
   };
@@ -169,7 +191,7 @@ function makeFakeStore(initial: Partial<PlayerState> = {}) {
     store,
     promoted,
     set(patch: Partial<PlayerState>) {
-      state = { ...state, ...patch };
+      state = { ...state, ...coherent(patch) };
       for (const l of listeners) l();
     },
   };

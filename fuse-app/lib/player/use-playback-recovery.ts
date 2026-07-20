@@ -82,15 +82,18 @@ export function usePlaybackRecovery(): void {
       // Publish the honest health so every surface (mini data-player-state, Now Playing
       // banner, robot tester) reads one truth. skipOffered is queue-aware so the store and
       // the health machine agree (a Skip only when there is something to skip to).
+      // Every verdict is stamped with the track it was reached for. A tick that lands
+      // after the listener has skipped is about the OLD track, so the store drops it —
+      // which is what stops a dead track's "won't play" banner riding onto the next song.
       const skip = outcome.state.skipOffered && s.queue.length > 0;
-      playerStore.setRecovery(toStorePhase(outcome.state.phase), skip);
+      playerStore.setRecovery(toStorePhase(outcome.state.phase), skip, currentKey);
 
       // The terminal outcome surfaces the honest error + Skip once; there is NO auto-
       // advance. Only retry / recreate are ever performed here.
       if (outcome.action === "none") {
         if (outcome.state.skipOffered && terminalKeyRef.current !== currentKey) {
           terminalKeyRef.current = currentKey;
-          playerStore.failStalled();
+          playerStore.failStalled(currentKey);
         }
         return;
       }
