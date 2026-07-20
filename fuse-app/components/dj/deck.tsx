@@ -319,7 +319,19 @@ export default function Deck({
   }, [source, localLoaded]);
 
   // Reset everything loaded on this deck when its source changes (honest fresh state).
+  //
+  // IDEMPOTENT BY LAW (the F-6 collision). Picking the source this deck is ALREADY on is a
+  // no-op — it never clears the deck and never hands `null` back up. This used to toggle
+  // off, which was invisible while the console always started sourceless: your first tap
+  // could only ever be a fresh pick. Once the console started restoring its source on
+  // mount, that same tap landed on an already-selected button and silently tore the deck
+  // down — the loaded file, the cue pads and the restored video all gone.
+  //
+  // The class rule this encodes: restored state and an explicit user selection must not
+  // fight each other. "Put me on My Files" must mean the same thing whether the deck got
+  // there by restore or by an earlier tap, so re-asserting a selection is always safe.
   function selectSource(next: TrackSource) {
+    if (next === source) return;
     setLinkInput("");
     setLoadedId(null);
     setIsPlaying(false);
@@ -347,7 +359,7 @@ export default function Deck({
     setFileToPickAgain(null);
     pendingRestoreIdRef.current = null;
     tapTimesRef.current = [];
-    onSelectSource(source === next ? null : next);
+    onSelectSource(next);
   }
 
   async function loadYouTube() {
