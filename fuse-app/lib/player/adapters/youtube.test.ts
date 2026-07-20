@@ -92,6 +92,9 @@ function fakePlayer() {
     fireState(state: number) {
       cb?.onStateChange(state);
     },
+    fireError(code: number) {
+      cb?.onError(code);
+    },
     bind(callbacks: YtPlayerCallbacks) {
       cb = callbacks;
     },
@@ -496,5 +499,144 @@ describe("engine state seam (intent-gated recovery reads this)", () => {
     await adapter.load(track("aaa"));
     adapter.pause();
     expect(engineStates).toContain("paused");
+  });
+});
+
+// ── F-1: the recurring "Playback stalled — retrying" class ─────────────────────
+//
+// The auto-crossfade PROMOTES its incoming player to primary with no reload. If that
+// player was built with stub callbacks, the app's primary silently stops reporting its
+// engine lifecycle the moment the first crossfade completes: engineState freezes at
+// "playing" and the engine's own ENDED never reaches the store. The recovery ladder then
+// reads every subsequent end-of-track / buffer as "wants sound + engine says playing +
+// clock frozen" = a stall, and logs "Playback stalled — retrying" forever.
+//
+// These tests pin the ROLE-ROUTED wiring: every player is built with the real callbacks,
+// and only whichever player is CURRENTLY primary is allowed to speak to the store.
+describe("engine truth survives a crossfade promotion (F-1 stall class)", () => {
+  function setup() {
+    const primary = fakePlayer();
+    const incoming = fakePlayer();
+    const engineStates: string[] = [];
+    const errors: Array<{ kind: string }> = [];
+    let nextCalls: Array<string | undefined> = [];
+    const store: PlayerBridge = {
+      reportPosition: () => {},
+      next: async (reason) => {
+        nextCalls.push(reason);
+        return true;
+      },
+      reportError: (info) => errors.push(info),
+      reportEngineState: (s) => engineStates.push(s),
+    };
+    const timers = manualTimers();
+    let built = 0;
+    const factory = vi.fn(
+      async (_t: HTMLElement, _v: string, cb: YtPlayerCallbacks) => {
+        const target = built === 0 ? primary : incoming;
+        built += 1;
+        target.bind(cb);
+        cb.onReady();
+        return target.handle;
+      },
+    );
+    const adapter = createYouTubeAdapter({
+      factory,
+      store,
+      doc: fakeDoc(),
+      timers: timers.timers,
+    });
+    return {
+      adapter,
+      primary,
+      incoming,
+      engineStates,
+      errors,
+      nextCalls: () => nextCalls,
+      resetNext: () => {
+        nextCalls = [];
+      },
+    };
+  }
+
+  it("the PROMOTED player still mirrors its engine lifecycle into the store", async () => {
+    const t = setup();
+    await t.adapter.load(track("aaa"));
+    await t.adapter.beginBlend(track("bbb"));
+    t.adapter.completeBlend();
+    t.engineStates.length = 0;
+
+    // The promoted player buffers, then plays — real engine truth, not a frozen guess.
+    t.incoming.fireState(3); // BUFFERING
+    t.incoming.fireState(1); // PLAYING
+    expect(t.engineStates).toEqual(["buffering", "playing"]);
+  });
+
+  it("the PROMOTED player's end-of-track advances the queue instead of stalling", async () => {
+    const t = setup();
+    await t.adapter.load(track("aaa"));
+    await t.adapter.beginBlend(track("bbb"));
+    t.adapter.completeBlend();
+    t.resetNext();
+    t.engineStates.length = 0;
+
+    t.incoming.fireState(0); // ENDED
+    // The engine says ENDED — which both un-gates the stall detector (an ended engine can
+    // never be a stall) and advances the queue for real.
+    expect(t.engineStates).toContain("ended");
+    expect(t.nextCalls()).toEqual(["ended"]);
+  });
+
+  it("an incoming player that is NOT yet primary never speaks for the current track", async () => {
+    const t = setup();
+    await t.adapter.load(track("aaa"));
+    await t.adapter.beginBlend(track("bbb"));
+    t.resetNext();
+    t.engineStates.length = 0;
+
+    // While it is merely melting in, its own lifecycle must not become the app's truth,
+    // and its ENDED must not advance the queue out from under the blend.
+    t.incoming.fireState(2); // PAUSED
+    t.incoming.fireState(0); // ENDED
+    expect(t.engineStates).toEqual([]);
+    expect(t.nextCalls()).toEqual([]);
+
+    // The real primary is still the one that counts.
+    t.primary.fireState(1);
+    expect(t.engineStates).toEqual(["playing"]);
+  });
+
+  it("the RETIRED player cannot speak once the incoming has been promoted", async () => {
+    const t = setup();
+    await t.adapter.load(track("aaa"));
+    await t.adapter.beginBlend(track("bbb"));
+    t.adapter.completeBlend();
+    t.resetNext();
+    t.engineStates.length = 0;
+
+    // A late event from the destroyed old primary must not overwrite the new truth.
+    t.primary.fireState(0); // ENDED
+    expect(t.engineStates).toEqual([]);
+    expect(t.nextCalls()).toEqual([]);
+  });
+
+  it("a promoted player's hard error still reaches the recovery ladder", async () => {
+    const t = setup();
+    await t.adapter.load(track("aaa"));
+    await t.adapter.beginBlend(track("bbb"));
+    t.adapter.completeBlend();
+
+    t.incoming.fireError(150); // embed blocked → fatal
+    expect(t.errors).toHaveLength(1);
+    expect(t.errors[0].kind).toBe("fatal");
+  });
+
+  it("a NOT-yet-promoted incoming's error never arms the ladder against the primary", async () => {
+    const t = setup();
+    await t.adapter.load(track("aaa"));
+    await t.adapter.beginBlend(track("bbb"));
+
+    t.incoming.fireError(150);
+    expect(t.errors).toEqual([]);
   });
 });

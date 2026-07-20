@@ -320,6 +320,48 @@ export function createYouTubeAdapter(deps: YouTubeAdapterDeps = {}): YouTubeAdap
     if (state === YT_STATE_ENDED) void store.next("ended");
   }
 
+  // ── The engine-truth router (the F-1 class fix) ────────────────────────────────
+  //
+  // THE CLASS BUG THIS KILLS: "engine truth goes stale when a player changes role".
+  // Every player this adapter builds can become the primary — the auto-crossfade's
+  // incoming player is PROMOTED to primary by completeBlend() with no reload. Previously
+  // the incoming was built with stub callbacks (`onStateChange: () => {}`), so the moment
+  // it was promoted the app's primary player stopped reporting its lifecycle to the store
+  // altogether. `engineState` froze at the "playing" that completeBlend hardcoded, and the
+  // engine's own ENDED event never reached store.next() again. From the first crossfade on,
+  // every end-of-track (and every real buffer/pause the engine reported) looked to the
+  // recovery ladder like "the user wants sound, the engine claims to be playing, and the
+  // clock is frozen" — i.e. a stall. That is the recurring "Playback stalled — retrying".
+  //
+  // The fix is structural, not a threshold tweak: EVERY player is wired with the SAME real
+  // callbacks, and the store only ever hears from whichever player is currently primary.
+  // Role is decided by identity at emit time, so a promotion can never silently disconnect
+  // the engine's truth, and a not-yet-promoted incoming can never speak for the primary
+  // (its ENDED must not advance the queue while it is still melting in).
+  function eventsFor(self: { handle: YtPlayerHandle | null }): YtPlayerCallbacks {
+    const isPrimary = () => self.handle !== null && self.handle === player;
+    return {
+      onReady: () => {},
+      onStateChange: (state) => {
+        if (!isPrimary()) return;
+        onStateChange(state);
+      },
+      onError: (code) => {
+        const message = YT_ERROR_MESSAGES[code] ?? "YouTube playback error";
+        if (!isPrimary()) {
+          // A blend's incoming player failing is not the current track's error — log it so
+          // it stays diagnosable (R18) without arming the ladder against a healthy primary.
+          logPlaybackError(message, { code });
+          return;
+        }
+        // Propagate into the store so the recovery ladder can act (R18, AE1): a fatal embed
+        // refusal offers Skip; a soft error tries a recreate first.
+        setEngineState("error");
+        store.reportError({ message, kind: classifyYtError(code), code });
+      },
+    };
+  }
+
   return {
     source: "youtube",
     capabilities: YOUTUBE_CAPABILITIES,
@@ -374,17 +416,13 @@ export function createYouTubeAdapter(deps: YouTubeAdapterDeps = {}): YouTubeAdap
 
       const target = doc.createElement("div");
       ihost.appendChild(target);
-      const iplayer = await factory(target, track.nativeId, {
-        // The incoming becomes primary before it could end, so its ENDED is a no-op;
-        // errors are still logged so a bad incoming is diagnosable (R18).
-        onReady: () => {},
-        onStateChange: () => {},
-        onError: (code) => {
-          logPlaybackError(YT_ERROR_MESSAGES[code] ?? "YouTube playback error", {
-            code,
-          });
-        },
-      });
+      // The incoming gets the SAME real callbacks as any primary (the F-1 class fix). The
+      // router silences them while it is merely melting in, and — crucially — keeps them
+      // live once completeBlend promotes this exact player to primary, so the app never
+      // ends up with a primary whose engine lifecycle is invisible to the recovery ladder.
+      const self: { handle: YtPlayerHandle | null } = { handle: null };
+      const iplayer = await factory(target, track.nativeId, eventsFor(self));
+      self.handle = iplayer;
       incoming = { player: iplayer, host: ihost };
       if (coordinator) coordinator.setPlaybackLive("incoming", true);
       // The real factory resolves only after the player is ready, so it is safe to
@@ -409,8 +447,10 @@ export function createYouTubeAdapter(deps: YouTubeAdapterDeps = {}): YouTubeAdap
       host = incoming.host;
       ready = true;
       readyResolvers = [];
-      // The incoming was already playing, so mirror that as the primary engine state (its
-      // own onStateChange no longer fires into the store after promotion).
+      // The incoming was already playing, so mirror that as the primary engine state
+      // immediately. From here its OWN callbacks are live (the router now sees it as
+      // primary), so every later buffer / pause / ENDED reaches the store for real —
+      // which is what stops a normal end-of-track being misread as a stall.
       setEngineState("playing");
       if (coordinator) {
         // Geometry swap, NOT a DOM reparent: the element that holds the still-playing
@@ -472,25 +512,22 @@ export function createYouTubeAdapter(deps: YouTubeAdapterDeps = {}): YouTubeAdap
         ready = false;
         engineState = "unstarted";
         if (coordinator) coordinator.setPlaybackLive("primary", true);
-        player = await factory(target, track.nativeId, {
+        // Identity box for the router: the callbacks close over it and it is filled the
+        // instant the handle exists, so this player's events are attributed to the right
+        // role for its whole life (including after a later promotion).
+        const self: { handle: YtPlayerHandle | null } = { handle: null };
+        const events = eventsFor(self);
+        const created = await factory(target, track.nativeId, {
+          ...events,
           onReady: () => {
             ready = true;
             flushReady();
             startPolling();
           },
-          onStateChange,
-          onError: (code) => {
-            // Propagate the error into the store so the recovery ladder can act (R18,
-            // AE1): a fatal embed refusal offers Skip; a soft error tries a recreate first.
-            // reportError also records it to the activity log.
-            setEngineState("error");
-            store.reportError({
-              message: YT_ERROR_MESSAGES[code] ?? "YouTube playback error",
-              kind: classifyYtError(code),
-              code,
-            });
-          },
         });
+        // Both assignments before any awaited work, so no event can observe a half-set role.
+        self.handle = created;
+        player = created;
       } else {
         // Reuse the one player for the next track — same visible iframe, no teardown.
         player.loadVideoById(track.nativeId);
