@@ -28,7 +28,7 @@ import { TransitionMomentCompact } from "@/components/player/transition-moment";
 import { MusicIcon, PlayIcon, PauseIcon, NextIcon, QueueIcon } from "@/components/ui/icons";
 
 const NOT_WIRED_REASON = "Playback starts once the player engine is connected";
-const NO_NEXT_REASON = "Nothing queued up next";
+const NO_NEXT_REASON = "Nothing left to play";
 
 // The art box: the live YouTube video for a YouTube track (visible-player rule, positioned
 // over this slot by the coordinator), the track's real cover art for any other source, or
@@ -110,9 +110,11 @@ export default function MiniPlayer({
   // Subscribe only to the rarely-changing slice — NOT positionSec — so the 500ms position
   // poll does not re-render the controls; the position attribute below comes from
   // usePlayerPhase, which is the one place that legitimately tracks position (R5).
-  const { current, queue, notice } = usePlayerSelector((s) => ({
+  const { current, canAdvance, notice } = usePlayerSelector((s) => ({
     current: s.current,
-    queue: s.queue,
+    // Real capability, not queue length (see PlayerState.canAdvance) — Next used to grey
+    // out on the last track even when repeat or radio would have carried on playing.
+    canAdvance: s.canAdvance,
     notice: s.notice,
   }));
   // The ONE playback reading (lib/player/playback-truth.ts) — NOT raw isPlaying. A wedged
@@ -131,7 +133,6 @@ export default function MiniPlayer({
   // The transport is honest: play/pause acts only when a working adapter backs the
   // current track; next is enabled only when there is something queued to advance to.
   const hasEngine = adapterRegistry.get(current.source) !== undefined;
-  const canAdvance = queue.length > 0;
 
   return (
     <>

@@ -72,8 +72,21 @@ export type PlayerState = {
   // The track the player is currently focused on (playing or paused), or null when
   // nothing has been chosen yet.
   current: TrackRef | null;
-  // Upcoming tracks, in order. `current` is NOT part of the queue.
+  // Upcoming tracks, in the exact order they will play. `current` is NOT part of it.
+  //
+  // This is a PROJECTION of two internal lists the store keeps apart (see store.ts):
+  // the USER QUEUE (songs explicitly lined up with "Play next" / "Add to queue") and the
+  // CONTEXT list (the album / playlist / search results being played through). The user
+  // queue comes first, and only the context part is replaced when the listener starts a
+  // new context. It is also the SHUFFLED order when shuffle is on, so what the queue
+  // screen shows is literally what will play — never a list that lies about the order.
   queue: readonly TrackRef[];
+  // Whether Next would genuinely take the listener somewhere: something is queued, OR
+  // repeat one/all would replay, OR radio continuation is consented and wired. Derived by
+  // the store on every change so transport controls can never grey out a Skip that works
+  // (the old surfaces guessed from `queue.length`, which is only one of three ways to
+  // advance). Read-only — nothing outside the store writes it.
+  canAdvance: boolean;
   // True only while sound is actually being produced by an adapter. When no adapter
   // is wired for a source, this stays false — the store never claims to be playing
   // something it cannot play (R17 honesty, at the state layer).

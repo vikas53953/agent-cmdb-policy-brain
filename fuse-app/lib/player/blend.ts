@@ -323,13 +323,16 @@ export class BlendController {
     // happens, abandon the blend cleanly rather than fighting the user's choice.
     if (this.blend) {
       const cur = state.current;
-      const isOutgoing =
-        cur != null && sameTrack(cur, this.blend.outgoing);
-      const isIncoming =
-        cur != null && sameTrack(cur, this.blend.incoming);
-      if (!isOutgoing && !isIncoming) {
-        this.cancelActiveBlend();
-      }
+      const isOutgoing = cur != null && sameTrack(cur, this.blend.outgoing);
+      // THE BUG THIS KILLS: this used to also accept `current === incoming` as "still ours"
+      // and carry on. But a live blend ALWAYS clears itself before promoting (completeBlend
+      // nulls `this.blend` first), so seeing the incoming track as current while a blend is
+      // still in flight can only mean somebody ELSE started it — a second Next during the
+      // melt, which restarts the melting-in track from zero on the primary player. The blend
+      // kept ramping the same song on a second player and later promoted it too: one track,
+      // playing twice, overlapping itself. The honest rule is simply "current left the
+      // outgoing track → the blend is over", which covers that case and every future one.
+      if (!isOutgoing) this.cancelActiveBlend();
       return; // while blending, the ramp interval owns gains/progress
     }
 

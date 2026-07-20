@@ -3837,3 +3837,53 @@ body {
     gap: 10px;
   }
 }
+
+/* --- Queue row play + clear (queue UX pass) ---------------------------------- */
+/* The whole track block became a button so a queue row can be TAPPED to play —
+ * previously reaching the 6th queued song meant pressing Next five times. It has to
+ * read as a row, not as a button: no chrome of its own, inheriting the row's layout,
+ * with reorder/remove staying separate controls beside it so a mis-tap cannot delete.
+ * The focus ring is kept (and inset) because this is now the row's primary control. */
+.q-row-play {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.q-row-play:hover .q-row-title {
+  color: var(--teal);
+}
+.q-row-play:focus-visible {
+  outline: 2px solid var(--teal);
+  outline-offset: -2px;
+  border-radius: var(--r-sm);
+}
+/* Clearing a 40-track queue used to mean 40 taps on a trash icon. Quiet by default —
+ * it is destructive, so it should not compete with the queue itself for attention. */
+.q-head-clear {
+  margin-left: auto;
+  padding: 4px 8px;
+  border: none;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--txt-mid);
+  font-size: 0.76rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.q-head-clear:hover:not(:disabled) {
+  color: var(--txt-hi);
+  background: var(--ink-3);
+}
+.q-head-clear:disabled {
+  opacity: 0.4;
+  cursor: default;
+}

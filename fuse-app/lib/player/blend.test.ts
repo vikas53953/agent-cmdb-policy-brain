@@ -129,6 +129,8 @@ function makeFakeStore(initial: Partial<PlayerState> = {}) {
   let state: PlayerState = {
     current: null,
     queue: [],
+    // Derived by the store (PlayerState.canAdvance); a fixture must still satisfy the type.
+    canAdvance: false,
     isPlaying: false,
     positionSec: 0,
     durationSec: 0,

@@ -49,8 +49,8 @@ import {
 const STALL_MSG = "Playback stalled — retrying";
 const STILL_STUCK_MSG = "Still stuck — this track won't play right now";
 const NO_ENGINE_REASON = "Playback starts once the player engine is connected";
-const NO_NEXT_REASON = "Nothing queued up next";
-const NO_SKIP_REASON = "Nothing queued to skip to";
+const NO_NEXT_REASON = "Nothing left to play";
+const NO_SKIP_REASON = "Nothing left to skip to";
 
 export default function NowPlaying({
   open,
@@ -70,10 +70,14 @@ export default function NowPlaying({
   // Subscribe to the rarely-changing slice — deliberately NOT positionSec/durationSec, so
   // the 500ms position poll never re-renders this whole screen. The scrub bar owns those
   // itself (R5).
-  const { current, queue, shuffle, repeat, notice, radioActive } =
+  const { current, canAdvance, shuffle, repeat, notice, radioActive } =
     usePlayerSelector((s) => ({
       current: s.current,
-      queue: s.queue,
+      // THE BUG THIS KILLS: Skip/Next were disabled on `queue.length > 0`. Next also works
+      // with an empty queue — repeat one/all replays and radio continuation carries on — so
+      // the controls greyed out while the app could genuinely advance. The store answers
+      // "would Next go anywhere?" in one place now; no surface re-derives it.
+      canAdvance: s.canAdvance,
       shuffle: s.shuffle,
       repeat: s.repeat,
       notice: s.notice,
@@ -145,7 +149,6 @@ export default function NowPlaying({
   // truth — so the banner and the mini-player's data-player-state can never disagree.
   const showOpen = open && !!current;
   const hasEngine = current ? adapterRegistry.get(current.source) !== undefined : false;
-  const canAdvance = queue.length > 0;
   const badge = current
     ? SOURCE_BADGES[current.source] ?? { className: "mp3", label: current.source }
     : null;

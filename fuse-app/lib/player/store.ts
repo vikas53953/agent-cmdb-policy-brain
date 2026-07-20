@@ -25,9 +25,28 @@ import type {
 import type { TrackRef } from "@/lib/repos/track";
 import type { EngineErrorKind } from "@/lib/player/playback-health";
 import { adapterRegistry, type AdapterRegistry } from "@/lib/player/adapters";
-import { playNext, addToQueue, removeAt, moveTrack } from "@/lib/player/queue-ops";
+import { removeAt, moveTrack } from "@/lib/player/queue-ops";
 import { logActivity } from "@/lib/activity-log";
 import { describePlayback } from "@/lib/player/playback-truth";
+
+// WHERE A QUEUED TRACK CAME FROM - the distinction that stops a row tap from silently
+// deleting the listener's hand-built queue.
+//
+// THE BUG THIS KILLS: setQueue() replaced the ENTIRE upcoming list, and every row tap in
+// the app calls it ("play this track, then the rest of this list"). So queueing five songs
+// from search and then tapping a sixth song destroyed all five, with no warning and no undo.
+//
+// The class-level fix is the model every major player uses. Two lists live behind one
+// visible queue:
+//   - "user"    - songs the listener explicitly lined up (Play next / Add to queue). These
+//                 are a promise; nothing but the listener removes them. They play FIRST.
+//   - "context" - the album / playlist / search list currently being played through. THIS
+//                 is what a fresh row tap replaces, because that is what "play this list
+//                 instead" actually means.
+// Tagging each entry (rather than special-casing the three callers) means every future
+// caller of setQueue inherits the right behaviour for free.
+type QueueOrigin = "user" | "context";
+type QueueEntry = { track: TrackRef; origin: QueueOrigin };
 
 // How many tracks the Previous back-stack keeps. Bounded so a long session cannot grow
 // history without limit; well beyond any realistic "go back" reach.
@@ -52,9 +71,28 @@ export type PlayerListener = (state: PlayerState) => void;
 // The honest terminal message when the recovery ladder gives up on a track.
 export const WONT_PLAY_NOTICE = "This track won't play right now — skipping helps";
 
+// Fisher-Yates. Used to PROJECT the context list into the order it will really play when
+// shuffle is on, instead of picking a random index at advance time.
+//
+// THE BUG THIS KILLS: shuffle used to roll a die inside next(), so the queue screen
+// rendered the array in its stored order while playback jumped somewhere else entirely - the
+// "Up next" list was simply wrong the whole time shuffle was on. Re-projecting once, up
+// front, makes what the listener SEES the same object as what will play; there is no second
+// opinion left to disagree with. The user queue is deliberately NOT shuffled (same as
+// Spotify/YTM): songs you lined up by hand keep the order you put them in.
+function shuffled<T>(items: readonly T[]): T[] {
+  const out = [...items];
+  for (let i = out.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [out[i], out[j]] = [out[j], out[i]];
+  }
+  return out;
+}
+
 const INITIAL_STATE: PlayerState = {
   current: null,
   queue: [],
+  canAdvance: false,
   isPlaying: false,
   positionSec: 0,
   durationSec: 0,
@@ -106,10 +144,60 @@ export class PlayerStore {
   // continuation fires ONLY when it is true, so this one auto-play is always user-consented.
   private radioProvider: RadioProvider | null = null;
   private autoplaySimilar = true;
+  // THE REAL QUEUE (see QueueEntry). `state.queue` is a flattened, read-only projection of
+  // this list, so every existing reader - the queue screen, persistence, the blend engine -
+  // keeps working unchanged while the store gains the user-queue / context distinction.
+  private entries: QueueEntry[] = [];
+  // The context list in the order it ARRIVED (before any shuffle projection), so turning
+  // shuffle back off restores the album's real running order rather than freezing a random
+  // one. Tracks the listener has since removed stay removed.
+  private contextOrder: TrackRef[] = [];
 
   constructor(options: PlayerStoreOptions = {}) {
     this.registry = options.registry ?? adapterRegistry;
-    this.state = { ...INITIAL_STATE, ...options.initial };
+    const seeded = { ...INITIAL_STATE, ...options.initial };
+    // Anything handed in as a starting queue is a CONTEXT list (it was not lined up by hand).
+    this.entries = seeded.queue.map((track) => ({ track, origin: "context" as const }));
+    this.contextOrder = [...seeded.queue];
+    this.state = { ...seeded, canAdvance: this.computeCanAdvance(seeded) };
+  }
+
+  // The ONE place `entries` becomes the visible `queue`. Every queue mutation goes through
+  // here, so the two can never drift out of step (the class-level guard against a screen
+  // that shows one order while playback follows another).
+  private commitEntries(entries: QueueEntry[], patch: Partial<PlayerState> = {}): void {
+    this.entries = entries;
+    this.set({ queue: entries.map((e) => e.track), ...patch });
+  }
+
+  private static asContext(track: TrackRef): QueueEntry {
+    return { track, origin: "context" };
+  }
+
+  // Replace the whole queue with a fresh CONTEXT list (radio picks, autoplay seeds, a
+  // rehydrated session). Distinct from setQueue only in that callers here choose the extra
+  // state patch; the origin tagging is identical.
+  private replaceContext(tracks: readonly TrackRef[], patch: Partial<PlayerState> = {}): void {
+    this.contextOrder = [...tracks];
+    this.commitEntries(tracks.map(PlayerStore.asContext), patch);
+  }
+
+  // Whether Next would genuinely go somewhere - the single answer every transport control
+  // reads (see PlayerState.canAdvance). Three real ways to advance, not just a non-empty
+  // queue: something queued, repeat replaying, or consented radio continuation.
+  private computeCanAdvance(state: PlayerState): boolean {
+    if (state.queue.length > 0) return true;
+    if (!state.current) return false;
+    if (state.repeat === "one" || state.repeat === "all") return true;
+    return this.autoplaySimilar && this.radioProvider !== null;
+  }
+
+  // Re-publish `canAdvance` after a change to something OUTSIDE PlayerState that feeds it
+  // (the radio provider / autoplay consent). Silent when the answer has not moved, so it
+  // never wakes every subscriber for nothing.
+  private refreshCanAdvance(): void {
+    if (this.computeCanAdvance(this.state) === this.state.canAdvance) return;
+    this.set({});
   }
 
   // Read-only snapshot of the single truth. Callers must not mutate it.
@@ -142,51 +230,106 @@ export class PlayerStore {
       next.notice = null;
       this.noticeFor = null;
     }
+    // `canAdvance` is DERIVED, always, from the state that just landed - recomputed in the
+    // one place every write funnels through so no future field or action can forget to keep
+    // it honest. This is why Skip can never grey out while Next would actually work.
+    next.canAdvance = this.computeCanAdvance(next);
     this.state = next;
     for (const listener of this.listeners) listener(this.state);
   }
 
-  // Replace the upcoming queue (does not touch the current track). This is the signal of a
-  // FRESH listening context — a row tap that hands over "this track + the rest of the list"
-  // — so it also ends any radio continuation (the new choice supersedes the auto-stream) and
-  // clears the back-stack does NOT happen here (history is about tracks you played, not the
-  // queue you lined up).
+  // Start a FRESH LISTENING CONTEXT: "play this track, then the rest of THIS list". Every
+  // row tap in the app (search, home, library) calls this.
+  //
+  // THE BUG THIS KILLS: it used to replace the whole upcoming queue, so tapping any track
+  // silently destroyed everything the listener had hand-queued. It now replaces only the
+  // CONTEXT part and leaves the user queue standing - the same promise Spotify/Apple/YTM
+  // make. Because the rule lives in the store, not in the callers, no row component had to
+  // change and no future one can get it wrong.
+  //
+  // It still ends any radio continuation (the new choice supersedes the auto-stream) and
+  // drops the autoplay label (owner fix 2). History is untouched - that is about tracks you
+  // played, not the list you lined up.
   setQueue(tracks: readonly TrackRef[]): void {
-    // A fresh listening context supersedes any auto-seeded autoplay picks (owner fix 2), so
-    // the "Up next — Autoplay" label drops until the queue next runs dry and re-seeds.
-    this.set({ queue: [...tracks], radioActive: false, autoplayQueued: false });
+    const user = this.entries.filter((e) => e.origin === "user");
+    this.contextOrder = [...tracks];
+    // Project into play order NOW (shuffled when shuffle is on) so the queue screen shows
+    // the truth from the first render - see `shuffled()`.
+    const context = (this.state.shuffle ? shuffled(tracks) : [...tracks]).map(
+      PlayerStore.asContext,
+    );
+    this.commitEntries([...user, ...context], {
+      radioActive: false,
+      autoplayQueued: false,
+    });
   }
 
-  // "Add to queue" (Wave 1) — append to the end. A real, honest action available on every
-  // track row app-wide; the pure array math lives in queue-ops so it is unit-tested.
+  // "Add to queue" (Wave 1) - append to the END OF THE USER QUEUE, which still sits ahead of
+  // the context list. A song you queued by hand outranks the album you happened to tap it
+  // from, and it survives a change of context. De-duped: an existing copy anywhere is moved
+  // rather than left behind, so a double-tap never stacks the same song twice.
   addToQueue(track: TrackRef): void {
-    this.set({ queue: addToQueue(this.state.queue, track) });
+    const rest = this.entries.filter((e) => !sameTrack(e.track, track));
+    const lastUser = rest.reduce((n, e, i) => (e.origin === "user" ? i + 1 : n), 0);
+    const next = [...rest];
+    next.splice(lastUser, 0, { track, origin: "user" });
+    this.commitEntries(next);
   }
 
-  // "Play next" (Wave 1) — insert at the FRONT so it plays right after the current track.
+  // "Play next" (Wave 1) - the very front of the user queue, so it plays right after the
+  // current track. Same de-dup discipline as addToQueue.
   playNext(track: TrackRef): void {
-    this.set({ queue: playNext(this.state.queue, track) });
+    const rest = this.entries.filter((e) => !sameTrack(e.track, track));
+    this.commitEntries([{ track, origin: "user" }, ...rest]);
   }
 
   // Remove the queued track at `index` (the queue screen's remove control). No-op if out
   // of range (queue-ops treats a stale index as an honest no-op).
   removeFromQueue(index: number): void {
-    this.set({ queue: removeAt(this.state.queue, index) });
+    this.commitEntries(removeAt(this.entries, index));
   }
 
   // Reorder the queue: move the track at `from` to `to` (a drag, or the up/down controls).
   moveInQueue(from: number, to: number): void {
-    this.set({ queue: moveTrack(this.state.queue, from, to) });
+    this.commitEntries(moveTrack(this.entries, from, to));
+  }
+
+  // "Clear queue" - the escape hatch every rival has and this app did not: emptying a queue
+  // meant pressing remove once per row. Wipes BOTH lists (the listener asked for an empty
+  // up-next, not a half-empty one) and drops the radio/autoplay labels, which described a
+  // list that no longer exists. The current track keeps playing; clearing the queue is not
+  // a stop command.
+  clearQueue(): void {
+    this.contextOrder = [];
+    this.commitEntries([], { radioActive: false, autoplayQueued: false });
+  }
+
+  // Jump straight to a queued track (tapping a row on the queue screen).
+  //
+  // THE BUG THIS KILLS: the queue screen had no way to play a row at all - reaching the
+  // sixth song up next meant pressing Next five times. Everything ABOVE the tapped track is
+  // dropped, exactly as skipping past it would have done, so the visible list stays honest
+  // about what is still coming. Out-of-range is an honest no-op.
+  async playFromQueue(index: number): Promise<boolean> {
+    if (index < 0 || index >= this.entries.length) return false;
+    const chosen = this.entries[index];
+    this.commitEntries(this.entries.slice(index + 1));
+    return this.play(chosen.track);
   }
 
   // Wire the radio-continuation provider + the user's "autoplay similar" consent (Wave 1).
   // Called by the app shell from the persisted setting; tests inject a deterministic fake.
   setRadioProvider(provider: RadioProvider | null): void {
     this.radioProvider = provider;
+    // Wiring (or unwiring) radio changes whether Next can go anywhere on the last track, so
+    // republish the derived capability - otherwise Skip would stay greyed out until some
+    // unrelated state change happened to refresh it.
+    this.refreshCanAdvance();
   }
 
   setAutoplaySimilar(enabled: boolean): void {
     this.autoplaySimilar = enabled;
+    this.refreshCanAdvance();
     // Turning it off mid-stream does not stop the current radio track (that would cut sound
     // the user is enjoying), but the banner should stop claiming radio will continue once
     // the user has withdrawn consent — so drop the flag; the stream simply won't RE-seed.
@@ -229,9 +372,8 @@ export class PlayerStore {
       nativeId: snapshot.current.nativeId,
       positionSec,
     };
-    this.set({
+    this.replaceContext(snapshot.queue ?? [], {
       current: snapshot.current,
-      queue: snapshot.queue ? [...snapshot.queue] : [],
       history: snapshot.history ? [...snapshot.history] : [],
       positionSec,
       durationSec: Math.max(0, snapshot.durationSec ?? 0),
@@ -550,7 +692,7 @@ export class PlayerStore {
     if (this.state.repeat === "one" && this.state.current) {
       return this.play(this.state.current);
     }
-    if (this.state.queue.length === 0) {
+    if (this.entries.length === 0) {
       if (this.state.repeat === "all" && this.state.current) {
         return this.play(this.state.current);
       }
@@ -558,21 +700,18 @@ export class PlayerStore {
       // (RADIO CONTINUATION, Wave 1) — otherwise stop honestly (return false).
       return this.continueRadio();
     }
-    // Shuffle picks a random track from the queue instead of the head, so the shuffle
-    // control does something REAL (R17) — not a flag that changes nothing. With
-    // shuffle off it always picks index 0, i.e. plain in-order advance.
-    const pickIndex = this.state.shuffle
-      ? Math.floor(Math.random() * this.state.queue.length)
-      : 0;
-    const head = this.state.queue[pickIndex];
-    const rest = this.state.queue.filter((_, i) => i !== pickIndex);
+    // ALWAYS the head. Shuffle is no longer a die rolled here - the queue was already
+    // projected into shuffled order when it was built (see `shuffled()` and toggleShuffle),
+    // so the track that plays is literally the one the queue screen shows at the top.
+    const head = this.entries[0];
+    const rest = this.entries.slice(1);
     // If repeat is "all", the finished current track rejoins the tail of the queue.
     const nextQueue =
       this.state.repeat === "all" && this.state.current
-        ? [...rest, this.state.current]
+        ? [...rest, PlayerStore.asContext(this.state.current)]
         : rest;
-    this.set({ queue: nextQueue });
-    return this.play(head);
+    this.commitEntries(nextQueue);
+    return this.play(head.track);
   }
 
   // RADIO CONTINUATION (Wave 1): seed similar tracks from the last-played track and keep
@@ -597,9 +736,10 @@ export class PlayerStore {
     );
     if (fresh.length === 0) return false;
     const [head, ...rest] = fresh;
-    // Set the queue directly (NOT via setQueue, which would clear radioActive) and mark the
+    // Replace the CONTEXT list only (not via setQueue, which would clear radioActive; any
+    // hand-queued songs are already gone by definition - the queue ran dry) and mark the
     // stream active before playing so the banner shows the instant the first radio track loads.
-    this.set({ queue: rest, radioActive: true });
+    this.replaceContext(rest, { radioActive: true });
     return this.play(head);
   }
 
@@ -618,7 +758,10 @@ export class PlayerStore {
     }
     const history = [...this.state.history];
     const prev = history.pop()!;
-    this.set({ history, queue: [current, ...this.state.queue] });
+    // The track we are stepping back FROM goes to the front of the queue so Next returns to
+    // it - tagged "user" because it is a navigational promise, not part of the album being
+    // played through, and must survive a change of context like any hand-queued song.
+    this.commitEntries([{ track: current, origin: "user" }, ...this.entries], { history });
     return this.play(prev, { recordHistory: false });
   }
 
@@ -641,6 +784,19 @@ export class PlayerStore {
         : positionSec,
     );
     this.activeAdapter?.seek(clamped);
+    // THE BUG THIS KILLS: after a reload the session is restored PAUSED with no adapter
+    // loaded yet. Scrubbing then moved only the bar - there was no engine to seek - and the
+    // next play() consumed the SAVED resume offset instead, so the bar visibly jumped
+    // backwards and the listener's scrub was silently thrown away. A seek with no engine is
+    // still a real instruction about where to start, so it REWRITES the pending resume point
+    // rather than being dropped. Class-level: any future pre-engine seek is honoured too.
+    if (!this.activeAdapter && this.state.current) {
+      this.pendingResume = {
+        source: this.state.current.source,
+        nativeId: this.state.current.nativeId,
+        positionSec: clamped,
+      };
+    }
     this.set({ positionSec: clamped });
   }
 
@@ -708,7 +864,7 @@ export class PlayerStore {
     if (fresh.length === 0) return;
     if (this.state.queue.length > 0) return;
     if (!this.state.current || !sameTrack(this.state.current, seed)) return;
-    this.set({ queue: fresh, autoplayQueued: true });
+    this.replaceContext(fresh, { autoplayQueued: true });
   }
 
   // Set playback rate; the adapter clamps to its own supported range.
@@ -744,14 +900,10 @@ export class PlayerStore {
     // just as a Next advance would — a blended transition is still a forward move.
     const leaving = this.state.current;
     if (leaving && !sameTrack(leaving, track)) this.pushHistory(leaving);
-    const idx = this.state.queue.findIndex(
-      (t) => t.source === track.source && t.nativeId === track.nativeId,
-    );
-    const queue =
-      idx >= 0 ? this.state.queue.filter((_, i) => i !== idx) : [...this.state.queue];
-    this.set({
+    const idx = this.entries.findIndex((e) => sameTrack(e.track, track));
+    const queue = idx >= 0 ? this.entries.filter((_, i) => i !== idx) : [...this.entries];
+    this.commitEntries(queue, {
       current: track,
-      queue,
       isPlaying: true,
       positionSec: 0,
       status: "playing",
@@ -763,8 +915,31 @@ export class PlayerStore {
     this.applyVolume();
   }
 
+  // Toggle shuffle AND re-project the visible queue into the order it will really play.
+  //
+  // THE BUG THIS KILLS: shuffle used to be a bare flag that a die-roll inside next()
+  // consulted at advance time, so the queue screen went on listing the original order while
+  // playback wandered off somewhere else - "Up next" was a lie for as long as shuffle was on.
+  // Re-ordering the list here is the class-level fix: there is now only ONE order in the
+  // system, so the screen and the engine cannot disagree.
+  //
+  // Only the CONTEXT part is shuffled. Songs the listener queued by hand keep the order they
+  // were put in (same as Spotify/YTM) - shuffling an album is a request about the album.
+  // Turning shuffle back off restores the context's original running order, minus anything
+  // removed in the meantime.
   toggleShuffle(): void {
-    this.set({ shuffle: !this.state.shuffle });
+    const shuffle = !this.state.shuffle;
+    const user = this.entries.filter((e) => e.origin === "user");
+    const context = this.entries.filter((e) => e.origin === "context").map((e) => e.track);
+    const ordered = shuffle
+      ? shuffled(context)
+      : [
+          // Original order first, keeping only what is still queued...
+          ...this.contextOrder.filter((t) => context.some((c) => sameTrack(c, t))),
+          // ...then anything that joined the context later and has no recorded place.
+          ...context.filter((t) => !this.contextOrder.some((c) => sameTrack(c, t))),
+        ];
+    this.commitEntries([...user, ...ordered.map(PlayerStore.asContext)], { shuffle });
   }
 
   // Cycle off → all → one → off (prototype repeat button behaviour).

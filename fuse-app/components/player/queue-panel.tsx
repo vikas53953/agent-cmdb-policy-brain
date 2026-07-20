@@ -98,6 +98,22 @@ export default function QueuePanel({
             <ChevronDownIcon />
           </button>
           <span className="q-head-label">Queue</span>
+          {/* Clear the whole up-next list in one action. Disabled — with an honest reason —
+              when there is nothing to clear, so it never pretends to do something. */}
+          <button
+            type="button"
+            className="q-head-clear"
+            data-testid="queue-clear"
+            onClick={() => playerStore.clearQueue()}
+            disabled={queue.length === 0}
+            aria-disabled={queue.length === 0}
+            title={queue.length === 0 ? "Nothing queued to clear" : "Clear the queue"}
+            aria-label={
+              queue.length === 0 ? "Clear queue — nothing queued to clear" : "Clear the queue"
+            }
+          >
+            Clear
+          </button>
         </header>
 
         {current ? (
@@ -158,16 +174,28 @@ export default function QueuePanel({
                   <span className="q-drag" aria-hidden="true" title="Drag to reorder">
                     <MoreIcon size={16} />
                   </span>
-                  <RowArt track={t} />
-                  <div className="q-row-meta">
-                    <div className="q-row-title">{t.title}</div>
-                    <div className="q-row-sub">
-                      {t.artist ? <span>{t.artist}</span> : null}
-                      <span className={`badge ${SOURCE_BADGES[t.source]?.className ?? "mp3"}`}>
-                        {SOURCE_BADGES[t.source]?.label ?? t.source}
-                      </span>
+                  {/* The whole track block is one button: tap it to play that song now.
+                      Reorder and remove stay as separate controls beside it, so a mis-tap
+                      on a row can never delete the row. */}
+                  <button
+                    type="button"
+                    className="q-row-play"
+                    data-testid="queue-play"
+                    onClick={() => void playerStore.playFromQueue(i)}
+                    aria-label={`Play ${t.title} now`}
+                    title="Play this next"
+                  >
+                    <RowArt track={t} />
+                    <div className="q-row-meta">
+                      <div className="q-row-title">{t.title}</div>
+                      <div className="q-row-sub">
+                        {t.artist ? <span>{t.artist}</span> : null}
+                        <span className={`badge ${SOURCE_BADGES[t.source]?.className ?? "mp3"}`}>
+                          {SOURCE_BADGES[t.source]?.label ?? t.source}
+                        </span>
+                      </div>
                     </div>
-                  </div>
+                  </button>
                   <div className="q-row-actions">
                     <button
                       type="button"

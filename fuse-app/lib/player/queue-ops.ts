@@ -35,7 +35,12 @@ export function addToQueue(queue: readonly TrackRef[], track: TrackRef): TrackRe
 }
 
 // Remove the track at `index`. Out-of-range → unchanged (an honest no-op).
-export function removeAt(queue: readonly TrackRef[], index: number): TrackRef[] {
+//
+// GENERIC in the row type on purpose: the store now holds queue entries tagged with where
+// they came from (user queue vs context list), not bare tracks. The index math is identical
+// either way, so it stays in ONE tested place rather than being re-typed — or worse,
+// re-implemented with a fresh off-by-one — inside the store.
+export function removeAt<T>(queue: readonly T[], index: number): T[] {
   if (index < 0 || index >= queue.length) return [...queue];
   return queue.filter((_, i) => i !== index);
 }
@@ -44,7 +49,7 @@ export function removeAt(queue: readonly TrackRef[], index: number): TrackRef[] 
 // Clamps `to` into range; a no-op move (from === to, or either index out of range)
 // returns the list unchanged so the caller can treat "identical array" as "nothing
 // moved" and skip a needless persist/re-render.
-export function moveTrack(queue: readonly TrackRef[], from: number, to: number): TrackRef[] {
+export function moveTrack<T>(queue: readonly T[], from: number, to: number): T[] {
   if (from < 0 || from >= queue.length) return [...queue];
   const clampedTo = Math.max(0, Math.min(queue.length - 1, to));
   if (from === clampedTo) return [...queue];

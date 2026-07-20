@@ -22,6 +22,8 @@ function state(patch: Partial<PlayerState> = {}): PlayerState {
   return {
     current: song,
     queue: [],
+    // Derived by the store (PlayerState.canAdvance); a fixture must still satisfy the type.
+    canAdvance: false,
     isPlaying: false,
     positionSec: 0,
     durationSec: 202,

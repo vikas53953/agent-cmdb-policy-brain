@@ -426,12 +426,17 @@ describe("visible queue actions — play next / add to queue / remove / reorder 
     return new PlayerStore({ registry });
   }
 
-  it("addToQueue appends, playNext inserts at the front", () => {
+  // The USER QUEUE outranks the context list, so both hand-queue actions land AHEAD of the
+  // album/search list the listener is playing through — the Spotify/Apple/YTM rule. "Add to
+  // queue" goes to the end of the user queue ("b"); "Play next" jumps the user queue ("z");
+  // the context track ("a") stays last. Before the user-queue/context split this read
+  // ["z","a","b"], because there was only one undifferentiated array.
+  it("hand-queued tracks play before the context list; playNext outranks addToQueue", () => {
     const store = freshStore();
     store.setQueue([track("youtube", "a")]);
     store.addToQueue(track("youtube", "b"));
     store.playNext(track("youtube", "z"));
-    expect(store.getState().queue.map((t) => t.nativeId)).toEqual(["z", "a", "b"]);
+    expect(store.getState().queue.map((t) => t.nativeId)).toEqual(["z", "b", "a"]);
   });
 
   it("removeFromQueue drops a row and moveInQueue reorders", () => {
