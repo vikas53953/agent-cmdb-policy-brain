@@ -18,6 +18,7 @@ import {
 } from "@/lib/player/blend-controller";
 import { clampCrossfadeSec } from "@/lib/player/blend";
 import { computeTransitionView } from "@/lib/player/transition-moment";
+import { describePlayback } from "@/lib/player/playback-truth";
 import { MusicIcon } from "@/components/ui/icons";
 
 // Build the honest transition view from the single player truth. Called inside a render
@@ -37,6 +38,9 @@ function useTransitionView() {
     canFuse: blendController.canFuseCurrentPair(),
     meltActive: melt.active,
     maxCrossfadeSec: clampCrossfadeSec(getLiveCrossfadeSec()),
+    // The ONE playback reading (lib/player/playback-truth.ts). The countdown is gated on
+    // it, so this block can never promise a fuse while nothing is actually playing.
+    motion: describePlayback(state).motion,
     // No analysis is attached to YouTube/Spotify tracks in the player pipeline, so the
     // energy/BPM line stays honestly off. When locally-analyzed audio is wired through the
     // player, pass its real analysis here and the line lights up truthfully.
@@ -114,6 +118,13 @@ export default function TransitionMoment() {
           <span className="tm-hint">{view.hint}</span>
           {view.energyLine ? <span className="tm-energy">{view.energyLine}</span> : null}
         </div>
+      ) : view.kind === "fuse-held" ? (
+        // The fuse is real but nothing is moving: NOW/NEXT still stand, and this says
+        // plainly where the fuse stands — no countdown, no blend description.
+        // (styled with the existing hard-cut line class — one plain sentence, same look)
+        <p className="tm-hardcut" data-testid="tm-held">
+          {view.status}
+        </p>
       ) : (
         // A next track exists but the two cannot truly fuse (a hard cut) — honest, no fake
         // countdown.

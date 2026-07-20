@@ -38,8 +38,14 @@ export const DJ_ENGINE_READY: DeckEngineReadiness = {
 // The plain-English reason a not-yet-wired source gives for a control the matrix would
 // otherwise allow (load / volume). Matrix-DISALLOWED controls keep their own, more
 // specific matrix reason instead (e.g. Spotify speed → spNoSpeed).
+// Plain words for the one source a deck cannot play. "Spotify playback arrives with
+// Spotify support" said the same thing twice and told the DJ nothing to do, so the deck
+// uses this instead: what can't happen, and what to do right now.
+export const DJ_SPOTIFY_NOTICE =
+  "This deck can't play Spotify tracks yet. Use My Files or YouTube on this deck for now.";
+
 function engineReason(source: TrackSource): string {
-  return source === "spotify" ? REASONS.spPlaybackSoon : REASONS.localEngineSoon;
+  return source === "spotify" ? DJ_SPOTIFY_NOTICE : REASONS.localEngineSoon;
 }
 
 // One source's option in a deck's source picker. `selectable` is whether the user can

@@ -3,6 +3,7 @@ import {
   DECK_CAPABILITY_CHIPS,
   DECK_SOURCE_ORDER,
   DJ_ENGINE_READY,
+  DJ_SPOTIFY_NOTICE,
   crossfadeGains,
   parseYouTubeId,
   resolveDeckControls,
@@ -103,9 +104,9 @@ describe("a Spotify deck is fully honest — no control works until U15", () => 
     const m = resolveDeckControls("spotify", { deck: "A" });
     // Matrix would allow load + volume, but the engine is not wired → engine reason.
     expect(m.load.available).toBe(false);
-    expect(m.load.reason).toBe(REASONS.spPlaybackSoon);
+    expect(m.load.reason).toBe(DJ_SPOTIFY_NOTICE);
     expect(m.volume.available).toBe(false);
-    expect(m.volume.reason).toBe(REASONS.spPlaybackSoon);
+    expect(m.volume.reason).toBe(DJ_SPOTIFY_NOTICE);
     // Matrix-disallowed controls keep their more specific reason.
     expect(m.rate.reason).toBe(REASONS.spNoSpeed);
     expect(m.eq.reason).toBe(REASONS.spNotAvailable);

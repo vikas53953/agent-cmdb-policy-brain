@@ -1,20 +1,33 @@
-// Curated trending seed (KTD-4). Home shows this ordered list until enough anonymous
-// play data accumulates for real aggregate trending to graduate in (U12). Run with
+// Starter picks seed (KTD-4). Home shows this short ordered list as "Starter picks"
+// — never as "Trending" — until enough real anonymous play data accumulates for true
+// aggregate trending to graduate in (U12, chooseTrending()). Run with
 // `npm run db:seed` against a database that has the schema applied.
 //
 // KEYLESS-SAFE: this script only runs when explicitly invoked (never during build or
 // typecheck), so it may assume DATABASE_URL is set. It fails loudly with an honest
 // message if it isn't, rather than silently writing nowhere.
 //
-// The tracks below are placeholder YouTube video ids standing in for a real curated
-// list — the owner replaces them with hand-picked trending songs at deploy time. They
-// are NOT secrets (public video ids); no real key or credential appears here.
+// HONESTY (R17): these are well-known songs picked to give a brand-new account
+// something real to play. They are NOT a measurement of what is popular, so the row
+// they fill must never claim to be. The label lives in lib/home/recommend.ts
+// (trendingRowTitle) and only says "Trending" once real play counts back it.
+//
+// Cover art: YouTube's keyless thumbnail CDN (i.ytimg.com), which the app's CSP
+// already allows under img-src (lib/security-headers.ts). Every row therefore renders
+// real artwork, never a plain grey box (R5).
+//
+// The video ids are public YouTube ids — no key or credential appears here.
 
 import { PrismaClient } from "@prisma/client";
 
 const prisma = new PrismaClient();
 
-const CURATED_TRENDING = [
+// Keyless, CSP-allowed cover art for a YouTube video id.
+function ytArt(videoId: string): string {
+  return `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
+}
+
+const STARTER_PICKS = [
   { rank: 0, source: "youtube", nativeId: "dQw4w9WgXcQ", title: "Never Gonna Give You Up", artist: "Rick Astley" },
   { rank: 1, source: "youtube", nativeId: "9bZkp7q19f0", title: "Gangnam Style", artist: "PSY" },
   { rank: 2, source: "youtube", nativeId: "kJQP7kiw5Fk", title: "Despacito", artist: "Luis Fonsi" },
@@ -27,15 +40,22 @@ async function main() {
   if (!process.env.DATABASE_URL) {
     throw new Error("[seed] DATABASE_URL is not set — cannot seed. Set it in .env.local first.");
   }
-  for (const track of CURATED_TRENDING) {
+  for (const track of STARTER_PICKS) {
+    const row = { ...track, artUrl: ytArt(track.nativeId) };
     // Idempotent: re-running refreshes the row at each rank rather than duplicating.
     await prisma.trendingSeed.upsert({
-      where: { rank: track.rank },
-      create: { ...track },
-      update: { source: track.source, nativeId: track.nativeId, title: track.title, artist: track.artist },
+      where: { rank: row.rank },
+      create: row,
+      update: {
+        source: row.source,
+        nativeId: row.nativeId,
+        title: row.title,
+        artist: row.artist,
+        artUrl: row.artUrl,
+      },
     });
   }
-  console.log(`[seed] curated trending seed written: ${CURATED_TRENDING.length} rows.`);
+  console.log(`[seed] starter picks written: ${STARTER_PICKS.length} rows (shown as "Starter picks", not "Trending").`);
 }
 
 main()

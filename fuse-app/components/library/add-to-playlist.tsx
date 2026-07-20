@@ -13,7 +13,7 @@
 // write failed. No optimistic lie: the confirmation only shows after the server
 // action resolves.
 
-import { useId, useRef, useState } from "react";
+import { useId, useState } from "react";
 import type { TrackRef } from "@/lib/repos/track";
 import type { PlaylistDTO } from "@/lib/library/dto";
 import {
@@ -22,6 +22,8 @@ import {
   addTrackToPlaylistAction,
 } from "@/lib/library-actions";
 import { PlusIcon } from "@/components/ui/icons";
+import WriteStatus, { useWriteStatus } from "@/components/ui/write-status";
+import { bothWays, couldNot, runWrite } from "@/lib/ui/write-status";
 
 type LoadState = "idle" | "loading" | "ready" | "error";
 
@@ -30,16 +32,10 @@ export default function AddToPlaylist({ track }: { track: TrackRef }) {
   const [playlists, setPlaylists] = useState<PlaylistDTO[]>([]);
   const [load, setLoad] = useState<LoadState>("idle");
   const [busy, setBusy] = useState(false);
-  const [status, setStatus] = useState<string | null>(null);
   const [newName, setNewName] = useState("");
   const menuId = useId();
-  const statusTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  function flash(msg: string) {
-    setStatus(msg);
-    if (statusTimer.current) clearTimeout(statusTimer.current);
-    statusTimer.current = setTimeout(() => setStatus(null), 2500);
-  }
+  // The one shared "did the save work?" reporter (lib/ui/write-status.ts).
+  const { message, say, report } = useWriteStatus();
 
   async function toggleOpen() {
     const next = !open;
@@ -58,37 +54,40 @@ export default function AddToPlaylist({ track }: { track: TrackRef }) {
   async function addTo(playlist: PlaylistDTO) {
     if (busy) return;
     setBusy(true);
-    try {
-      const updated = await addTrackToPlaylistAction(playlist.id, track);
-      if (updated) {
-        setPlaylists((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
-        flash(`Added to ${updated.name}`);
-      } else {
-        flash("Couldn't add — try again");
-      }
-    } catch {
-      flash("Couldn't add — try again");
-    } finally {
-      setBusy(false);
-      setOpen(false);
-    }
+    await report(() => addTrackToPlaylistAction(playlist.id, track), {
+      ok: (updated) => `Added to ${updated.name}`,
+      failed: couldNot("add the song"),
+      onOk: (updated) =>
+        setPlaylists((prev) => prev.map((p) => (p.id === updated.id ? updated : p))),
+    });
+    setBusy(false);
+    setOpen(false);
   }
 
+  // Two writes in a row, and the second can fail on its own. AUDIT 20: this used to
+  // flash "Created X" when the ADD failed, which read as success and hid the fact that
+  // the song never went in. Both halves are now said out loud.
   async function createAndAdd() {
     const name = newName.trim();
     if (busy || !name) return;
     setBusy(true);
-    try {
-      const created = await createPlaylistAction(name);
-      const updated = await addTrackToPlaylistAction(created.id, track);
+    const created = await runWrite(() => createPlaylistAction(name));
+    if (!created.ok) {
+      say({ text: couldNot("create the playlist"), tone: "problem" });
+    } else {
       setNewName("");
-      flash(updated ? `Added to ${created.name}` : `Created ${created.name}`);
-    } catch {
-      flash("Couldn't create — try again");
-    } finally {
-      setBusy(false);
-      setOpen(false);
+      const added = await runWrite(() => addTrackToPlaylistAction(created.value.id, track));
+      say(
+        added.ok
+          ? { text: `Added to ${created.value.name}`, tone: "ok" }
+          : bothWays(
+              `Created ${created.value.name}`,
+              "the song wasn't added — open the list and add it again",
+            ),
+      );
     }
+    setBusy(false);
+    setOpen(false);
   }
 
   return (
@@ -158,11 +157,7 @@ export default function AddToPlaylist({ track }: { track: TrackRef }) {
         </div>
       ) : null}
 
-      {status ? (
-        <span className="add-pl-status" role="status">
-          {status}
-        </span>
-      ) : null}
+      <WriteStatus message={message} className="add-pl-status" testId="add-pl-status" />
     </div>
   );
 }

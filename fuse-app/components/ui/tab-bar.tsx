@@ -2,8 +2,8 @@
 
 // Bottom tab bar (U4). A client component because the active tab is derived from
 // the live pathname. Each tab is a real Next <Link> — tapping it navigates to that
-// route, so nothing here is a dead control (R17). The routes it points at exist as
-// honest stage placeholders until their owning units fill them in.
+// route, so nothing here is a dead control (R17). All four routes are real, finished
+// screens — Home, Search, DJ, and Library.
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";

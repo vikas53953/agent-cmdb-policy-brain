@@ -14,6 +14,8 @@
 //     song" — never an empty or faked panel.
 //   • A track with only unsynced (plain) lyrics shows them as static text and says
 //     so, rather than pretending to scroll in time.
+//   • When the lookup itself FAILS (a bad response or a timeout), it says "couldn't
+//     load" — never "no lyrics", which would blame the song for our problem.
 
 import { useEffect, useRef, useState } from "react";
 import { usePlayerState } from "@/lib/player/use-player";
@@ -23,10 +25,15 @@ import { activeLineIndex, type LrcLine } from "@/lib/lyrics";
 type LyricsData =
   | { status: "loading" }
   | { status: "none" }
+  // AUDIT 25: "we asked and this song has none" and "we couldn't ask" are DIFFERENT
+  // facts. Merging them told the user a song had no lyrics when the truth was a failed
+  // request — a lie the honest empty state was hiding.
+  | { status: "unavailable" }
   | { status: "synced"; lines: LrcLine[] }
   | { status: "plain"; text: string };
 
 const EMPTY_MSG = "No lyrics available for this song";
+const UNAVAILABLE_MSG = "Couldn't load lyrics — reopen this screen to try again";
 
 // Bound the lyrics fetch so a hung LRCLIB never leaves the panel spinning (it must
 // settle to the honest empty state well inside the robot tester's 25s lyrics window).
@@ -87,7 +94,12 @@ export default function Lyrics({
     const timeout = window.setTimeout(() => controller.abort(), LYRICS_FETCH_TIMEOUT_MS);
 
     fetch(`/api/lyrics?${params.toString()}`, { signal: controller.signal })
-      .then((r) => r.json())
+      .then((r) => {
+        // The route's own error responses were being parsed as an honest "no lyrics".
+        // A non-OK response means we never got an answer about this song.
+        if (!r.ok) throw new Error(`lyrics ${r.status}`);
+        return r.json();
+      })
       .then((payload: { found: boolean; synced: LrcLine[] | null; plain: string | null }) => {
         if (!payload.found) return settle({ status: "none" });
         if (payload.synced && payload.synced.length > 0) {
@@ -97,9 +109,10 @@ export default function Lyrics({
         return settle({ status: "none" });
       })
       .catch(() => {
-        // A fetch failure OR a timeout abort is honest, not fatal: show the plain empty
-        // message rather than a spinner that never resolves.
-        settle({ status: "none" });
+        // A failed request, a bad response, or a timeout abort: still not fatal, and
+        // still settles (never a spinner that hangs) — but it settles as "couldn't
+        // load", NOT as "this song has no lyrics".
+        settle({ status: "unavailable" });
       })
       .finally(() => window.clearTimeout(timeout));
 
@@ -152,6 +165,15 @@ export default function Lyrics({
     return (
       <div className="lyrics lyrics-compact" aria-live="polite">
         <p className="lyrics-empty" data-testid="lyrics-empty">{EMPTY_MSG}</p>
+      </div>
+    );
+  }
+
+  if (data.status === "unavailable") {
+    // Same compact shape as the empty state, different fact — and it says what to do.
+    return (
+      <div className="lyrics lyrics-compact" role="status" aria-live="polite">
+        <p className="lyrics-empty" data-testid="lyrics-error">{UNAVAILABLE_MSG}</p>
       </div>
     );
   }

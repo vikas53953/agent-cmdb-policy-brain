@@ -49,6 +49,12 @@ export function createRadioProvider(
     } catch {
       return [];
     }
+    // RANKED ORDER, NOT RAW. /api/search returns rows already ordered by lib/search/ranking
+    // (runSearch ranks on BOTH the cache-hit and cache-miss paths), and everything below only
+    // FILTERS and truncates — it never re-sorts. So the auto-queue inherits exactly the
+    // ranker's verdict: a row the ranker buried (a wrong-song match, or a keyword-stuffed
+    // title whose head names another work) can never surface as the next track / Transition
+    // Moment headline. Any future change here must preserve this order.
     const results = Array.isArray(payload.results) ? payload.results : [];
     // Drop the seed itself and any non-playable source (local never appears in search, but
     // guard anyway) so radio only ever queues tracks the player can actually stream.

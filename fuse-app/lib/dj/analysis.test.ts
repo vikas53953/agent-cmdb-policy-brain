@@ -5,6 +5,8 @@ import {
   MIN_BPM,
   beatLoopRegion,
   beatTimes,
+  bpmTrust,
+  bpmTrustLabel,
   computePeaks,
   detectBpm,
   foldTempo,
@@ -166,5 +168,29 @@ describe("beatLoopRegion — on-grid beat loops replace the fixed 2 s loop", () 
 
   it("returns an empty region for a zero-length track", () => {
     expect(beatLoopRegion(0, 0, 120, 0, 1)).toEqual({ start: 0, end: 0 });
+  });
+});
+
+describe("bpmTrust", () => {
+  it("says nothing when there is no BPM at all", () => {
+    expect(bpmTrust({ bpm: 0, confidence: 0, tapped: false })).toBe("none");
+    expect(bpmTrustLabel({ bpm: 0, confidence: 0, tapped: false })).toBeNull();
+  });
+
+  it("credits the DJ when the tempo was tapped, whatever the detector thought", () => {
+    expect(bpmTrust({ bpm: 128, confidence: 0.9, tapped: true })).toBe("tapped");
+    expect(bpmTrustLabel({ bpm: 128, confidence: 0, tapped: true })).toBe("You tapped this");
+  });
+
+  it("grades a detected tempo by its real confidence", () => {
+    expect(bpmTrust({ bpm: 128, confidence: 0.8, tapped: false })).toBe("clear");
+    expect(bpmTrust({ bpm: 128, confidence: 0.5, tapped: false })).toBe("clear");
+    expect(bpmTrust({ bpm: 128, confidence: 0.3, tapped: false })).toBe("fair");
+    expect(bpmTrust({ bpm: 128, confidence: 0.2, tapped: false })).toBe("fair");
+    expect(bpmTrust({ bpm: 128, confidence: 0.05, tapped: false })).toBe("rough");
+  });
+
+  it("points a shaky reading at the TAP button", () => {
+    expect(bpmTrustLabel({ bpm: 128, confidence: 0.05, tapped: false })).toContain("tap");
   });
 });

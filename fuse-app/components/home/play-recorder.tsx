@@ -14,6 +14,7 @@
 import { useEffect, useRef } from "react";
 import { usePlayerState } from "@/lib/player/use-player";
 import { trackKey } from "@/lib/home/recommend";
+import { withResolvedArt } from "@/lib/home/art";
 
 export default function PlayRecorder() {
   const { current, isPlaying } = usePlayerState();
@@ -28,15 +29,21 @@ export default function PlayRecorder() {
     if (lastRecorded.current === key) return;
     lastRecorded.current = key;
 
+    // Record the art too (R5). If the playing track reached us without one — an older
+    // restored session, a source that handed back no thumbnail — derive it from the
+    // track's own id so the Play row we write is renderable on Home instead of becoming
+    // another blank cover. Derivation only; a source we can't derive still stores null.
+    const recorded = withResolvedArt(current);
+
     void fetch("/api/plays", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        source: current.source,
-        nativeId: current.nativeId,
-        title: current.title,
-        artist: current.artist,
-        artUrl: current.artUrl,
+        source: recorded.source,
+        nativeId: recorded.nativeId,
+        title: recorded.title,
+        artist: recorded.artist,
+        artUrl: recorded.artUrl,
       }),
       keepalive: true,
     }).catch(() => {

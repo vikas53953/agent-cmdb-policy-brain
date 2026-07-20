@@ -7,9 +7,15 @@
 // HONESTY (R17): an empty row is not rendered as a dead, contentless carousel — it is
 // simply omitted, and the "more like what you love" subtitle states plainly whether it
 // is generic ("popular picks to get you started") or personalised to the user.
+//
+// The same rule governs the trending row's own name (audit 8). A brand-new account is
+// looking at a hand-picked starter list, not a measurement of what people are playing,
+// so the row is headed "Starter picks" and only becomes "Trending" once real
+// play-count data backs it. `trendingIsReal` carries that one fact up from the server;
+// when it is missing we assume the honest, modest label rather than the flattering one.
 
 import type { TrackRef } from "@/lib/repos/track";
-import { trackKey } from "@/lib/home/recommend";
+import { trackKey, trendingRowLabel } from "@/lib/home/recommend";
 import Rail from "@/components/home/rail";
 import TrackCard from "@/components/home/track-card";
 
@@ -20,6 +26,10 @@ export type HomeData = {
   // Whether "more like what you love" is tuned to real history yet (R11). Drives the
   // honest subtitle: generic for a new account, personalised once there is history.
   personalised: boolean;
+  // Whether `trending` is real aggregate play-count data (true) or the hand-picked
+  // starter seed (false/omitted). Drives the row's name. Optional, and absence means
+  // "starter picks" — the row can only ever call itself Trending on a positive fact.
+  trendingIsReal?: boolean;
 };
 
 function HomeRow({
@@ -49,6 +59,7 @@ function HomeRow({
 }
 
 export default function HomeScreen({ data }: { data: HomeData }) {
+  const trendingLabel = trendingRowLabel(data.trendingIsReal === true);
   const empty =
     data.recentlyPlayed.length === 0 &&
     data.trending.length === 0 &&
@@ -66,7 +77,11 @@ export default function HomeScreen({ data }: { data: HomeData }) {
       </div>
 
       <HomeRow title="Recently played" tracks={data.recentlyPlayed} />
-      <HomeRow title="Trending" tracks={data.trending} />
+      <HomeRow
+        title={trendingLabel.title}
+        subtitle={trendingLabel.subtitle}
+        tracks={data.trending}
+      />
       <HomeRow
         title="More like what you love"
         subtitle={

@@ -53,7 +53,15 @@ export default function Portal({ children }: { children: React.ReactNode }) {
     // Intentional one-shot: the body-level portal root is a browser-only DOM node, created
     // after mount so SSR and the first client render agree on rendering nothing (no hydration
     // mismatch).
-    // eslint-disable-next-line react-hooks/set-state-in-effect
+    /* WHY THIS SUPPRESSION IS SOUND (AUDIT 30). The rule exists to stop a value that
+       render could work out for itself being pushed through an effect, costing a second
+       render pass for nothing. This value cannot be worked out during render: it is a
+       <body> child that does not exist on the server or during hydration, and creating it
+       inside render would be a DOM side effect in a render function — a worse fault than
+       the one the rule guards. Running once on mount (empty deps, never re-runs) is the
+       documented pattern for exactly this, and the extra pass is the price of hydration
+       matching: the server and the first client render both correctly draw nothing. */
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- see the note above
     setRoot(ensureOverlayRoot());
   }, []);
   if (!root) return null;

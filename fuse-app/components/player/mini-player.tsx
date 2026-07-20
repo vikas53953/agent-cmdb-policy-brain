@@ -18,6 +18,7 @@
 import type { TrackRef } from "@/lib/repos/track";
 import { usePlayerSelector } from "@/lib/player/use-player-selector";
 import { usePlayerPhase } from "@/lib/player/use-player-phase";
+import { usePlaybackTruth } from "@/lib/player/use-playback-truth";
 import { playerStore } from "@/lib/player/store";
 import { nextWithBlend } from "@/lib/player/blend-controller";
 import { adapterRegistry } from "@/lib/player/adapters";
@@ -109,12 +110,16 @@ export default function MiniPlayer({
   // Subscribe only to the rarely-changing slice — NOT positionSec — so the 500ms position
   // poll does not re-render the controls; the position attribute below comes from
   // usePlayerPhase, which is the one place that legitimately tracks position (R5).
-  const { current, isPlaying, queue, notice } = usePlayerSelector((s) => ({
+  const { current, queue, notice } = usePlayerSelector((s) => ({
     current: s.current,
-    isPlaying: s.isPlaying,
     queue: s.queue,
     notice: s.notice,
   }));
+  // The ONE playback reading (lib/player/playback-truth.ts) — NOT raw isPlaying. A wedged
+  // embed leaves isPlaying true while nothing comes out; showing Pause there is the app
+  // claiming to play something it is not. This says Pause only when sound is really moving.
+  const truth = usePlaybackTruth();
+  const showPause = truth.transportShowsPause;
   // The machine-readable playback surface for the robot tester (data-player-state /
   // data-player-position on the mini root). Derived from the store's status plus a live
   // "is position advancing?" check (stall detection), reusing the same pure health core
@@ -185,16 +190,16 @@ export default function MiniPlayer({
           onClick={hasEngine ? () => void playerStore.toggle() : undefined}
           disabled={!hasEngine}
           aria-disabled={!hasEngine}
-          title={hasEngine ? (isPlaying ? "Pause" : "Play") : NOT_WIRED_REASON}
+          title={hasEngine ? (showPause ? "Pause" : "Play") : NOT_WIRED_REASON}
           aria-label={
             hasEngine
-              ? isPlaying
+              ? showPause
                 ? `Pause ${current.title}`
                 : `Play ${current.title}`
               : `Play — ${NOT_WIRED_REASON}`
           }
         >
-          {isPlaying ? <PauseIcon /> : <PlayIcon />}
+          {showPause ? <PauseIcon /> : <PlayIcon />}
         </button>
         <button
           type="button"

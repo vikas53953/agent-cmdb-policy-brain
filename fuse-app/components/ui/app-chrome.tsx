@@ -37,6 +37,8 @@ import ProfileSheet from "@/components/settings/profile-sheet";
 import PlayRecorder from "@/components/home/play-recorder";
 import PlayerPersistence from "@/components/player/player-persistence";
 import { ClockIcon } from "@/components/ui/icons";
+import WriteStatus, { useWriteStatus } from "@/components/ui/write-status";
+import { couldNot, runWrite } from "@/lib/ui/write-status";
 
 // A small armed-sleep-timer chip in the top bar, visible on every screen so the listener
 // always knows a stop is scheduled (not only inside Now Playing). Tapping it cancels the
@@ -116,6 +118,15 @@ export default function AppChrome({
   const [autoplaySimilar, setAutoplaySimilar] = useState(initialAutoplaySimilar);
   const pathname = usePathname() ?? "/";
   const withMiniPlayer = showsMiniPlayer(pathname);
+  // AUDIT 24: the volume persist ended in an empty `.catch(() => {})`, so a level that
+  // failed to save looked saved until the next reload quietly undid it. The shell now
+  // owns one status pill for that write. `say` is read through a ref because the
+  // subscription effect below is mounted once and must not re-subscribe.
+  const { message, say } = useWriteStatus();
+  const sayRef = useRef(say);
+  useEffect(() => {
+    sayRef.current = say;
+  }, [say]);
 
   // Mount the ONE app-wide playback recovery monitor (AE1). It runs the bounded stall
   // ladder for whatever is playing, no matter which screen is open — so a track played
@@ -194,8 +205,15 @@ export default function AppChrome({
       if (persistTimer) window.clearTimeout(persistTimer);
       persistTimer = window.setTimeout(() => {
         lastPersisted = v;
-        void setVolumeAction(v).catch(() => {
-          /* keep the live value; the next reload reconciles from the stored setting */
+        // Keep the live level either way — the sound the user set stays. What changes is
+        // that a failed save now SAYS it did not stick, instead of pretending it did.
+        void runWrite(() => setVolumeAction(v), () => true).then((result) => {
+          if (!result.ok) {
+            sayRef.current({
+              text: couldNot("save the volume for next time"),
+              tone: "problem",
+            });
+          }
         });
       }, 500);
     };
@@ -258,6 +276,10 @@ export default function AppChrome({
       <main id="main-content" className="screen" tabIndex={-1}>
         {children}
       </main>
+
+      {/* Shell-level status: the one write that happens with no control on screen to
+          attach to (volume persistence). Floats clear of the dock. */}
+      <WriteStatus message={message} className="write-status-shell" testId="shell-status" />
 
       <div className="dock">
         {withMiniPlayer ? (

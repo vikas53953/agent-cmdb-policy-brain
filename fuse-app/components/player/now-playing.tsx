@@ -16,6 +16,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { usePlayerSelector } from "@/lib/player/use-player-selector";
+import { usePlaybackTruth } from "@/lib/player/use-playback-truth";
 import { playerStore } from "@/lib/player/store";
 import { nextWithBlend } from "@/lib/player/blend-controller";
 import { playerHostCoordinator } from "@/lib/player/host-coordinator";
@@ -68,17 +69,21 @@ export default function NowPlaying({
   // Subscribe to the rarely-changing slice — deliberately NOT positionSec/durationSec, so
   // the 500ms position poll never re-renders this whole screen. The scrub bar owns those
   // itself (R5).
-  const { current, isPlaying, queue, shuffle, repeat, notice, recovery, radioActive } =
+  const { current, queue, shuffle, repeat, notice, radioActive } =
     usePlayerSelector((s) => ({
       current: s.current,
-      isPlaying: s.isPlaying,
       queue: s.queue,
       shuffle: s.shuffle,
       repeat: s.repeat,
       notice: s.notice,
-      recovery: s.recovery,
       radioActive: s.radioActive,
     }));
+
+  // The ONE playback reading (lib/player/playback-truth.ts). The transport, the stall
+  // banner, and the Transition Moment all render from this same answer, so this screen
+  // cannot show a Pause button and a "won't play" banner at the same moment again.
+  const truth = usePlaybackTruth();
+  const showPause = truth.transportShowsPause;
 
   // "Bigger player" — the plain-words larger-player LAYOUT toggle for VIDEO tracks (owner
   // fix 4, replacing the confusing "theater" wording): it expands the video to fill the full
@@ -150,9 +155,10 @@ export default function NowPlaying({
     ? SOURCE_BADGES[current.source] ?? { className: "mp3", label: current.source }
     : null;
 
-  // Show the honest banner whenever the ladder is not "ok": "retrying" while it works,
-  // then the terminal "won't play" + Skip once it gives up.
-  const stalled = recovery.phase !== "ok";
+  // Show the honest banner whenever playback is stuck: "retrying" while the ladder works,
+  // then the terminal "won't play" + Skip once it gives up. Read from the same one truth
+  // as the transport, so the two can never contradict each other.
+  const stalled = truth.stuck;
 
   // Audio-vs-video presentation (Complaint 1/2). A YouTube track that is an official audio
   // upload ("- Topic" channel, "Official Audio" title) is shown ART-FORWARD: the (static-
@@ -326,7 +332,7 @@ export default function NowPlaying({
 
             {stalled ? (
               <div className="np-stall" role="status" aria-live="polite" data-testid="np-stall">
-                {recovery.phase === "error" ? (
+                {truth.giveUp ? (
                   // The ladder gave up: honest terminal + a working Skip. Never a silent
                   // freeze and never an endless "retrying" (AE1).
                   <>
@@ -394,16 +400,16 @@ export default function NowPlaying({
                 onClick={hasEngine ? () => void playerStore.toggle() : undefined}
                 disabled={!hasEngine}
                 aria-disabled={!hasEngine}
-                title={hasEngine ? (isPlaying ? "Pause" : "Play") : NO_ENGINE_REASON}
+                title={hasEngine ? (showPause ? "Pause" : "Play") : NO_ENGINE_REASON}
                 aria-label={
                   hasEngine
-                    ? isPlaying
+                    ? showPause
                       ? `Pause ${current.title}`
                       : `Play ${current.title}`
                     : `Play — ${NO_ENGINE_REASON}`
                 }
               >
-                {isPlaying ? <PauseIcon size={26} /> : <PlayIcon size={26} />}
+                {showPause ? <PauseIcon size={26} /> : <PlayIcon size={26} />}
               </button>
 
               <button

@@ -13,6 +13,7 @@ import { NextResponse } from "next/server";
 import { getUser } from "@/lib/auth-session";
 import { recordPlay } from "@/lib/repos/plays";
 import { isTrackSource } from "@/lib/repos/track";
+import { logActivity } from "@/lib/activity-log";
 
 // Prisma/Neon writes need the Node runtime.
 export const runtime = "nodejs";
@@ -47,6 +48,14 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: true });
   } catch {
     // Best-effort: a failed record never breaks listening. No DB / keyless lands here.
+    // AUDIT 28: it used to vanish into a bare `catch {}`, so a play that never recorded
+    // left no trace to diagnose from (R18). Logged as a plain fact — no secret, no
+    // request body, nothing but what happened.
+    logActivity({
+      level: "error",
+      type: "plays-api",
+      message: "Couldn't record a play",
+    });
     return NextResponse.json({ ok: false, reason: "unavailable" });
   }
 }

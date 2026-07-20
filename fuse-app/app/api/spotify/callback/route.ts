@@ -3,7 +3,9 @@
 // Leg 2 of Authorization Code + PKCE: Spotify redirects the user back here with a
 // `code` + `state`. We verify `state` against the httpOnly cookie set in leg 1, then
 // exchange the code (+ the stored verifier) for tokens, and land the user back on the
-// app with an honest `?spotify=...` status the profile sheet reads.
+// app with an honest `?spotify=...` status. That status is read and shown on the home
+// screen by components/ui/spotify-connect-status.tsx, which then strips the parameter
+// from the address bar so it cannot re-announce itself on a later visit.
 //
 // TOKEN HANDLING (owner standing rule — secrets never touch logs/localStorage): the
 // access + refresh tokens are stored in httpOnly, secure cookies (browser JS can never

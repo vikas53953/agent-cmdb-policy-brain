@@ -253,3 +253,45 @@ export function beatLoopRegion(
   if (end <= start) return { start: 0, end: durationSec };
   return { start, end };
 }
+
+// ── How much to trust the BPM readout (DJ-1 honesty) ───────────────────────────
+// detectBpm returns a 0..1 confidence alongside the tempo. Showing the number without
+// that signal would let a shaky guess look as solid as a locked-in beat, which is
+// exactly what the TAP button exists to correct. This turns the raw score into plain
+// words a DJ can act on — and says plainly when the DJ tapped the tempo themselves.
+
+export type BpmTrust = "tapped" | "clear" | "fair" | "rough" | "none";
+
+// A confidence at or above this reads as a beat the detector is sure of.
+const BPM_TRUST_CLEAR = 0.5;
+// Below this the reading is little more than a guess.
+const BPM_TRUST_FAIR = 0.2;
+
+export function bpmTrust(input: {
+  bpm: number;
+  confidence: number;
+  tapped: boolean;
+}): BpmTrust {
+  if (input.tapped) return "tapped";
+  if (!(input.bpm > 0)) return "none";
+  if (input.confidence >= BPM_TRUST_CLEAR) return "clear";
+  if (input.confidence >= BPM_TRUST_FAIR) return "fair";
+  return "rough";
+}
+
+// The words shown next to the BPM. `none` shows nothing — there is no reading to judge.
+export const BPM_TRUST_LABEL: Record<BpmTrust, string | null> = {
+  tapped: "You tapped this",
+  clear: "Clear beat",
+  fair: "Roughly right — tap to correct it",
+  rough: "Hard to hear — tap the beat",
+  none: null,
+};
+
+export function bpmTrustLabel(input: {
+  bpm: number;
+  confidence: number;
+  tapped: boolean;
+}): string | null {
+  return BPM_TRUST_LABEL[bpmTrust(input)];
+}

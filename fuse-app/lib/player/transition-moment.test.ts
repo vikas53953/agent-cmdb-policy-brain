@@ -24,6 +24,9 @@ const base: TransitionInput = {
   canFuse: true,
   meltActive: false,
   maxCrossfadeSec: 6,
+  // The default for these cases is a track genuinely playing — a countdown is only ever
+  // honest while sound is moving (see the gating tests at the bottom of this file).
+  motion: "sounding",
 };
 
 describe("computeTransitionView — honest next / countdown / ending", () => {
@@ -97,5 +100,56 @@ describe("computeTransitionView — honest next / countdown / ending", () => {
     if (shift.kind === "fusing") {
       expect(shift.energyLine).toBe("Energy: 90 → 140 BPM");
     }
+  });
+});
+
+// ── The gate: a countdown is only shown while sound is genuinely moving ──────────────
+//
+// THE BUG THESE PIN. A YouTube embed that refused to start left positionSec frozen at 0,
+// so the countdown was TRUE arithmetic (202 − 4 = 198) on a clock that had never moved —
+// and the hero block promised a fuse that could never happen, while the same screen said
+// the track wouldn't play. Two consecutive 3:22 tracks both read "198 seconds" for exactly
+// that reason. The countdown is now gated on the one playback reading.
+describe("computeTransitionView — never promises a fuse while playback is not moving", () => {
+  it("suppresses the countdown while the track is STUCK, and says so plainly", () => {
+    const view = computeTransitionView({ ...base, motion: "stuck", positionSec: 0 });
+    expect(view.kind).toBe("fuse-held");
+    if (view.kind === "fuse-held") {
+      expect(view.next.nativeId).toBe("two"); // NEXT is still true, so it still shows
+      expect(view.status).toMatch(/isn't playing/i);
+      expect(view.status).not.toMatch(/\d/); // never a number the app cannot stand behind
+    }
+  });
+
+  it("suppresses the countdown while the app is still STARTING the track", () => {
+    const view = computeTransitionView({ ...base, motion: "starting", positionSec: 0 });
+    expect(view.kind).toBe("fuse-held");
+    if (view.kind === "fuse-held") expect(view.status).toMatch(/starting/i);
+  });
+
+  it("treats a USER PAUSE differently from a stall: calm wording, no fault implied", () => {
+    const paused = computeTransitionView({ ...base, motion: "paused" });
+    const stuck = computeTransitionView({ ...base, motion: "stuck" });
+    expect(paused.kind).toBe("fuse-held");
+    if (paused.kind === "fuse-held" && stuck.kind === "fuse-held") {
+      expect(paused.status).toMatch(/paused/i);
+      expect(paused.status).toMatch(/play/i); // says what the listener can do
+      expect(paused.status).not.toBe(stuck.status);
+    }
+  });
+
+  it("still shows the melt while a real blend runs, even mid-promotion", () => {
+    // A running blend is driven by the wall clock, not the track position, so it is real
+    // sound moving — the countdown/fusing state must survive the gate.
+    const view = computeTransitionView({ ...base, motion: "starting", meltActive: true });
+    expect(view.kind).toBe("fusing");
+    if (view.kind === "fusing") expect(view.inWindow).toBe(true);
+  });
+
+  it("two different frozen tracks both stay held — never the same stale number twice", () => {
+    const a = computeTransitionView({ ...base, motion: "stuck", durationSec: 202, positionSec: 0 });
+    const b = computeTransitionView({ ...base, motion: "stuck", durationSec: 202, positionSec: 0 });
+    expect(a.kind).toBe("fuse-held");
+    expect(b.kind).toBe("fuse-held");
   });
 });

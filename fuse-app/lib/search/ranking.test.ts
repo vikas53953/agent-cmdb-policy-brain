@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { rankResults, relevanceLevel, officialTier } from "@/lib/search/ranking";
+import { rankResults, relevanceLevel, officialTier, queryIsPrimarySubject } from "@/lib/search/ranking";
 import { classifyYouTubeKind } from "@/lib/search/audio-kind";
 import type { TrackRef } from "@/lib/repos/track";
 
@@ -86,6 +86,70 @@ describe("rankResults — the owner's Softly case", () => {
 // under lyrics/aggregator re-uploads. Each case is pinned with the real-world channel + title
 // SHAPES the QA observed — a re-upload that keyword-stuffs the artist into its TITLE, and an
 // official upload whose title is clean/decorated. The official row must be FIRST.
+// The stuffing defence, stated as a general rule and guarded by counter-examples. Nothing
+// here (or in ranking.ts) knows any particular song, artist or channel.
+describe("queryIsPrimarySubject — 'IS the song' vs 'merely CONTAINS the words'", () => {
+  it("rejects a title whose head names a different work and only trails the query words", () => {
+    expect(
+      queryIsPrimarySubject(
+        "Softly Karan Aujla",
+        yt(
+          "x",
+          "Chunni Meri Rang De Lalariya (Official Video) Softly Karan Aujla Song | Chuni Meri Rangde Full Song",
+          "Vital Music",
+        ),
+      ),
+    ).toBe(false);
+    // Same shape, entirely different words — the rule is about structure, not vocabulary.
+    expect(
+      queryIsPrimarySubject(
+        "Blinding Lights",
+        yt("y", "Some Other Track (Official Video) Blinding Lights Song | Best Hits", "Random Uploads"),
+      ),
+    ).toBe(false);
+  });
+
+  it("does NOT demote legitimate titles", () => {
+    const legit: TrackRef[] = [
+      yt("a", "SOFTLY - Karan Aujla (Lyrics)", "SomeChannel"),
+      yt("b", "SOFTLY (Official Music Video)", "Karan Aujla"),
+      yt("c", "Karan Aujla - Softly (Full Song) | Latest Punjabi Song 2024", "PRABXDEEP"),
+      yt("d", "Softly - Karan Aujla | New Punjabi Song", "Indie India"),
+      yt("e", "Karan Aujla Softly Lyrics", "Musicgenree"),
+    ];
+    for (const t of legit) {
+      expect(queryIsPrimarySubject("Softly Karan Aujla", t)).toBe(true);
+    }
+    // Generic "Artist - Song (Official Music Video)" shape.
+    expect(
+      queryIsPrimarySubject("Some Artist Some Song", yt("f", "Some Artist - Some Song (Official Music Video)", "Some Artist")),
+    ).toBe(true);
+    // Decorated official whose head is the song and whose extras are pipe-separated.
+    expect(
+      queryIsPrimarySubject("Kesariya", yt("g", "Kesariya (Full Video) | Brahmastra | Ranbir | Alia", "SonyMusicIndiaVEVO")),
+    ).toBe(true);
+    // "Full Video: Song" — a colon is NOT a head break.
+    expect(queryIsPrimarySubject("Kesariya", yt("h", "Full Video: Kesariya | Brahmastra", "T-Series"))).toBe(true);
+  });
+
+  it("never judges a row the CHANNEL already answers (artist-only queries stay safe)", () => {
+    // Query is just the artist (exactly what radio seeds with): the artist's own upload of a
+    // different song, with the artist trailing, must NOT be treated as stuffing.
+    expect(
+      queryIsPrimarySubject("Karan Aujla", yt("i", "Winning Speech (Official Video) | Karan Aujla", "Karan Aujla")),
+    ).toBe(true);
+    // A title that never mentions the query at all (matched purely via the channel) is untouched.
+    expect(queryIsPrimarySubject("Karan Aujla", yt("j", "SOFTLY", "Karan Aujla - Topic"))).toBe(true);
+    // ...but the same artist-only query still catches a stuffer on an unrelated channel.
+    expect(
+      queryIsPrimarySubject(
+        "Karan Aujla",
+        yt("k", "Chunni Meri Rang De Lalariya (Official Video) Karan Aujla Song | Full Song", "Vital Music"),
+      ),
+    ).toBe(false);
+  });
+});
+
 describe("rankResults — overnight QA: the official artist is ALWAYS the first row", () => {
   it("Case 1 — 'Karan Aujla Softly': official 'SOFTLY' (channel 'Karan Aujla') beats the re-uploads", () => {
     const official = yt("official", "SOFTLY (Official Music Video)", "Karan Aujla");
@@ -123,6 +187,26 @@ describe("rankResults — overnight QA: the official artist is ALWAYS the first 
     const latinhype = yt("latin", "Anti-Hero (Lyrics)", "LatinHype");
     const ranked = rankResults("Anti-Hero", [latinhype, official], { preferAudio: true });
     expect(ranked[0].nativeId).toBe("official");
+  });
+
+  it("Case 1b — the LIVE #2 bug: a keyword-stuffed unrelated track cannot sit under the official row", () => {
+    // Observed in production on the owner's exact query. Head names a DIFFERENT song; the
+    // query words are bolted on as a trailing keyword clause; the uploader self-labels
+    // "(Official Video)" (tier 3) so it used to rank straight under the official track.
+    const official = yt("official", "SOFTLY (Official Music Video)", "Karan Aujla");
+    const stuffed = yt(
+      "stuffed",
+      "Chunni Meri Rang De Lalariya (Official Video) Softly Karan Aujla Song | Chuni Meri Rangde Full Song",
+      "Vital Music",
+    );
+    const genuineRepost = yt("repost", "Softly - Karan Aujla | New Punjabi Song", "Indie India");
+    const ranked = rankResults(
+      "Softly Karan Aujla",
+      [stuffed, genuineRepost, official],
+      { preferAudio: true },
+    );
+    // Official first (unchanged), the genuine repost second, the stuffed title LAST.
+    expect(ranked.map((r) => r.nativeId)).toEqual(["official", "repost", "stuffed"]);
   });
 
   it("still gates on relevance — a wrong-song official upload can never jump a right-song row", () => {

@@ -14,15 +14,37 @@
 
 import { getUser } from "@/lib/auth-session";
 import { listLikes } from "@/lib/repos/likes";
-import { listRecentPlays, trendingSeed, trendingTracks } from "@/lib/repos/plays";
+import {
+  listRecentPlayEvents,
+  listRecentPlays,
+  trendingSeed,
+  trendingTracks,
+} from "@/lib/repos/plays";
 import { isTrackSource, type TrackRef } from "@/lib/repos/track";
-import { recommend, chooseTrending, dedupeTracks } from "@/lib/home/recommend";
+import {
+  recommend,
+  chooseTrending,
+  dedupeTracks,
+  isRealTrending,
+  trackKey,
+} from "@/lib/home/recommend";
+import { coPlayAffinity } from "@/lib/home/coplay";
+import { withResolvedArt, withResolvedArtAll } from "@/lib/home/art";
 import { diversifyHomeRows } from "@/lib/home/diversify";
 import HomeScreen, { type HomeData } from "@/components/home/home-screen";
+import SpotifyConnectStatus from "@/components/ui/spotify-connect-status";
 
 // Coerce any stored track-bearing row (seed / play / like) into the source-agnostic
 // TrackRef the UI renders. A corrupt/unknown source defaults to "youtube" so a bad row
 // still renders a sensible badge rather than crashing.
+//
+// COVER ART (R5): Home renders PERSISTED rows, whose `artUrl` column is nullable — a row
+// written before art was captured comes back with no art and used to render a plain grey
+// box, even though the very same video shows artwork on Search (which renders live
+// provider results that always carry a thumbnail). So this single boundary resolves art
+// for every Home row via withResolvedArt(): a YouTube track's thumbnail is DERIVED from
+// its video id (keyless, CSP-allowed) rather than left blank. Nothing is invented — a
+// source whose art can't be derived from an id keeps a null artUrl.
 function toHomeTrack(row: {
   source: string;
   nativeId: string;
@@ -31,14 +53,14 @@ function toHomeTrack(row: {
   artUrl?: string | null;
   durationSec?: number | null;
 }): TrackRef {
-  return {
+  return withResolvedArt({
     source: isTrackSource(row.source) ? row.source : "youtube",
     nativeId: row.nativeId,
     title: row.title,
     artist: row.artist ?? null,
     artUrl: row.artUrl ?? null,
     durationSec: row.durationSec ?? null,
-  };
+  });
 }
 
 const EMPTY_HOME: HomeData = {
@@ -67,6 +89,8 @@ async function loadHome(): Promise<HomeData> {
         trending: generic.trending,
         recommended: generic.recommended,
         personalised: false,
+        // Seed data by definition — the row says "Starter picks", never "Trending".
+        trendingIsReal: false,
       };
     }
 
@@ -79,11 +103,25 @@ async function loadHome(): Promise<HomeData> {
       listRecentPlays(user.id, 60),
       trendingTracks(20),
     ]);
+    // `trendingTracks` already returns TrackRefs (it does its own row → TrackRef mapping),
+    // so it never passes through toHomeTrack — resolve its art here so the aggregate
+    // trending row is covered by the same rule as every other row.
+    const trendingCounts = withResolvedArtAll(countTracks);
     const likes = likeRows.map(toHomeTrack);
     const recent = dedupeTracks([recentRows.map(toHomeTrack)]).slice(0, 12);
 
     // KTD-4: real aggregate trending once it has grown enough, else the curated seed.
-    const trendingPool = chooseTrending(seedTracks, countTracks);
+    // The SAME predicate decides the contents and the row's name, so the two can never
+    // disagree — the row only calls itself "Trending" when real play data backs it.
+    const trendingIsReal = isRealTrending(trendingCounts);
+    const trendingPool = chooseTrending(seedTracks, trendingCounts);
+
+    // Co-play signal (AUDIT 36): what people actually play in the same sitting as the
+    // tracks this user loves. Fetched separately and allowed to fail — a recommendation
+    // signal going missing must degrade the ranking, never blank the whole home feed.
+    const coPlay = await listRecentPlayEvents()
+      .then((events) => coPlayAffinity(events, [...likes, ...recent].map(trackKey)))
+      .catch(() => undefined);
 
     // The candidate pool for "more like what you love": trending plus the user's own
     // tracks, deduped. With no history this is just the seed (generic); as history
@@ -91,7 +129,7 @@ async function loadHome(): Promise<HomeData> {
     // Ask recommend() for a DEEPER pool than we display so, after cross-row de-duplication
     // (F-0 item 3), the row can still backfill to a full 12.
     const pool = dedupeTracks([trendingPool, recent, likes]);
-    const recommendedPool = recommend({ likes, recent, pool, limit: 24 });
+    const recommendedPool = recommend({ likes, recent, pool, coPlay, limit: 24 });
 
     // F-0 item 3: no track appears in more than one row. Recently played keeps its tracks;
     // Trending and More-like exclude what's already shown and backfill from their pools.
@@ -106,6 +144,7 @@ async function loadHome(): Promise<HomeData> {
       trending: rows.trending,
       recommended: rows.recommended,
       personalised: likes.length > 0 || recent.length > 0,
+      trendingIsReal,
     };
   } catch {
     // No DB / keyless — degrade to an honest empty home, never a crash.
@@ -115,5 +154,12 @@ async function loadHome(): Promise<HomeData> {
 
 export default async function HomePage() {
   const data = await loadHome();
-  return <HomeScreen data={data} />;
+  return (
+    <>
+      {/* The Spotify routes land the user back here with `?spotify=...`. This is the
+          consumer that finally says what happened (AUDIT 1) and clears the parameter. */}
+      <SpotifyConnectStatus />
+      <HomeScreen data={data} />
+    </>
+  );
 }
