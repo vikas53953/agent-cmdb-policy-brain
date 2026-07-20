@@ -3887,3 +3887,90 @@ body {
   opacity: 0.4;
   cursor: default;
 }
+/* ── Confirm dialog (components/ui/confirm-dialog.tsx) ──────────────────────────
+ * The app's one "are you sure?" surface. Sits ABOVE the profile sheet (40/41) and
+ * the queue (42/43) so a question asked from inside any of them is never buried.
+ * Ember is reserved for the destructive button — nothing else in the app is ember
+ * on a fill, so the eye lands on the one control that cannot be undone. */
+.confirm-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  background: rgba(3, 5, 8, 0.68);
+  backdrop-filter: blur(3px);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.16s ease;
+}
+.confirm-overlay.open {
+  opacity: 1;
+  pointer-events: auto;
+}
+.confirm {
+  position: fixed;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 61;
+  width: calc(100% - 48px);
+  max-width: 340px;
+  padding: 20px;
+  background: var(--ink-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.6);
+}
+.confirm-title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 1.02rem;
+  font-weight: 650;
+  color: var(--txt-hi);
+  line-height: 1.35;
+}
+.confirm-body {
+  margin: 8px 0 0;
+  font-size: 0.84rem;
+  line-height: 1.45;
+  color: var(--txt-mid);
+}
+.confirm-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 18px;
+}
+.confirm-actions button {
+  flex: 1;
+  font-family: var(--font-body);
+  font-size: 0.85rem;
+  font-weight: 600;
+  padding: 10px 14px;
+  border-radius: var(--r-pill);
+  cursor: pointer;
+  transition: opacity 0.15s ease, background 0.15s ease;
+}
+.confirm-actions button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.confirm-actions button:focus-visible {
+  outline: 2px solid var(--teal);
+  outline-offset: 2px;
+}
+/* The safe way out is the quiet one, but still a full-size target. */
+.confirm-keep {
+  color: var(--txt-hi);
+  background: var(--ink-3);
+  border: 1px solid var(--line);
+}
+.confirm-keep:hover:not(:disabled) {
+  background: var(--line);
+}
+.confirm-go {
+  color: var(--ink-0);
+  background: var(--ember);
+  border: 1px solid var(--ember);
+}
+.confirm-go:hover:not(:disabled) {
+  opacity: 0.9;
+}

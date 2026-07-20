@@ -9,7 +9,7 @@
 // against the server's returned playlist, so the UI reflects saved truth, and a failed
 // write reverts rather than showing a change that did not stick (R17).
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import type { PlaylistDTO, PlaylistTrackDTO } from "@/lib/library/dto";
 import { moveItem, canMove } from "@/lib/library/reorder";
 import {
@@ -28,6 +28,7 @@ import {
   ArrowDownIcon,
   ChevronDownIcon,
 } from "@/components/ui/icons";
+import ConfirmDialog from "@/components/ui/confirm-dialog";
 import WriteStatus, { useWriteStatus } from "@/components/ui/write-status";
 import { couldNot } from "@/lib/ui/write-status";
 
@@ -112,6 +113,27 @@ export default function PlaylistsPane({ initial }: { initial: PlaylistDTO[] }) {
   );
 }
 
+// The writes one playlist card can make. Tracking WHICH one is running (rather than a
+// bare boolean) is what stops one write from disabling controls it has nothing to do with.
+type CardWrite = "rename" | "delete" | "reorder" | "remove-track";
+
+// F-2 — WHY THIS CARD USED TO NEED TWO CLICKS ON DELETE.
+//
+// Every control here was disabled by ONE shared `busy` flag, and the rename input saved
+// on blur. So clicking the trash icon while the rename field had focus ran this order:
+//
+//   1. mousedown on trash  → the rename input loses focus
+//   2. input onBlur        → saveName() → setBusy(true)
+//   3. React re-renders    → the trash button is now `disabled`
+//   4. mouseup / click     → the DOM DISCARDS the click, because a disabled button
+//                            does not receive one. Nothing happens. No message.
+//
+// The user's finger did everything right and the app threw the click away. Clicking
+// again worked only because the rename had finished by then.
+//
+// THE RULE THIS FIXES, which is bigger than delete: a control must not be disabled by
+// work it is not doing. `busyWith` names the write in flight, so a rename in progress
+// disables the rename field alone and leaves delete, reorder and remove-track live.
 function PlaylistCard({
   playlist,
   onReplace,
@@ -124,48 +146,70 @@ function PlaylistCard({
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(playlist.name);
-  const [busy, setBusy] = useState(false);
+  // WHICH write is in flight, not merely "one is". See the F-2 note below: a single
+  // shared `busy` flag let ONE operation disable EVERY control on the card, which is
+  // how the delete button silently ate the user's first click.
+  const [busyWith, setBusyWith] = useState<CardWrite | null>(null);
+  // Whether the "are you sure?" question is on screen for this playlist (F-3).
+  const [askingDelete, setAskingDelete] = useState(false);
+  // A rename must be saved exactly once. Enter saves and closes the field; without this
+  // the blur that follows would fire the same save a second time (F-8).
+  const savingName = useRef(false);
+  const busy = busyWith !== null;
+  // Reorder and remove-track both rewrite the SAME track list, so they must not run at
+  // once. They are serialised against each other only — never against rename or delete.
+  const tracksBusy = busyWith === "reorder" || busyWith === "remove-track";
   // AUDIT 15/16/17/18: delete, remove-track, rename and reorder all used to fail
   // silently — the row stayed, the name snapped back, the order jumped back, and the
   // user was told nothing. Each now reports through the one shared status.
   const { message, report } = useWriteStatus();
 
+  // Save the edited name. F-8: the field CLOSES first, so pressing Enter visibly ends
+  // editing instead of leaving a box that still looks typeable while the save runs.
+  // `savingName` guards the double-fire — Enter closes the field, which blurs it, which
+  // would otherwise call this a second time and save the same name twice.
   async function saveName() {
+    if (savingName.current) return;
     const trimmed = name.trim();
     if (!trimmed || trimmed === playlist.name) {
       setEditing(false);
       setName(playlist.name);
       return;
     }
-    setBusy(true);
+    savingName.current = true;
+    setEditing(false);
+    setBusyWith("rename");
     await report(() => renamePlaylistAction(playlist.id, trimmed), {
       ok: (updated) => `Renamed to ${updated.name}`,
       failed: couldNot("save the new name"),
       onOk: (updated) => onReplace(updated),
       onFail: () => setName(playlist.name), // put the old name back — it is what is saved
     });
-    setBusy(false);
-    setEditing(false);
+    setBusyWith(null);
+    savingName.current = false;
   }
 
-  async function remove() {
-    if (busy) return;
-    setBusy(true);
+  // F-3: the trash icon ASKS. Deleting is the one thing here the user cannot undo, so
+  // the icon opens the question and `confirmDelete` is the only thing that deletes.
+  async function confirmDelete() {
+    if (busyWith === "delete") return;
+    setBusyWith("delete");
     await report(() => deletePlaylistAction(playlist.id), {
       ok: `Deleted ${playlist.name}`,
       failed: couldNot("delete this playlist"),
       onOk: () => onDelete(playlist.id),
     });
-    setBusy(false);
+    setBusyWith(null);
+    setAskingDelete(false);
   }
 
   async function reorder(index: number, direction: "up" | "down") {
-    if (busy || !canMove(playlist.tracks.length, index, direction)) return;
+    if (tracksBusy || !canMove(playlist.tracks.length, index, direction)) return;
     const reordered = moveItem(playlist.tracks, index, direction);
     // Optimistic: show the new order immediately, then persist and reconcile.
     const optimistic: PlaylistDTO = { ...playlist, tracks: reordered };
     onReplace(optimistic);
-    setBusy(true);
+    setBusyWith("reorder");
     await report(
       () => reorderPlaylistTracksAction(playlist.id, reordered.map((t) => t.itemId)),
       {
@@ -175,18 +219,18 @@ function PlaylistCard({
         onFail: () => onReplace(playlist), // back to the last order that is actually saved
       },
     );
-    setBusy(false);
+    setBusyWith(null);
   }
 
   async function removeTrack(item: PlaylistTrackDTO) {
-    if (busy) return;
-    setBusy(true);
+    if (tracksBusy) return;
+    setBusyWith("remove-track");
     await report(() => removeTrackFromPlaylistAction(playlist.id, item.itemId), {
       ok: `Removed ${item.title}`,
       failed: couldNot("remove that song"),
       onOk: (updated) => onReplace(updated),
     });
-    setBusy(false);
+    setBusyWith(null);
   }
 
   const count = playlist.tracks.length;
@@ -220,7 +264,7 @@ function PlaylistCard({
               }
             }}
             aria-label={`Rename ${playlist.name}`}
-            disabled={busy}
+            disabled={busyWith === "rename"}
           />
         ) : (
           <button type="button" className="pl-name" data-testid="playlist-open" onClick={() => setOpen((v) => !v)}>
@@ -235,7 +279,7 @@ function PlaylistCard({
           type="button"
           className="icon-btn"
           onClick={() => setEditing(true)}
-          disabled={busy || editing}
+          disabled={busyWith === "rename" || editing}
           title={`Rename ${playlist.name}`}
           aria-label={`Rename ${playlist.name}`}
         >
@@ -244,14 +288,30 @@ function PlaylistCard({
         <button
           type="button"
           className="icon-btn"
-          onClick={() => void remove()}
-          disabled={busy}
+          onClick={() => setAskingDelete(true)}
+          disabled={busyWith === "delete"}
           title={`Delete ${playlist.name}`}
           aria-label={`Delete ${playlist.name}`}
         >
           <TrashIcon size={18} />
         </button>
       </div>
+
+      {/* F-3: a playlist is the one thing here a user cannot get back, so it asks. */}
+      <ConfirmDialog
+        open={askingDelete}
+        title={`Delete “${playlist.name}”?`}
+        body={
+          count === 0
+            ? "This playlist goes for good. You can't get it back."
+            : `This playlist and its ${count} ${count === 1 ? "song" : "songs"} go for good. You can't get it back. The songs stay in your library.`
+        }
+        confirmLabel="Delete playlist"
+        cancelLabel="Keep it"
+        busy={busyWith === "delete"}
+        onConfirm={() => void confirmDelete()}
+        onCancel={() => setAskingDelete(false)}
+      />
 
       <WriteStatus message={message} className="write-status-block" testId="playlist-card-status" />
 
