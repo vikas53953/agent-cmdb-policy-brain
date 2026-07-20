@@ -23,6 +23,7 @@ import { nextWithBlend } from "@/lib/player/blend-controller";
 import { adapterRegistry } from "@/lib/player/adapters";
 import VideoSurface from "@/components/player/video-surface";
 import VolumeControl from "@/components/player/volume-control";
+import { TransitionMomentCompact } from "@/components/player/transition-moment";
 import { MusicIcon, PlayIcon, PauseIcon, NextIcon, QueueIcon } from "@/components/ui/icons";
 
 const NOT_WIRED_REASON = "Playback starts once the player engine is connected";
@@ -137,6 +138,9 @@ export default function MiniPlayer({
           {notice}
         </p>
       ) : null}
+      {/* Compact echo of the Transition Moment (F-0 item 1): one honest line teasing what
+          is NEXT and the live fuse countdown, without re-rendering the mini transport. */}
+      <TransitionMomentCompact />
       <div
         className="mini"
         aria-label="Mini player"

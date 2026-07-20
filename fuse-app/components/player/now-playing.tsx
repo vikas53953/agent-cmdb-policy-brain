@@ -27,6 +27,7 @@ import VolumeControl from "@/components/player/volume-control";
 import Scrub from "@/components/player/scrub";
 import Lyrics from "@/components/player/lyrics";
 import MeltPanel from "@/components/player/melt-panel";
+import TransitionMoment from "@/components/player/transition-moment";
 import LikeButton from "@/components/player/like-button";
 import SleepTimerControl from "@/components/player/sleep-timer-control";
 import {
@@ -307,6 +308,13 @@ export default function NowPlaying({
                 Autoplay: playing similar tracks — turn off in settings
               </p>
             ) : null}
+
+            {/* THE TRANSITION MOMENT (F-0 item 1) — the hero: NOW / NEXT with small art and
+                a live "Fusing in N seconds" countdown reflecting the ACTUAL adapted melt
+                length. Honest — it shows only what is true for the current pair, and says
+                plainly when playback will end. Owns its own position subscription so the
+                countdown ticks without re-rendering the whole screen. */}
+            <TransitionMoment />
 
             {/* Auto-crossfade visual (U11, R3/F2): shown only while a blend is truly
                 under way — the incoming track melting in with a progress bar. */}

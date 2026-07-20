@@ -22,7 +22,13 @@ export const SEARCH_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 //          into the cached payload. After the P1 fix those strings are computed fresh on
 //          every request and never cached; bumping to v2 guarantees no customer is ever
 //          served a v1 entry's stale "…try again" notice again.
-export const SEARCH_CACHE_VERSION = "v2";
+//   • v3 — the overnight-QA fix. Two things changed the MEANING of a cached row set: the
+//          ranking now surfaces the official artist first, and provider titles are now
+//          HTML-decoded at the ingestion boundary (so no "&amp;" is written into a cached
+//          row). Bumping to v3 makes every pre-existing entry miss immediately, so no
+//          customer is served a stale mis-ordered / raw-entity result set for the rest of
+//          its 24h TTL — the fixes take effect the instant this deploys, not a day later.
+export const SEARCH_CACHE_VERSION = "v3";
 
 // Normalize a raw query into the cache key so trivially-different spellings share one
 // entry: trim, collapse internal whitespace, lowercase. Exported so the route and

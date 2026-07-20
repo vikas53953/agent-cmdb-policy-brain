@@ -27,6 +27,7 @@
 // videos.list for known ids, keyless oEmbed fallback, and a debounced input.
 
 import type { TrackRef } from "@/lib/repos/track";
+import { providerText, providerTextOrNull } from "@/lib/text/provider-text";
 
 // Injected fetch so the route uses the real one and tests use a fake. Matches the
 // global fetch signature closely enough for our narrow use.
@@ -125,8 +126,11 @@ export async function searchYouTube(
         return {
           source: "youtube",
           nativeId: videoId,
-          title: item.snippet?.title ?? "Untitled",
-          artist: item.snippet?.channelTitle ?? null,
+          // Decoded at the adapter boundary (P3): the Data API returns snippet text
+          // HTML-escaped, and an escaped title would otherwise render raw AND be persisted
+          // into the library / used as the lyrics lookup key. See lib/text/provider-text.ts.
+          title: providerTextOrNull(item.snippet?.title) ?? "Untitled",
+          artist: providerTextOrNull(item.snippet?.channelTitle),
           artUrl: snippetArt(videoId, item.snippet?.thumbnails),
           durationSec: null, // search.list omits duration; videos.list has it if needed
         };
@@ -191,8 +195,9 @@ export async function resolveYouTubeVideoById(
           return {
             source: "youtube",
             nativeId: videoId,
-            title: item.snippet?.title ?? "Untitled",
-            artist: item.snippet?.channelTitle ?? null,
+            // Decoded at the boundary (P3) — same contract as search.list above.
+            title: providerTextOrNull(item.snippet?.title) ?? "Untitled",
+            artist: providerTextOrNull(item.snippet?.channelTitle),
             artUrl: snippetArt(videoId, item.snippet?.thumbnails),
             durationSec: parseIso8601Duration(item.contentDetails?.duration),
           };
@@ -215,8 +220,9 @@ export async function resolveYouTubeVideoById(
     return {
       source: "youtube",
       nativeId: videoId,
-      title: body.title,
-      artist: body.author_name ?? null,
+      // oEmbed text is escaped the same way — decode at the boundary (P3).
+      title: providerText(body.title),
+      artist: providerTextOrNull(body.author_name),
       artUrl: body.thumbnail_url ?? youtubeThumbnailUrl(videoId),
       durationSec: null, // oEmbed carries no duration
     };

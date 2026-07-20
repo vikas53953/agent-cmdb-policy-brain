@@ -29,6 +29,7 @@ import {
   trackKey,
 } from "@/lib/home/recommend";
 import { coPlayAffinity } from "@/lib/home/coplay";
+import { diversifyHomeRows } from "@/lib/home/diversify";
 import HomeScreen, { type HomeData } from "@/components/home/home-screen";
 import SpotifyConnectStatus from "@/components/ui/spotify-connect-status";
 
@@ -66,11 +67,18 @@ async function loadHome(): Promise<HomeData> {
     const seedTracks = (await trendingSeed(20)).map(toHomeTrack);
 
     // Signed-out / no session (keyless dev): a generic home from the curated seed only.
+    // Both rows draw from the SAME seed, so diversify so a seed track never shows twice
+    // (F-0 item 3) — Trending fills first, More-like backfills from what's left.
     if (!user) {
+      const generic = diversifyHomeRows({
+        recentlyPlayed: [],
+        trendingPool: seedTracks,
+        recommendedPool: seedTracks,
+      });
       return {
         recentlyPlayed: [],
-        trending: seedTracks,
-        recommended: seedTracks.slice(0, 12),
+        trending: generic.trending,
+        recommended: generic.recommended,
         personalised: false,
         // Seed data by definition — the row says "Starter picks", never "Trending".
         trendingIsReal: false,
@@ -93,7 +101,7 @@ async function loadHome(): Promise<HomeData> {
     // The SAME predicate decides the contents and the row's name, so the two can never
     // disagree — the row only calls itself "Trending" when real play data backs it.
     const trendingIsReal = isRealTrending(countTracks);
-    const trending = chooseTrending(seedTracks, countTracks);
+    const trendingPool = chooseTrending(seedTracks, countTracks);
 
     // Co-play signal (AUDIT 36): what people actually play in the same sitting as the
     // tracks this user loves. Fetched separately and allowed to fail — a recommendation
@@ -105,13 +113,23 @@ async function loadHome(): Promise<HomeData> {
     // The candidate pool for "more like what you love": trending plus the user's own
     // tracks, deduped. With no history this is just the seed (generic); as history
     // grows, the user's loved artists appear in the pool and recommend() ranks them up.
-    const pool = dedupeTracks([trending, recent, likes]);
-    const recommended = recommend({ likes, recent, pool, coPlay, limit: 12 });
+    // Ask recommend() for a DEEPER pool than we display so, after cross-row de-duplication
+    // (F-0 item 3), the row can still backfill to a full 12.
+    const pool = dedupeTracks([trendingPool, recent, likes]);
+    const recommendedPool = recommend({ likes, recent, pool, coPlay, limit: 24 });
+
+    // F-0 item 3: no track appears in more than one row. Recently played keeps its tracks;
+    // Trending and More-like exclude what's already shown and backfill from their pools.
+    const rows = diversifyHomeRows({
+      recentlyPlayed: recent,
+      trendingPool,
+      recommendedPool,
+    });
 
     return {
-      recentlyPlayed: recent,
-      trending,
-      recommended,
+      recentlyPlayed: rows.recentlyPlayed,
+      trending: rows.trending,
+      recommended: rows.recommended,
       personalised: likes.length > 0 || recent.length > 0,
       trendingIsReal,
     };

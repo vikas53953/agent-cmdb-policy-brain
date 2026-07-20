@@ -19,6 +19,7 @@
 
 import type { TrackRef } from "@/lib/repos/track";
 import type { FetchLike, SourceOutcome } from "@/lib/youtube";
+import { providerTextOrNull } from "@/lib/text/provider-text";
 
 const SP_TOKEN_URL = "https://accounts.spotify.com/api/token";
 const SP_SEARCH_URL = "https://api.spotify.com/v1/search";
@@ -122,8 +123,11 @@ export async function searchSpotify(
         return {
           source: "spotify",
           nativeId,
-          title: item.name ?? "Untitled",
-          artist: item.artists?.map((a) => a.name).filter(Boolean).join(", ") || null,
+          // Decoded at the boundary (P3) — the same one-place contract as the YouTube
+          // adapter. Spotify rarely escapes, so this is an idempotent safety net that keeps
+          // the rule ("every provider adapter decodes once") true without exception.
+          title: providerTextOrNull(item.name) ?? "Untitled",
+          artist: providerTextOrNull(item.artists?.map((a) => a.name).filter(Boolean).join(", ")),
           artUrl: item.album?.images?.[0]?.url ?? null,
           durationSec:
             typeof item.duration_ms === "number"
