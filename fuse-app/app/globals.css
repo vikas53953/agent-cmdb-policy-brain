@@ -3910,29 +3910,41 @@ body {
 }
 
 /* ---- 44px touch targets on touch devices -----------------------------------
- * Every icon button in the app is 38x38, under the 44px minimum a finger needs,
- * and the queue row's three buttons sit at gap:2px — about 40px centre to
- * centre, with the destructive Remove among them. Rather than making the icons
- * themselves ugly-big on a desktop mouse, this grows the HIT AREA only where the
- * pointer is actually a finger. One rule on `.icon-btn` covers every icon button
- * in the app, present and future, instead of a per-screen patch. */
+ * Modern mobile guidance is a 44x44 CSS-px minimum tap target, and the phone is
+ * the primary device. Several control families fall short of that: every icon
+ * button is 38x38; the "Clear recent searches" text button is ~37x23; the recent
+ * chips and the All/Songs/Videos result filters are ~28px tall. Rather than making
+ * any of them ugly-big on a desktop mouse, this grows the HIT AREA only where the
+ * pointer is actually a finger, via an invisible ::before the finger lands on. The
+ * drawn button, its background, border, and focus ring all keep their current look.
+ *
+ * This is deliberately a FAMILY rule, not a per-button patch: the selector list is
+ * the set of small interactive controls, so a new small control gets a comfortable
+ * target the moment it joins the family. */
 @media (pointer: coarse) {
-  .icon-btn {
-    /* An invisible ::before is what the finger hits, so the drawn button, its
-       background, and its focus ring all keep their current 38px look. */
+  .icon-btn,
+  .recent-clear,
+  .recent-chip,
+  .sfilter {
+    /* The ::before below is positioned against this box. */
     position: relative;
-    min-width: 38px;
-    min-height: 38px;
   }
-  .icon-btn::before {
+  .icon-btn::before,
+  .recent-clear::before,
+  .recent-chip::before,
+  .sfilter::before {
     content: "";
     position: absolute;
     top: 50%;
     left: 50%;
-    width: 44px;
-    height: 44px;
+    /* At least 44x44, but never smaller than the visible button — a wide chip
+       keeps its real width and only its height is floored to 44. No paint, no
+       layout effect: purely a bigger, centred target. */
+    width: 100%;
+    height: 100%;
+    min-width: 44px;
+    min-height: 44px;
     transform: translate(-50%, -50%);
-    /* No paint, no layout effect — purely a bigger target. */
   }
   /* The one place hit areas would otherwise overlap: three buttons 2px apart
      would give each other's 44px boxes a shared strip, and the button that would

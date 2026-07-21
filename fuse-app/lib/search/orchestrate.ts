@@ -12,6 +12,7 @@
 import type { TrackRef } from "@/lib/repos/track";
 import type { SourceOutcome } from "@/lib/youtube";
 import { rankResults } from "@/lib/search/ranking";
+import { normalizeSearchQuery } from "@/lib/search/normalize-query";
 
 // Why a source contributed nothing, in plain English (null = it worked). Drives
 // the honest per-source messaging in the results UI (R17).
@@ -97,7 +98,11 @@ export async function runSearch(
   deps: SearchDeps,
   opts: SearchOptions = {},
 ): Promise<SearchResponse> {
-  const query = rawQuery.trim();
+  // Server-side enforcement of the shared cap (F2). This is the chokepoint every
+  // request passes before any provider is called, so even a hand-crafted
+  // /api/search?q=<220 chars> is trimmed, whitespace-collapsed, and capped here —
+  // the client cap is a convenience, never the only line of defence.
+  const query = normalizeSearchQuery(rawQuery);
   const preferAudio = opts.preferAudio === true;
   if (query === "") {
     return {

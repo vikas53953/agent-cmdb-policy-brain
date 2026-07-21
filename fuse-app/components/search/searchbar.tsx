@@ -21,6 +21,7 @@ import type { SearchResponse } from "@/lib/search/orchestrate";
 import { adapterRegistry } from "@/lib/player/adapters";
 import { loadSearchQuery, saveSearchQuery } from "@/lib/session-state";
 import { filterByKind, trackKind, type ResultFilter } from "@/lib/search/audio-kind";
+import { normalizeSearchQuery, MAX_SEARCH_QUERY_LENGTH } from "@/lib/search/normalize-query";
 import {
   browserStorage,
   loadRecentSearches,
@@ -76,12 +77,16 @@ export default function SearchBar({ userKey = "anon" }: { userKey?: string }) {
   }, [query]);
 
   useEffect(() => {
-    const trimmed = query.trim();
+    // Normalize through the SHARED cap (F2) before we ever build a request: trims,
+    // collapses whitespace, and caps length so a 220-char paste can never reach a
+    // real provider search. The server enforces the exact same cap independently —
+    // this is the first, quieter line of defence.
+    const normalized = normalizeSearchQuery(query);
     // A single debounced timer drives every state change; the effect body itself
     // never calls setState (only schedules + cleans up), so a keystroke burst
     // collapses to one request (KTD-8) without cascading renders.
     const handle = setTimeout(async () => {
-      if (trimmed === "") {
+      if (normalized === "") {
         abortRef.current?.abort();
         setOutcome(EMPTY_OUTCOME);
         return;
@@ -90,17 +95,17 @@ export default function SearchBar({ userKey = "anon" }: { userKey?: string }) {
       const controller = new AbortController();
       abortRef.current = controller;
       try {
-        const res = await fetch(`/api/search?q=${encodeURIComponent(trimmed)}`, {
+        const res = await fetch(`/api/search?q=${encodeURIComponent(normalized)}`, {
           signal: controller.signal,
         });
         if (!res.ok) throw new Error(`search ${res.status}`);
         const json = (await res.json()) as SearchResponse;
-        setOutcome({ query: trimmed, data: json, error: false });
+        setOutcome({ query: normalized, data: json, error: false });
       } catch (err) {
         if (err instanceof DOMException && err.name === "AbortError") return; // superseded — ignore
-        setOutcome({ query: trimmed, data: null, error: true });
+        setOutcome({ query: normalized, data: null, error: true });
       }
-    }, trimmed === "" ? 0 : DEBOUNCE_MS);
+    }, normalized === "" ? 0 : DEBOUNCE_MS);
 
     // Clearing the timer alone was not enough: a request already in flight would still
     // resolve and call setOutcome on an unmounted component. Aborting it too makes the
@@ -114,9 +119,9 @@ export default function SearchBar({ userKey = "anon" }: { userKey?: string }) {
   // Record a query into recent searches — on the user's intent signals (Enter, or the box
   // losing focus), not on every keystroke, so the list stays a short set of real searches.
   function remember(q: string) {
-    const trimmed = q.trim();
-    if (trimmed === "") return;
-    setRecent(addRecentSearch(store, userKey, trimmed));
+    const normalized = normalizeSearchQuery(q);
+    if (normalized === "") return;
+    setRecent(addRecentSearch(store, userKey, normalized));
   }
 
   function runRecent(q: string) {
@@ -128,7 +133,7 @@ export default function SearchBar({ userKey = "anon" }: { userKey?: string }) {
   // rows use it to stay honest about what can play.
   const registered = new Set(adapterRegistry.registeredSources());
 
-  const trimmed = query.trim();
+  const trimmed = normalizeSearchQuery(query); // the capped, whitespace-collapsed query we actually search on
   const settled = outcome.query === trimmed; // is the shown outcome for the current input?
   const status: Status =
     trimmed === ""
@@ -170,6 +175,7 @@ export default function SearchBar({ userKey = "anon" }: { userKey?: string }) {
           data-testid="search-input"
           placeholder="Search songs, artists…"
           value={query}
+          maxLength={MAX_SEARCH_QUERY_LENGTH}
           onChange={(e) => setQuery(e.target.value)}
           onBlur={() => remember(query)}
           onKeyDown={(e) => {
