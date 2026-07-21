@@ -12,6 +12,7 @@ import {
 } from "@/lib/player/adapters/youtube";
 import { adapterRegistry } from "@/lib/player/adapters";
 import { SOURCE_CAPABILITIES } from "@/lib/player/capabilities";
+import { clearActivity, getActivity, summarizeActivity } from "@/lib/activity-log";
 import type { TrackRef } from "@/lib/repos/track";
 
 // A YouTube track (search only ever plays YouTube in U7).
@@ -638,5 +639,80 @@ describe("engine truth survives a crossfade promotion (F-1 stall class)", () => 
 
     t.incoming.fireError(150);
     expect(t.errors).toEqual([]);
+  });
+});
+
+// ── B1: the adapter's failure paths name the cause and leave a breadcrumb ───────────
+//
+// When a YouTube embed refuses to play, the IFrame API fires onError with a code. The
+// adapter must turn that into a plain-worded cause the recovery ladder can act on, and — for
+// a blend's incoming player, which the listener never hears — a diagnosable breadcrumb that
+// is NOT counted as a user-visible error. (The PRIMARY path hands the cause to the store,
+// whose honest logging is covered in store.test.ts; here we pin what the ADAPTER emits.)
+describe("failure paths name the cause and leave a breadcrumb (B1)", () => {
+  function setup() {
+    const primary = fakePlayer();
+    const incoming = fakePlayer();
+    const errors: Array<{ message: string; kind: string; code?: number }> = [];
+    const store: PlayerBridge = {
+      reportPosition: () => {},
+      next: async () => true,
+      reportError: (info) => errors.push(info),
+      reportEngineState: () => {},
+    };
+    let built = 0;
+    const factory = vi.fn(
+      async (_t: HTMLElement, _v: string, cb: YtPlayerCallbacks) => {
+        const target = built === 0 ? primary : incoming;
+        built += 1;
+        target.bind(cb);
+        cb.onReady();
+        return target.handle;
+      },
+    );
+    const adapter = createYouTubeAdapter({
+      factory,
+      store,
+      doc: fakeDoc(),
+      timers: manualTimers().timers,
+    });
+    return { adapter, primary, incoming, errors };
+  }
+
+  it("an embed refusal (150) on the primary is reported as a plain-worded fatal cause", async () => {
+    const t = setup();
+    await t.adapter.load(track("aaa"));
+    t.primary.fireError(150);
+    expect(t.errors).toHaveLength(1);
+    expect(t.errors[0].message).toBe("YouTube won't play this video here"); // plain words, no jargon
+    expect(t.errors[0].kind).toBe("fatal"); // retrying a refused embed is futile → straight to terminal
+    expect(t.errors[0].code).toBe(150);
+  });
+
+  it("a transient player hiccup (5) on the primary is reported as a SOFT cause the ladder can recover", async () => {
+    const t = setup();
+    await t.adapter.load(track("aaa"));
+    t.primary.fireError(5);
+    expect(t.errors[0].message).toBe("This video hit a playback snag — trying again");
+    expect(t.errors[0].kind).toBe("soft"); // worth a recreate before giving up
+  });
+
+  it("a blend's incoming failure leaves an info breadcrumb, never a counted error", async () => {
+    clearActivity();
+    const t = setup();
+    await t.adapter.load(track("aaa"));
+    await t.adapter.beginBlend(track("bbb"));
+
+    // The incoming (not yet primary) refuses its embed. The listener still hears the primary,
+    // so this must NOT arm the ladder and must NOT be counted as a user-visible error…
+    t.incoming.fireError(150);
+    expect(t.errors).toEqual([]); // the healthy primary is left alone
+
+    // …but it still leaves a diagnosable breadcrumb, at info level.
+    const crumb = getActivity().find((e) => e.type === "stall-blend-error");
+    expect(crumb).toBeDefined();
+    expect(crumb?.level).toBe("info");
+    expect(crumb?.message).toBe("YouTube won't play this video here");
+    expect(summarizeActivity().errors).toBe(0); // never inflates the error count
   });
 });

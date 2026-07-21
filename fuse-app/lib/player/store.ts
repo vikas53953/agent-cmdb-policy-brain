@@ -522,6 +522,7 @@ export class PlayerStore {
       // The engine could not start: honest error state, never a silent stuck "loading".
       // The recovery monitor will drive the ladder (advance to an alternate / offer Skip).
       this.errorKind = "soft";
+      this.logStartHiccup("play");
       this.set({ isPlaying: false, status: "error" });
       return false;
     }
@@ -562,6 +563,7 @@ export class PlayerStore {
         await this.activeAdapter.play();
       } catch {
         this.errorKind = "soft";
+        this.logStartHiccup("resume");
         this.set({ isPlaying: false, status: "error" });
         return false;
       }
@@ -609,11 +611,28 @@ export class PlayerStore {
       await this.activeAdapter.play();
     } catch {
       this.errorKind = "soft";
+      this.logStartHiccup("recreate");
       return false;
     }
     this.applyVolume();
     if (this.errorKind === "none") this.set({ isPlaying: true, status: "playing" });
     return this.errorKind === "none";
+  }
+
+  // A play attempt THREW before it could start (the engine's load/play rejected — the
+  // IFrame API failed to come up, the factory rejected, a rebuild threw). These catches used
+  // to swallow the throw silently and just hand off to the recovery ladder, so the FIRST
+  // cause of a failure left no trail — only the eventual terminal did. This leaves the honest
+  // middle breadcrumb: info-level and stall-tagged, so it is a countable recovery-lane event
+  // (never a terminal error — F1's failStalled owns those, and only if the ladder gives up).
+  // Plain words, no jargon, no song data. `where` is a short machine tag for the entry point.
+  private logStartHiccup(where: string): void {
+    logActivity({
+      level: "info",
+      type: "stall-start",
+      message: "This track didn't start on the first try — working on it",
+      detail: { at: where },
+    });
   }
 
   // The engine (a source adapter) reports that the CURRENT track hit a playback error.
@@ -624,9 +643,18 @@ export class PlayerStore {
   reportError(info: { message: string; kind: EngineErrorKind; code?: number }): void {
     if (!this.state.current) return;
     this.errorKind = info.kind;
+    // Record the CAUSE as a breadcrumb — the middle link of the story (attempt → CAUSE →
+    // recovery attempts → terminal) — NOT a terminal error. Whether this becomes a failure
+    // the listener actually sees is decided later by the recovery ladder: if the ladder gives
+    // up, failStalled logs the ONE countable error (F1). Logging this cause at error level
+    // would double-count a real failure, and — worse — cry "error" for a transient hiccup the
+    // ladder then quietly fixes. So it is an info-level, stall-tagged breadcrumb: countable as
+    // a recovery-lane event, visible in the diagnostics log, and honest. It names the cause in
+    // plain words (passed in by the engine) so "the video's owner blocked it here" reads apart
+    // from a network hiccup. No song data — records only what happened (owner standing rule).
     logActivity({
-      level: "error",
-      type: "playback-error",
+      level: "info",
+      type: "stall-engine-error",
       message: info.message,
       detail: info.code != null ? { code: info.code, kind: info.kind } : { kind: info.kind },
     });

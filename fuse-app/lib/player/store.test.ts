@@ -739,6 +739,102 @@ describe("PlayerStore terminal failures are countable in diagnostics (F1)", () =
   });
 });
 
+// ── B1: every play-failure leaves a breadcrumb, and the CAUSE is honest ──────────────
+//
+// F1 made the TERMINAL verdict countable. B1 closes the middle link: the FIRST cause of a
+// failure (the engine's onError, or a play attempt that throws) must leave a trail too — but
+// honestly. A cause is a breadcrumb, NOT a terminal error: whether it becomes a failure the
+// listener sees is decided later by the recovery ladder. So a transient hiccup the ladder
+// then fixes must NEVER be miscounted as a terminal error, and a real embed refusal must
+// still be a visible, countable breadcrumb (named in plain words), with the ONE error left
+// for F1's failStalled. The story must read: attempt → cause → recovery attempts → terminal.
+describe("PlayerStore records the CAUSE of a failure as an honest breadcrumb (B1)", () => {
+  beforeEach(() => {
+    clearActivity();
+  });
+
+  it("an embed refusal is a visible, countable breadcrumb — not a terminal error", async () => {
+    const registry = createAdapterRegistry();
+    const { adapter } = makeFakeAdapter("youtube");
+    registry.register(adapter);
+    const store = new PlayerStore({ registry });
+
+    await store.play(track("youtube", "a"));
+    // The engine (YouTube adapter) reports the embed-disallowed cause, plain-worded.
+    store.reportError({ message: "YouTube won't play this video here", kind: "fatal", code: 150 });
+
+    const cause = getActivity().find((e) => e.type === "stall-engine-error");
+    expect(cause).toBeDefined();
+    expect(cause?.message).toBe("YouTube won't play this video here"); // named in plain words
+    expect(cause?.level).toBe("info"); // a breadcrumb, not a cried error
+
+    const summary = summarizeActivity();
+    // Countable as a recovery-lane breadcrumb (a stall), NOT as a user-visible terminal error.
+    // F1's failStalled owns the terminal error — the cause link must not pre-empt it.
+    expect(summary.stalls).toBe(1);
+    expect(summary.errors).toBe(0);
+    // Records only what happened — never the song identity (owner standing rule: no PII).
+    expect(JSON.stringify(cause)).not.toContain("youtube");
+    expect(JSON.stringify(cause)).not.toMatch(/nativeId|Track a/);
+  });
+
+  it("a transient hiccup that then recovers is NEVER miscounted as a terminal error", async () => {
+    const registry = createAdapterRegistry();
+    const { adapter } = makeFakeAdapter("youtube");
+    registry.register(adapter);
+    const store = new PlayerStore({ registry });
+
+    await store.play(track("youtube", "a"));
+    store.reportError({ message: "This video hit a playback snag — trying again", kind: "soft", code: 5 });
+    // The ladder's world: real forward progress means the engine recovered.
+    store.reportPosition(3);
+    expect(store.currentErrorKind()).toBe("none"); // recovered
+
+    const summary = summarizeActivity();
+    expect(summary.errors).toBe(0); // nothing the listener saw failed → zero errors
+    expect(summary.stalls).toBe(1); // the hiccup is still a visible breadcrumb, just not an error
+  });
+
+  it("cause + terminal read as ONE honest count — the failure is never double-counted", async () => {
+    const registry = createAdapterRegistry();
+    const { adapter } = makeFakeAdapter("youtube");
+    registry.register(adapter);
+    const store = new PlayerStore({ registry });
+
+    await store.play(track("youtube", "a"));
+    store.reportError({ message: "YouTube won't play this video here", kind: "fatal", code: 150 });
+    store.failStalled(); // the ladder gives up — F1's honest terminal
+
+    const summary = summarizeActivity();
+    expect(summary.errors).toBe(1); // exactly ONE error (the terminal), not two
+    expect(summary.stalls).toBe(1); // the cause is still there as a breadcrumb
+  });
+
+  it("a play attempt that THROWS leaves a breadcrumb instead of failing silently", async () => {
+    const registry = createAdapterRegistry();
+    // An adapter whose engine cannot start — load/play reject (the real path when the IFrame
+    // API never comes up). Before B1 this catch swallowed the throw with no trail at all.
+    const throwing: SourceAdapter = {
+      ...makeFakeAdapter("youtube").adapter,
+      play: async () => {
+        throw new Error("engine could not start");
+      },
+    };
+    registry.register(throwing);
+    const store = new PlayerStore({ registry });
+
+    const ok = await store.play(track("youtube", "a"));
+    expect(ok).toBe(false);
+
+    const hiccup = getActivity().find((e) => e.type === "stall-start");
+    expect(hiccup).toBeDefined();
+    expect(hiccup?.level).toBe("info"); // handed to the ladder — a breadcrumb, not a terminal
+    // It is a countable recovery-lane event, and it is NOT miscounted as a user-visible error.
+    expect(summarizeActivity().errors).toBe(0);
+    expect(summarizeActivity().stalls).toBe(1);
+  });
+});
+
 // ── Owner fix 3: volume + mute are real, applied to the adapter, and persist ─────────
 describe("PlayerStore volume + mute (owner fix 3)", () => {
   it("setVolume records the level, applies a reduced level to the active adapter, and unmutes", async () => {

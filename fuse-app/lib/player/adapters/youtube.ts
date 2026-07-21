@@ -43,16 +43,19 @@ import { SOURCE_CAPABILITIES, YOUTUBE_RATE_RANGE } from "@/lib/player/capabiliti
 import { playerStore } from "@/lib/player/store";
 import { playerHostCoordinator, type PlayerHostCoordinator } from "@/lib/player/host-coordinator";
 import { fakeEngineFactory } from "@/lib/player/fake-engine";
-import { logPlaybackError } from "@/lib/activity-log";
+import { logActivity } from "@/lib/activity-log";
 
-// Plain-English messages for the YouTube IFrame API error codes (R18 — errors say
-// what went wrong). The raw numeric code is not sensitive, so it is logged as-is.
+// Plain-English messages for the YouTube IFrame API error codes (R18 — errors say what
+// went wrong, in words the owner reads without jargon). The activity log is user-visible
+// in Settings, so these must be plain. Each names the CAUSE so a diagnostics reader can tell
+// "YouTube blocked this here" apart from a passing hiccup apart from "it's gone". The raw
+// numeric code is not sensitive, so it is logged alongside as-is for a precise reader.
 const YT_ERROR_MESSAGES: Record<number, string> = {
-  2: "YouTube rejected the video request",
-  5: "The YouTube player hit a playback error",
-  100: "This video is unavailable",
-  101: "The video's owner does not allow it to be played here",
-  150: "The video's owner does not allow it to be played here",
+  2: "YouTube couldn't start this video — trying again", // invalid request (possibly transient)
+  5: "This video hit a playback snag — trying again", // HTML5 player hiccup (possibly transient)
+  100: "This video isn't available anymore", // removed / private
+  101: "YouTube won't play this video here", // embed disallowed by the owner
+  150: "YouTube won't play this video here", // embed disallowed by the owner
 };
 
 // Classify a YT IFrame error for the recovery ladder. 100/101/150 are FATAL for THIS
@@ -347,11 +350,13 @@ export function createYouTubeAdapter(deps: YouTubeAdapterDeps = {}): YouTubeAdap
         onStateChange(state);
       },
       onError: (code) => {
-        const message = YT_ERROR_MESSAGES[code] ?? "YouTube playback error";
+        const message = YT_ERROR_MESSAGES[code] ?? "YouTube couldn't play this video";
         if (!isPrimary()) {
-          // A blend's incoming player failing is not the current track's error — log it so
-          // it stays diagnosable (R18) without arming the ladder against a healthy primary.
-          logPlaybackError(message, { code });
+          // A blend's INCOMING player failing is not the current track's error — the primary
+          // keeps playing, so the listener sees nothing. Log it as a breadcrumb (info level,
+          // stall-tagged) so it stays diagnosable (R18) WITHOUT inflating the error count or
+          // arming the ladder against a healthy primary. Never routing — telemetry only.
+          logActivity({ level: "info", type: "stall-blend-error", message, detail: { code } });
           return;
         }
         // Propagate into the store so the recovery ladder can act (R18, AE1): a fatal embed
