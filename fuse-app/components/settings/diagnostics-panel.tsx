@@ -19,6 +19,7 @@ import { useEffect, useState } from "react";
 import {
   clearActivity,
   formatActivityLine,
+  formatActivitySummary,
   getActivity,
   onActivity,
   summarizeActivity,
@@ -69,11 +70,7 @@ export default function DiagnosticsPanel() {
       {shown ? (
         <div className="diag-body">
           <div className="diag-summary" role="status" aria-live="polite">
-            {summary.total === 0
-              ? "No activity recorded yet."
-              : `${summary.total} event${summary.total === 1 ? "" : "s"}, ${summary.errors} error${
-                  summary.errors === 1 ? "" : "s"
-                }`}
+            {formatActivitySummary(summary)}
           </div>
 
           {recent.length > 0 ? (

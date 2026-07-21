@@ -158,11 +158,42 @@ export function formatActivityLine(event: ActivityEvent): string {
 }
 
 // A one-glance summary for the diagnostics header (how much has happened, how much
-// went wrong). Drives the "N events, M errors" line without exposing any content.
+// went wrong). Drives the summary line without exposing any content.
+//
+// TWO kinds of trouble are counted SEPARATELY, on purpose. `errors` are hard failures the
+// listener can see — the track that ends up refusing to play. `stalls` are the recovery
+// attempts the app made when the music hitched (logged at info level, since they may yet
+// recover). Keeping them apart is the honesty fix: a burst of recovered stalls must not
+// hide behind "0 errors, nothing wrong", and a real failure must never be softened into a
+// mere stall. A stall is any recovery-ladder attempt — its type is tagged "stall-…".
 export function summarizeActivity(
   events: readonly ActivityEvent[] = getActivity(),
-): { total: number; errors: number } {
+): { total: number; errors: number; stalls: number } {
   let errors = 0;
-  for (const e of events) if (e.level === "error") errors += 1;
-  return { total: events.length, errors };
+  let stalls = 0;
+  for (const e of events) {
+    if (e.level === "error") errors += 1;
+    else if (e.type.startsWith("stall-")) stalls += 1;
+  }
+  return { total: events.length, errors, stalls };
+}
+
+// The one-glance diagnostics header line, in plain words (owner is a network engineer who
+// wants no dev jargon — "1 error" / "3 stalls, recovered", never "exceptions"/"faults").
+// Errors are shown always; stalls are appended only when they happened, and are called
+// "recovered" only when no hard error was logged — so the line can never claim a recovery
+// that ended in a dead track, nor bury a stall the listener actually felt.
+export function formatActivitySummary(
+  summary: { total: number; errors: number; stalls: number } = summarizeActivity(),
+): string {
+  if (summary.total === 0) return "No activity recorded yet.";
+  const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
+  let line = `${plural(summary.total, "event")}, ${plural(summary.errors, "error")}`;
+  if (summary.stalls > 0) {
+    line +=
+      summary.errors === 0
+        ? `, ${plural(summary.stalls, "stall")}, recovered`
+        : `, ${plural(summary.stalls, "stall")}`;
+  }
+  return line;
 }

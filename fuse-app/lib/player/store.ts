@@ -431,6 +431,15 @@ export class PlayerStore {
           this.activeAdapter = null;
         }
         this.errorKind = "none";
+        // A user-visible terminal error: nothing playable could be resolved and there is
+        // nothing to fall back to, so the listener sees an error + Skip. Record it as a
+        // COUNTABLE error (diagnostics-truth fix) so the panel can't read "0 errors" while
+        // this shows. Once per play() call, so it never spams. Generic message, no song data.
+        logActivity({
+          level: "error",
+          type: "playback-failed",
+          message: "This track can't be played from its source — nothing to fall back to",
+        });
         this.set({
           current: requested,
           isPlaying: false,
@@ -663,6 +672,24 @@ export class PlayerStore {
     // Same rule as setRecovery: only fail the track this verdict was actually reached for.
     if (forTrackKey !== undefined && forTrackKey !== trackKey(this.state.current)) return;
     this.activeAdapter?.pause();
+    // Record the honest terminal as a COUNTABLE error — this is the diagnostics-truth fix.
+    // Without it the recovery attempts logged at info level along the way never add up to an
+    // error, so the panel could read "0 errors" while the player shows "won't play". Logged
+    // exactly ONCE per wedged episode: the recovery hook already de-bounces the call
+    // (terminalKeyRef), and this transition guard is belt-and-braces so a repeat call while
+    // the track is already in its terminal cannot double-count. No song data — records only
+    // what happened, matching the log's existing style.
+    const alreadyTerminal =
+      this.state.status === "error" &&
+      this.state.recovery.phase === "error" &&
+      this.state.notice === WONT_PLAY_NOTICE;
+    if (!alreadyTerminal) {
+      logActivity({
+        level: "error",
+        type: "playback-failed",
+        message: "This track won't play after several tries — moving on",
+      });
+    }
     // Intent stays "play" — the user still wants this track; the app simply cannot play it
     // and says so honestly (recovery.phase "error" + Skip). Keeping intent stable lets the
     // health machine hold its terminal instead of resetting to idle and clearing the error.

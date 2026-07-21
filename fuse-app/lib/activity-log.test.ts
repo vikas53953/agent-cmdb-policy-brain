@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import {
   clearActivity,
   formatActivityLine,
+  formatActivitySummary,
   getActivity,
   logActivity,
   logPlaybackError,
@@ -106,11 +107,55 @@ describe("diagnostics readers (U16, R18)", () => {
     expect(line.startsWith("--:--:--")).toBe(true);
   });
 
-  it("summarizes totals and error counts", () => {
+  it("summarizes totals, error counts, and stall counts", () => {
     logActivity({ level: "info", type: "play", message: "a" });
     logPlaybackError("b");
     logActivity({ level: "info", type: "play", message: "c" });
-    expect(summarizeActivity()).toEqual({ total: 3, errors: 1 });
-    expect(summarizeActivity([])).toEqual({ total: 0, errors: 0 });
+    expect(summarizeActivity()).toEqual({ total: 3, errors: 1, stalls: 0 });
+    expect(summarizeActivity([])).toEqual({ total: 0, errors: 0, stalls: 0 });
+  });
+
+  // ── Diagnostics-truth fix: failures the user can see must be countable, and stalls
+  //    the user felt must never be hidden behind "0 errors, nothing wrong". ──────────────
+  it("counts recovery attempts as stalls (info level), kept apart from hard errors", () => {
+    logActivity({ level: "info", type: "play", message: "playing" });
+    logActivity({ level: "info", type: "stall-retry", message: "Playback stalled — retrying" });
+    logActivity({
+      level: "info",
+      type: "stall-recreate",
+      message: "Playback stalled — rebuilding the player",
+    });
+    // Two hitches, both logged at info level, but neither ended in a hard failure.
+    expect(summarizeActivity()).toEqual({ total: 3, errors: 0, stalls: 2 });
+  });
+
+  it("a recovered-stall run is never misreported as '0 errors, nothing wrong'", () => {
+    logActivity({ level: "info", type: "play", message: "playing" });
+    logActivity({ level: "info", type: "stall-retry", message: "Playback stalled — retrying" });
+    const summary = summarizeActivity();
+    expect(summary.errors).toBe(0);
+    expect(summary.stalls).toBe(1);
+    // The header line MUST show the stall — a listener who felt the hitch is not told
+    // everything was clean. And it reads in plain words, no dev jargon.
+    const line = formatActivitySummary(summary);
+    expect(line).toContain("1 stall");
+    expect(line).toContain("recovered");
+    expect(line).not.toMatch(/exception|fault/i);
+  });
+
+  it("formats the summary line in plain words for errors, stalls, and the empty log", () => {
+    expect(formatActivitySummary({ total: 0, errors: 0, stalls: 0 })).toBe(
+      "No activity recorded yet.",
+    );
+    expect(formatActivitySummary({ total: 5, errors: 0, stalls: 0 })).toBe("5 events, 0 errors");
+    expect(formatActivitySummary({ total: 4, errors: 1, stalls: 0 })).toBe("4 events, 1 error");
+    // Stalls that ended in a real error are shown, but NOT called "recovered".
+    expect(formatActivitySummary({ total: 6, errors: 1, stalls: 3 })).toBe(
+      "6 events, 1 error, 3 stalls",
+    );
+    // Stalls with no hard error are honestly labelled recovered.
+    expect(formatActivitySummary({ total: 6, errors: 0, stalls: 3 })).toBe(
+      "6 events, 0 errors, 3 stalls, recovered",
+    );
   });
 });

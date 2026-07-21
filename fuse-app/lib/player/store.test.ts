@@ -1,5 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import { PlayerStore } from "@/lib/player/store";
+import { clearActivity, getActivity, summarizeActivity } from "@/lib/activity-log";
 import { createAdapterRegistry } from "@/lib/player/adapters";
 import { SOURCE_CAPABILITIES } from "@/lib/player/capabilities";
 import type { SourceAdapter } from "@/lib/player/types";
@@ -678,6 +679,63 @@ describe("recovery ladder honesty (AE1 — the playback-stall class fix)", () =>
     expect(s.status).toBe("error");
     expect(s.recovery.phase).toBe("error");
     expect(s.recovery.skipOffered).toBe(false); // nothing queued to skip to
+  });
+});
+
+// ── Diagnostics truth: a terminal failure the user can SEE must become a countable
+//    error in the activity log — never "0 errors" while the player says "won't play". ────
+describe("PlayerStore terminal failures are countable in diagnostics (F1)", () => {
+  beforeEach(() => {
+    clearActivity();
+  });
+
+  it("failStalled records exactly one countable error in the activity summary", async () => {
+    const registry = createAdapterRegistry();
+    const { adapter } = makeFakeAdapter("youtube");
+    registry.register(adapter);
+    const store = new PlayerStore({ registry });
+
+    await store.play(track("youtube", "a"));
+    expect(summarizeActivity().errors).toBe(0); // a clean play logs no error
+
+    store.failStalled();
+
+    const summary = summarizeActivity();
+    expect(summary.errors).toBe(1); // the honest terminal is now visible as an error
+    const failure = getActivity().find((e) => e.type === "playback-failed");
+    expect(failure?.level).toBe("error");
+    // Records what happened, never track identity (owner standing rule: no song data / PII).
+    expect(JSON.stringify(failure)).not.toContain("youtube");
+    expect(JSON.stringify(failure)).not.toMatch(/nativeId|"a"/);
+  });
+
+  it("a repeated failStalled for the same wedged track counts the error only once", async () => {
+    const registry = createAdapterRegistry();
+    const { adapter } = makeFakeAdapter("youtube");
+    registry.register(adapter);
+    const store = new PlayerStore({ registry });
+
+    await store.play(track("youtube", "a"));
+    store.failStalled();
+    store.failStalled(); // health loop may call again while already terminal — no double count
+    store.failStalled();
+
+    expect(summarizeActivity().errors).toBe(1);
+  });
+
+  it("a resolvePlayable dead-end (nothing to fall back to) is a countable error too", async () => {
+    const registry = createAdapterRegistry();
+    const { adapter } = makeFakeAdapter("spotify");
+    // The source resolves nothing playable and offers no substitute — a user-visible dead end.
+    adapter.resolvePlayable = async () => ({ track: null, reason: "Not available here" });
+    registry.register(adapter);
+    const store = new PlayerStore({ registry });
+
+    const ok = await store.play(track("spotify", "x"));
+    expect(ok).toBe(false);
+    const summary = summarizeActivity();
+    expect(summary.errors).toBe(1);
+    expect(getActivity().find((e) => e.type === "playback-failed")?.level).toBe("error");
   });
 });
 
