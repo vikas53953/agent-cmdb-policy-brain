@@ -1,6 +1,14 @@
 import { describe, it, expect } from "vitest";
 import { makeModel, makePrisma } from "./__fixtures__/fake-prisma";
-import { recordPlay, listRecentPlays, trendingByPlayCount, trendingSeed, trendingTracks } from "./plays";
+import {
+  recordPlay,
+  listRecentPlays,
+  listRecentPlayEvents,
+  trendingByPlayCount,
+  trendingSeed,
+  trendingTracks,
+} from "./plays";
+import { ROBOT_EMAIL } from "@/lib/robot-door";
 
 describe("plays repo — per-user history (R11)", () => {
   it("recordPlay writes with the caller's ownerId; recent list is scoped and newest-first", async () => {
@@ -146,5 +154,80 @@ describe("plays repo — local filenames never reach global trending (E)", () =>
     await recordPlay("A", { source: "local", nativeId: "f1", title: "my-file.mp3" }, prisma);
     const mine = await listRecentPlays("A", 10, prisma);
     expect(mine.map((p) => p.nativeId)).toEqual(["f1"]);
+  });
+});
+
+describe("plays repo — the E2E robot never reaches a global surface (data-leak class fix)", () => {
+  // The 30-minute watchman signs in through the robot door as robot@fuse.test and plays
+  // test tracks against the PRODUCTION deployment, writing real Play rows. Without a
+  // query-time exclusion those rows were counted by trending and co-play and surfaced on
+  // every real user's Home (e.g. the "Robot Fallback Probe" track). Deleting the row would
+  // not stop the next run re-adding it — only excluding the identity at query time does.
+  //
+  // The fake-prisma `where` matcher flattens a relation filter `owner: { email: {...} }`
+  // to a scalar match on an `email` field of the row, so a robot play is seeded with the
+  // joined owner email on the row itself — the same shape Postgres produces after the JOIN.
+  const robotPlay = (over: Record<string, unknown>) => ({
+    ownerId: "robot",
+    email: ROBOT_EMAIL,
+    source: "youtube",
+    ...over,
+  });
+
+  it("excludes robot-owned plays from the trending aggregate at the QUERY level", async () => {
+    const play = makeModel([
+      robotPlay({ id: "r1", nativeId: "probe", title: "Robot Fallback Probe" }),
+      robotPlay({ id: "r2", nativeId: "probe", title: "Robot Fallback Probe" }),
+      robotPlay({ id: "r3", nativeId: "probe", title: "Robot Fallback Probe" }),
+      { id: "1", ownerId: "A", source: "youtube", nativeId: "v1", title: "One" },
+    ]);
+    const prisma = makePrisma({ play: play.model });
+
+    const trending = await trendingByPlayCount(10, prisma);
+    // The robot's probe (played 3x) is gone; the one real user play remains.
+    expect(trending.map((t) => t.nativeId)).toEqual(["v1"]);
+    expect(trending.some((t) => t.nativeId === "probe")).toBe(false);
+    // Proven by the QUERY the repo built, not by the fake — the exclusion is in the where
+    // clause, so every reader inherits it and no rail can forget to filter.
+    expect(play.calls.groupBy[0]).toMatchObject({
+      where: { owner: { email: { not: ROBOT_EMAIL } } },
+    });
+  });
+
+  it("never renders a robot play's title onto trending, even as an enrichment row", async () => {
+    const play = makeModel([
+      robotPlay({ id: "r1", nativeId: "probe", title: "Robot Fallback Probe", playedAt: 9 }),
+      robotPlay({ id: "r2", nativeId: "probe", title: "Robot Fallback Probe", playedAt: 8 }),
+      { id: "1", ownerId: "A", source: "youtube", nativeId: "v1", title: "One", artist: null, artUrl: null, playedAt: 1 },
+    ]);
+    const tracks = await trendingTracks(10, makePrisma({ play: play.model }));
+    expect(tracks.map((t) => t.title)).toEqual(["One"]);
+    expect(JSON.stringify(tracks)).not.toContain("Robot Fallback Probe");
+    // Both queries (the aggregate and the batched enrichment read) carry the exclusion.
+    expect(play.calls.findMany[0]).toMatchObject({
+      where: { owner: { email: { not: ROBOT_EMAIL } } },
+    });
+  });
+
+  it("excludes robot plays from the co-play signal at the QUERY level", async () => {
+    // The co-play read carries a `playedAt >= since` date window the fake store does not
+    // model, so this is proven by the QUERY the repo builds (the same way the local-source
+    // exclusion is proven above) rather than by a behavioural row count. The date window
+    // must survive alongside the new exclusion.
+    const play = makeModel();
+    await listRecentPlayEvents({}, makePrisma({ play: play.model }));
+    expect(play.calls.findMany[0]).toMatchObject({
+      where: { owner: { email: { not: ROBOT_EMAIL } }, playedAt: { gte: expect.any(Date) } },
+    });
+  });
+
+  it("a robot play is still the robot's OWN history — the exclusion is global-only", async () => {
+    // So the robot's e2e specs that replay their own writes keep working: its plays are
+    // walled off from real-user aggregates, never erased.
+    const play = makeModel();
+    const prisma = makePrisma({ play: play.model });
+    await recordPlay("robot", { source: "youtube", nativeId: "probe", title: "Robot Fallback Probe" }, prisma);
+    const mine = await listRecentPlays("robot", 10, prisma);
+    expect(mine.map((p) => p.nativeId)).toEqual(["probe"]);
   });
 });

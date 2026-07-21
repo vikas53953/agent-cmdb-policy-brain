@@ -14,6 +14,7 @@
 
 import type { PrismaClient } from "@prisma/client";
 import { prisma } from "@/lib/db";
+import { ROBOT_EMAIL } from "@/lib/robot-door";
 import { toTrackColumns, isTrackSource, type TrackRef } from "./track";
 
 // Record that the caller played a track. Ownership is inherent — the row is written
@@ -69,7 +70,11 @@ export function listRecentPlayEvents(
 ) {
   const since = new Date(Date.now() - sinceDays * 24 * 60 * 60 * 1000);
   return db.play.findMany({
-    where: { playedAt: { gte: since } },
+    // Co-play is a cross-user aggregate, so it carries the same robot exclusion as
+    // trending: the watchman's plays must not manufacture fake "played together" signal
+    // that steers real users' recommendations. (Local plays are intentionally NOT excluded
+    // here — co-play only ever emits anonymous (source, nativeId) counts, never titles.)
+    where: { playedAt: { gte: since }, ...ROBOT_OWNER_SCOPE },
     select: { ownerId: true, source: true, nativeId: true, playedAt: true },
     orderBy: { playedAt: "desc" },
     take: limit,
@@ -91,8 +96,36 @@ export function listRecentPlayEvents(
 // history (`listRecentPlays`) — that read is ownerId-scoped, so it is theirs to see.
 const LOCAL_SOURCE = "local";
 
-// The where-clause every global (cross-user) play read must carry.
-const GLOBAL_PLAY_SCOPE = { source: { not: LOCAL_SOURCE } } as const;
+// The other identity whose rows must NEVER feed a global surface: the E2E test robot.
+//
+// THE LEAK THIS CLOSES: the release gate and the 30-minute live-site watchman sign in
+// through the robot door (lib/robot-door.ts) as the dedicated `robot@fuse.test` account
+// and, on the PRODUCTION deployment, play test tracks and run test searches. Every play
+// is a real Play row in the production database, so the robot's plays (e.g. the
+// "Robot Fallback Probe" track from e2e/spotify-fallback.spec.ts) were being counted by
+// the global trending aggregate and surfaced on every real user's Home. Each watchman
+// run added more — deleting the row would not have stopped it re-accumulating in 30
+// minutes; only excluding the identity at query time does.
+//
+// The robot has ONE stable identity — the `robot@fuse.test` User row the door always
+// signs in as — so we exclude by that email through the `owner` relation. Matching by a
+// hardcoded id is impossible (the User row's id is a runtime-generated cuid), and the
+// email is exactly the honest, stable handle the door commits to. Real users always
+// carry a Google-verified (non-null) email, so this excludes the robot and nobody else.
+//
+// This is global-only: the robot's OWN owner-scoped reads (listRecentPlays) still return
+// its rows, so its e2e specs that replay their own writes keep working. Its plays are
+// walled off from REAL-USER aggregates, not erased.
+const ROBOT_OWNER_SCOPE = { owner: { email: { not: ROBOT_EMAIL } } } as const;
+
+// The where-clause every global (cross-user) play read must carry: exclude local-file
+// plays (private filenames) AND the E2E robot's plays (test pollution). Folded into one
+// constant so every present and future global reader inherits both exclusions and no new
+// Home rail can reintroduce either leak by forgetting to filter.
+const GLOBAL_PLAY_SCOPE = {
+  source: { not: LOCAL_SOURCE },
+  ...ROBOT_OWNER_SCOPE,
+} as const;
 
 // A trending entry: a track plus how many times it has been played across everyone.
 export type TrendingEntry = {
