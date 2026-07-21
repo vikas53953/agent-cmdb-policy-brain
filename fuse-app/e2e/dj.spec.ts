@@ -1,15 +1,4 @@
-import {
-  test,
-  expect,
-  E2E_READY,
-  NOT_READY_REASON,
-  E2E_EXTERNAL,
-  NO_EXTERNAL_REASON,
-  E2E_DB,
-  NO_DB_REASON,
-  TEXT,
-  STABLE,
-} from "./fixtures";
+import { test, expect, requires, TEXT, STABLE } from "./fixtures";
 
 // Build a valid 16-bit mono WAV with a click every beat at `bpm` — a deterministic
 // beat the local deck's real BPM detector must find once Chrome decodes it. Returned as
@@ -51,7 +40,7 @@ const CLICK_WAV = { name: "dj1-clicks-120.wav", mimeType: "audio/wav", buffer: c
 // playing yet; My Files reflects its current (now-live) support.
 
 test.describe("dj — capability honesty and a really-playing deck", () => {
-  test.skip(!E2E_READY, NOT_READY_REASON);
+  requires();
 
   test("Deck A on YouTube: EQ/Loops/FX/Scratch disabled with a reason, speed present", async ({
     page,
@@ -78,7 +67,7 @@ test.describe("dj — capability honesty and a really-playing deck", () => {
   });
 
   test("Deck A on YouTube: a known video loads and the deck really advances", async ({ page }) => {
-    test.skip(!E2E_EXTERNAL, NO_EXTERNAL_REASON);
+    requires("external");
     await page.getByTestId("tab-dj").click();
     const deckA = page.getByTestId("deck-A");
     await page.getByTestId("deck-A-source-youtube").click();
@@ -134,7 +123,7 @@ test.describe("dj — capability honesty and a really-playing deck", () => {
 // controls, not decoration. Deterministic where the harness allows (the WAV's tempo is
 // known, so the detected BPM is checkable with real numbers).
 test.describe("dj — local-file deck controls (DJ-1)", () => {
-  test.skip(!E2E_READY, NOT_READY_REASON);
+  requires();
 
   async function loadLocalDeckA(page: import("@playwright/test").Page) {
     await page.getByTestId("tab-dj").click();
@@ -168,6 +157,12 @@ test.describe("dj — local-file deck controls (DJ-1)", () => {
   });
 
   test("hot cue: setting a pad shows a clear affordance; clearing removes it", async ({ page }) => {
+    // Setting a cue calls setCueAction, a server action that WRITES to the database; with
+    // no DB the optimistic pad rolls back and the clear button correctly disappears (an
+    // unsaved cue must never look saved). That is right app behaviour, so this spec needs a
+    // real database to pass — gate it on E2E_DB so a bare run SKIPS it honestly instead of
+    // false-failing. (The sibling decode/BPM and toggle specs are DB-free and still run.)
+    requires("db");
     await loadLocalDeckA(page);
     // Empty pad → no clear button yet.
     await expect(page.getByTestId("deck-A-cue-0-clear")).toHaveCount(0);
@@ -202,8 +197,7 @@ test.describe("dj — local-file deck controls (DJ-1)", () => {
 // run sets E2E_DB=1). Set a cue, reload, re-load the SAME file (same on-device
 // fingerprint), and the cue comes back from the user's saved rows.
 test.describe("dj — hot cues persist per user + track (DJ-1)", () => {
-  test.skip(!E2E_READY, NOT_READY_REASON);
-  test.skip(!E2E_DB, NO_DB_REASON);
+  requires("db");
 
   test("a cue set on a local track is remembered after reload", async ({ page }) => {
     await page.getByTestId("tab-dj").click();

@@ -1,14 +1,4 @@
-import {
-  test,
-  expect,
-  E2E_READY,
-  NOT_READY_REASON,
-  E2E_EXTERNAL,
-  NO_EXTERNAL_REASON,
-  E2E_FAKE_ENGINE,
-  NO_FAKE_REASON,
-  STABLE,
-} from "./fixtures";
+import { test, expect, requires, STABLE } from "./fixtures";
 import type { Locator, Page } from "@playwright/test";
 
 // The owner's live repro (2026-07-19), turned into DETERMINISTIC specs against the in-DOM
@@ -23,9 +13,7 @@ import type { Locator, Page } from "@playwright/test";
 // thing under test — is fully deterministic.
 
 test.describe("playback intent — the owner's R1-R4 repro (deterministic)", () => {
-  test.skip(!E2E_READY, NOT_READY_REASON);
-  test.skip(!E2E_FAKE_ENGINE, NO_FAKE_REASON);
-  test.skip(!E2E_EXTERNAL, NO_EXTERNAL_REASON);
+  requires("fake", "external");
 
   async function firstYouTube(page: Page): Promise<Locator> {
     await page.getByTestId("tab-search").click();

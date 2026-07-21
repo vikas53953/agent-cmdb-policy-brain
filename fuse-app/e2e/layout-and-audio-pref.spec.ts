@@ -1,9 +1,4 @@
-import {
-  test,
-  expect,
-  E2E_READY,
-  NOT_READY_REASON,
-} from "./fixtures";
+import { test, expect, requires } from "./fixtures";
 import type { Page } from "@playwright/test";
 
 // Layout + audio-preference honesty (Complaints 1 & 2), the DETERMINISTIC half that runs
@@ -32,7 +27,7 @@ async function horizontalOverflow(page: Page): Promise<number> {
 }
 
 test.describe("layout — no horizontal overflow on any screen, phone and desktop", () => {
-  test.skip(!E2E_READY, NOT_READY_REASON);
+  requires();
 
   for (const vp of VIEWPORTS) {
     test(`no sideways overflow at ${vp.name}`, async ({ page }) => {
@@ -53,7 +48,7 @@ test.describe("layout — no horizontal overflow on any screen, phone and deskto
 });
 
 test.describe("prefer-audio setting — the honest, music-first control (Complaint 1)", () => {
-  test.skip(!E2E_READY, NOT_READY_REASON);
+  requires();
 
   test("is present, ON by default, and a real switch with an honest description", async ({
     page,

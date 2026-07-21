@@ -1,13 +1,4 @@
-import {
-  test,
-  expect,
-  E2E_READY,
-  NOT_READY_REASON,
-  E2E_EXTERNAL,
-  E2E_FAKE_ENGINE,
-  TEXT,
-  STABLE,
-} from "./fixtures";
+import { test, expect, requires, E2E_EXTERNAL, E2E_FAKE_ENGINE, TEXT, STABLE } from "./fixtures";
 import type { Page } from "@playwright/test";
 
 // AE5 — tapping a Spotify search result PLAYS, as a clearly-labelled matched YouTube
@@ -90,7 +81,7 @@ async function stubSearch(page: Page): Promise<void> {
 }
 
 test.describe("AE5 — a Spotify result plays, honestly labelled as its YouTube version", () => {
-  test.skip(!E2E_READY, NOT_READY_REASON);
+  requires();
   // Real sound needs a real engine: either live YouTube embed playback (E2E_EXTERNAL) or
   // the deterministic in-DOM fake engine. Search itself is stubbed, so no YOUTUBE_API_KEY
   // is required — only the ability to actually play. Without either, this SKIPS rather

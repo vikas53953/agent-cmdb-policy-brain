@@ -113,6 +113,35 @@ export const test = base.extend({
 
 export { expect };
 
+// The ONE gating entry point every spec uses — instead of copy-pasting a stack of
+// `test.skip(...)` lines (easy to get wrong: a DB-writing spec that forgets `E2E_DB`
+// false-FAILS on a bare machine instead of skipping honestly). Call it at the top of a
+// describe (gates the whole group) or inside a single test (gates just that test):
+//
+//   requires();                     // door only — a DB-free, deterministic spec
+//   requires("db");                 // also needs a real database
+//   requires("fake", "external");   // needs the fake engine AND real YouTube keys
+//
+// The Robot Door secret (E2E_READY) is ALWAYS required — no door means the whole suite
+// can't sign in — so it is implicit; name only the EXTRA capabilities the spec needs.
+// Every gate states WHY it skipped (Playwright prints the reason), so a skip is never
+// silent and a run never claims to have verified something it could not exercise.
+export type Capability = "db" | "external" | "fake";
+
+const CAPABILITY_GATES: Record<Capability, { available: boolean; reason: string }> = {
+  db: { available: E2E_DB, reason: NO_DB_REASON },
+  external: { available: E2E_EXTERNAL, reason: NO_EXTERNAL_REASON },
+  fake: { available: E2E_FAKE_ENGINE, reason: NO_FAKE_REASON },
+};
+
+export function requires(...capabilities: Capability[]): void {
+  test.skip(!E2E_READY, NOT_READY_REASON);
+  for (const capability of capabilities) {
+    const gate = CAPABILITY_GATES[capability];
+    test.skip(!gate.available, gate.reason);
+  }
+}
+
 // Stable UI strings the app renders — asserted verbatim so a copy change that would
 // break a contract fails a test rather than slipping through silently.
 export const TEXT = {

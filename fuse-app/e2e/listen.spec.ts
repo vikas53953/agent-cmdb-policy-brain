@@ -1,15 +1,4 @@
-import {
-  test,
-  expect,
-  E2E_READY,
-  NOT_READY_REASON,
-  E2E_DB,
-  NO_DB_REASON,
-  E2E_EXTERNAL,
-  NO_EXTERNAL_REASON,
-  TEXT,
-  STABLE,
-} from "./fixtures";
+import { test, expect, requires, TEXT, STABLE } from "./fixtures";
 import type { Locator } from "@playwright/test";
 
 // THE CORE journey (the heart moment): search → results with REAL loaded covers →
@@ -21,8 +10,7 @@ import type { Locator } from "@playwright/test";
 // state / data-player-position on the mini-player), not "the button exists" checks.
 
 test.describe("listen — the heart moment", () => {
-  test.skip(!E2E_READY, NOT_READY_REASON);
-  test.skip(!E2E_EXTERNAL, NO_EXTERNAL_REASON);
+  requires("external");
 
   // Search for a stable query and return the first playable YouTube result row. Fails
   // LOUDLY (never silently passes) if search returns nothing — that means YouTube
@@ -266,7 +254,7 @@ test.describe("listen — the heart moment", () => {
   });
 
   test("liking the current track makes it appear in Library → Liked", async ({ page }) => {
-    test.skip(!E2E_DB, NO_DB_REASON);
+    requires("db");
     const firstYt = await searchAndFirstYouTube(page);
     await firstYt.getByTestId("result-play").click();
 

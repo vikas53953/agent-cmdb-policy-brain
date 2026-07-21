@@ -1,14 +1,4 @@
-import {
-  test,
-  expect,
-  E2E_READY,
-  NOT_READY_REASON,
-  E2E_FAKE_ENGINE,
-  NO_FAKE_REASON,
-  E2E_EXTERNAL,
-  NO_EXTERNAL_REASON,
-  STABLE,
-} from "./fixtures";
+import { test, expect, requires, STABLE } from "./fixtures";
 import type { Page } from "@playwright/test";
 
 // The maximize/theater toggle on Now Playing (Complaint 2), exercised deterministically
@@ -17,9 +7,7 @@ import type { Page } from "@playwright/test";
 // the same gating as the R1-R4 playback specs. The toggle itself is fully deterministic.
 
 test.describe("now playing — video maximize / theater toggle (Complaint 2)", () => {
-  test.skip(!E2E_READY, NOT_READY_REASON);
-  test.skip(!E2E_FAKE_ENGINE, NO_FAKE_REASON);
-  test.skip(!E2E_EXTERNAL, NO_EXTERNAL_REASON);
+  requires("fake", "external");
 
   async function playFirstYouTubeAndOpenNp(page: Page) {
     await page.getByTestId("tab-search").click();

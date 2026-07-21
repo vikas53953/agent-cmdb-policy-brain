@@ -1,4 +1,15 @@
+import path from "node:path";
 import { defineConfig, devices } from "@playwright/test";
+import { config as loadEnv } from "dotenv";
+
+// Load fuse-app/.env.local into process.env BEFORE anything reads it. Playwright does not
+// read Next.js env files on its own, so without this the documented `npx playwright test`
+// starts with no E2E_TEST_SECRET, every spec skips, and the run exits misleadingly green.
+// Loading it here makes the documented command Just Work when the file is present; when it
+// is absent this is a no-op and e2e/global-setup.ts then FAILS the run loudly rather than
+// letting an all-skip look like a pass. Real env (CI / the live watchman) already sets the
+// secret in the environment, and dotenv never overrides an already-set variable.
+loadEnv({ path: path.resolve(__dirname, ".env.local") });
 
 // Playwright config for the Robot Tester.
 //
@@ -29,6 +40,9 @@ const CHROMIUM_ARGS = [
 
 export default defineConfig({
   testDir: "./e2e",
+  // Fail-loud guard: refuses to let a run that can test nothing (door secret absent) exit
+  // green. See e2e/global-setup.ts.
+  globalSetup: "./e2e/global-setup.ts",
   timeout: 120_000,
   expect: { timeout: 15_000 },
   fullyParallel: false,

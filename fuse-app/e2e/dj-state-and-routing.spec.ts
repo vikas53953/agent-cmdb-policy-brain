@@ -1,4 +1,4 @@
-import { test, expect, E2E_READY, NOT_READY_REASON } from "./fixtures";
+import { test, expect, requires } from "./fixtures";
 
 // F-5 / F-6 / F-7 — the polish fixes from the 2026-07-21 preview QA pass.
 //
@@ -49,7 +49,7 @@ const SET_WAV = {
 };
 
 test.describe("F-5 — a tab tap is acknowledged before the new screen arrives", () => {
-  test.skip(!E2E_READY, NOT_READY_REASON);
+  requires();
 
   test("the tapped tab marks itself pending, and the outgoing screen is marked too", async ({
     page,
@@ -87,7 +87,7 @@ test.describe("F-5 — a tab tap is acknowledged before the new screen arrives",
 });
 
 test.describe("F-7 — an empty deck says why its controls are off, in visible words", () => {
-  test.skip(!E2E_READY, NOT_READY_REASON);
+  requires();
 
   test("My Files with no file: the pads are disabled AND the reason is on screen", async ({
     page,
@@ -135,7 +135,7 @@ test.describe("F-7 — an empty deck says why its controls are off, in visible w
 });
 
 test.describe("F-6 — the DJ console remembers your set across a tab change", () => {
-  test.skip(!E2E_READY, NOT_READY_REASON);
+  requires();
 
   test("EQ, kills, trim, filter, speed, crossfader and curve all survive", async ({ page }) => {
     await page.getByTestId("tab-dj").click();

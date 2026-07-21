@@ -1,14 +1,4 @@
-import {
-  test,
-  expect,
-  E2E_READY,
-  NOT_READY_REASON,
-  E2E_EXTERNAL,
-  NO_EXTERNAL_REASON,
-  E2E_FAKE_ENGINE,
-  NO_FAKE_REASON,
-  STABLE,
-} from "./fixtures";
+import { test, expect, requires, STABLE } from "./fixtures";
 import type { Locator, Page } from "@playwright/test";
 
 // Wave 1 feature-parity journeys (queue, true previous, sleep timer, recent searches,
@@ -28,9 +18,7 @@ async function firstYouTube(page: Page): Promise<Locator> {
 const posOf = async (mini: Locator) => Number(await mini.getAttribute("data-player-position"));
 
 test.describe("Wave 1 — deterministic playback journeys (fake engine)", () => {
-  test.skip(!E2E_READY, NOT_READY_REASON);
-  test.skip(!E2E_FAKE_ENGINE, NO_FAKE_REASON);
-  test.skip(!E2E_EXTERNAL, NO_EXTERNAL_REASON);
+  requires("fake", "external");
 
   test("queue: Play next inserts at the front and the queue screen reorders it", async ({
     page,
@@ -129,7 +117,7 @@ test.describe("Wave 1 — deterministic playback journeys (fake engine)", () => 
 });
 
 test.describe("Wave 1 — settings journeys (signed-in robot)", () => {
-  test.skip(!E2E_READY, NOT_READY_REASON);
+  requires();
 
   test("sleep timer arms from settings and shows a live chip, then cancels", async ({ page }) => {
     await page.getByTestId("open-settings").click();

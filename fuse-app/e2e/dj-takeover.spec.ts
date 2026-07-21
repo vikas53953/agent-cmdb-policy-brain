@@ -1,12 +1,4 @@
-import {
-  test,
-  expect,
-  E2E_READY,
-  NOT_READY_REASON,
-  E2E_EXTERNAL,
-  NO_EXTERNAL_REASON,
-  STABLE,
-} from "./fixtures";
+import { test, expect, requires, STABLE } from "./fixtures";
 import type { Locator, Page } from "@playwright/test";
 
 // DJ takeover regression guard (P1). The live bug: tapping the DJ tab SILENTLY paused your
@@ -18,8 +10,7 @@ import type { Locator, Page } from "@playwright/test";
 //   3. Leaving DJ RESUMES the track from where it was — your music is never lost to one tap.
 
 test.describe("dj takeover — pausing is announced, resumes on leave, no orphaned chip (P1)", () => {
-  test.skip(!E2E_READY, NOT_READY_REASON);
-  test.skip(!E2E_EXTERNAL, NO_EXTERNAL_REASON);
+  requires("external");
 
   async function searchAndPlayFirstYouTube(page: Page): Promise<Locator> {
     await page.getByTestId("tab-search").click();

@@ -1,5 +1,5 @@
 import { test as base } from "@playwright/test";
-import { test, expect, E2E_READY, NOT_READY_REASON } from "./fixtures";
+import { test, expect, requires, E2E_READY, NOT_READY_REASON } from "./fixtures";
 
 // Auth journey. Outcome assertions, not existence checks: the branded login screen
 // actually renders, a signed-out visitor is actually bounced to it, and the Robot Test
@@ -26,7 +26,7 @@ base.describe("auth — signed out", () => {
 });
 
 test.describe("auth — robot door signed in", () => {
-  test.skip(!E2E_READY, NOT_READY_REASON);
+  requires();
 
   test("the robot door signs in and lands in the app, off /login", async ({ page }) => {
     // The fixture already signed the robot in. The home route must render the app, NOT

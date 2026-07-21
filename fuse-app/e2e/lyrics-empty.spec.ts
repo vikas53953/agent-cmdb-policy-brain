@@ -1,4 +1,4 @@
-import { test, expect, E2E_READY, NOT_READY_REASON, TEXT, STABLE } from "./fixtures";
+import { test, expect, requires, TEXT, STABLE } from "./fixtures";
 import type { Page } from "@playwright/test";
 
 // AE2 — a track with NO lyrics shows an honest message, never an empty panel and never a
@@ -88,7 +88,7 @@ async function openNowPlayingOnProbe(page: Page): Promise<ReturnType<Page["getBy
 }
 
 test.describe("AE2 — a track with no lyrics says so honestly", () => {
-  test.skip(!E2E_READY, NOT_READY_REASON);
+  requires();
 
   test("a definitive no-lyrics answer shows the plain message, not a blank panel or a spinner", async ({
     page,

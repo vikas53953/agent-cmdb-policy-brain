@@ -1,14 +1,4 @@
-import {
-  test,
-  expect,
-  E2E_READY,
-  NOT_READY_REASON,
-  E2E_EXTERNAL,
-  NO_EXTERNAL_REASON,
-  E2E_FAKE_ENGINE,
-  NO_FAKE_REASON,
-  STABLE,
-} from "./fixtures";
+import { test, expect, requires, STABLE } from "./fixtures";
 import type { Locator, Page } from "@playwright/test";
 
 // Refresh rehydration (FIX 2), the owner's P2 repro turned DETERMINISTIC against the in-DOM
@@ -22,9 +12,7 @@ import type { Locator, Page } from "@playwright/test";
 // E2E_EXTERNAL is also required.
 
 test.describe("refresh rehydration — reload restores the paused song + search (FIX 2)", () => {
-  test.skip(!E2E_READY, NOT_READY_REASON);
-  test.skip(!E2E_FAKE_ENGINE, NO_FAKE_REASON);
-  test.skip(!E2E_EXTERNAL, NO_EXTERNAL_REASON);
+  requires("fake", "external");
 
   async function firstYouTube(page: Page): Promise<Locator> {
     await page.getByTestId("tab-search").click();

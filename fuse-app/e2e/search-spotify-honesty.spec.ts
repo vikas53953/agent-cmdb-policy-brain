@@ -1,4 +1,4 @@
-import { test, expect, E2E_READY, NOT_READY_REASON, STABLE } from "./fixtures";
+import { test, expect, requires, STABLE } from "./fixtures";
 
 // Spotify search honesty guard (P1). The live bug: EVERY search was topped with
 // "Spotify search is unavailable right now — try again". Spotify search is persistently
@@ -12,7 +12,7 @@ import { test, expect, E2E_READY, NOT_READY_REASON, STABLE } from "./fixtures";
 // notice is simply absent and the guard still holds (nothing misleading is shown).
 
 test.describe("search — Spotify unavailability is stated calmly, never a false 'try again' (P1)", () => {
-  test.skip(!E2E_READY, NOT_READY_REASON);
+  requires();
 
   test("no search notice invites a pointless retry when Spotify search is down", async ({
     page,

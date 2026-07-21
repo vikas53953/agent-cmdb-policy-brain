@@ -1,14 +1,4 @@
-import {
-  test,
-  expect,
-  E2E_READY,
-  NOT_READY_REASON,
-  E2E_FAKE_ENGINE,
-  NO_FAKE_REASON,
-  E2E_EXTERNAL,
-  NO_EXTERNAL_REASON,
-  STABLE,
-} from "./fixtures";
+import { test, expect, requires, STABLE } from "./fixtures";
 import type { Locator, Page } from "@playwright/test";
 
 // THE TRANSITION MOMENT (F-0 item 1), exercised DETERMINISTICALLY against the in-DOM fake
@@ -24,9 +14,7 @@ import type { Locator, Page } from "@playwright/test";
 // block + next-track title are always asserted.
 
 test.describe("the Transition Moment — NOW / NEXT / fusing countdown (deterministic)", () => {
-  test.skip(!E2E_READY, NOT_READY_REASON);
-  test.skip(!E2E_FAKE_ENGINE, NO_FAKE_REASON);
-  test.skip(!E2E_EXTERNAL, NO_EXTERNAL_REASON);
+  requires("fake", "external");
 
   async function firstYouTube(page: Page): Promise<Locator> {
     await page.getByTestId("tab-search").click();
@@ -95,8 +83,7 @@ test.describe("the Transition Moment — NOW / NEXT / fusing countdown (determin
 // Tolerant on the countdown: it is only present when the real duration is known, and if
 // present it must not GROW (a live clock only counts down or, if frozen, stays put).
 test.describe("the Transition Moment — live-tolerant (production)", () => {
-  test.skip(!E2E_READY, NOT_READY_REASON);
-  test.skip(!E2E_EXTERNAL, NO_EXTERNAL_REASON);
+  requires("external");
 
   test("appears with a real NEXT track; any countdown never grows", async ({ page }) => {
     await page.getByTestId("tab-search").click();

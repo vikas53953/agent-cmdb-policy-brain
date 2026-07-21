@@ -1,14 +1,4 @@
-import {
-  test,
-  expect,
-  E2E_READY,
-  NOT_READY_REASON,
-  E2E_EXTERNAL,
-  NO_EXTERNAL_REASON,
-  E2E_FAKE_ENGINE,
-  NO_FAKE_REASON,
-  STABLE,
-} from "./fixtures";
+import { test, expect, requires, STABLE } from "./fixtures";
 import type { Locator, Page } from "@playwright/test";
 
 // Owner direct-feedback journeys (the numbered fix list). Playback-dependent checks run
@@ -38,9 +28,7 @@ async function startPlaybackAndOpenNowPlaying(page: Page): Promise<Locator> {
 }
 
 test.describe("Owner feedback — playback journeys (fake engine)", () => {
-  test.skip(!E2E_READY, NOT_READY_REASON);
-  test.skip(!E2E_FAKE_ENGINE, NO_FAKE_REASON);
-  test.skip(!E2E_EXTERNAL, NO_EXTERNAL_REASON);
+  requires("fake", "external");
 
   // Item 1: the sleep-timer popup must render ABOVE the playing video, not behind it.
   test("sleep menu renders above the playing video (portaled overlay wins the stack)", async ({
@@ -125,7 +113,7 @@ test.describe("Owner feedback — playback journeys (fake engine)", () => {
 });
 
 test.describe("Owner feedback — carousel cue (signed-in robot)", () => {
-  test.skip(!E2E_READY, NOT_READY_REASON);
+  requires();
 
   // Item 7: the left scroll button appears once a rail has been scrolled right.
   test("carousel shows a left scroll button after scrolling right", async ({ page }) => {
